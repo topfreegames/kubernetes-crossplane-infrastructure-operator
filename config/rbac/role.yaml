@@ -1,0 +1,33 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: manager-role
+rules:
+- apiGroups:
+  - infrastructure.wildlife.io
+  resources:
+  - securitygroups
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - infrastructure.wildlife.io
+  resources:
+  - securitygroups/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - infrastructure.wildlife.io
+  resources:
+  - securitygroups/status
+  verbs:
+  - get
+  - patch
+  - update
