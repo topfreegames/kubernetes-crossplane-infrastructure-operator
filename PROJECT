@@ -1,0 +1,17 @@
+domain: infrastructure.wildlife.io
+layout:
+- go.kubebuilder.io/v3
+multigroup: true
+projectName: test
+repo: github.com/topfreegames/provider-crossplane
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: infrastructure.wildlife.io
+  group: infrastructure.wildlife.io
+  kind: SecurityGroup
+  path: github.com/topfreegames/provider-crossplane/api/v1alpha1
+  version: v1alpha1
+version: "3"
