@@ -67,7 +67,7 @@ test: manifests generate fmt vet ## Run tests.
 
 .PHONY: build
 build: generate fmt vet ## Build manager binary.
-	go build -o bin/manager main.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/manager main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
@@ -132,3 +132,27 @@ GOBIN=$(PROJECT_DIR)/bin go get $(2) ;\
 rm -rf $$TMP_DIR ;\
 }
 endef
+
+# Development environment targets
+setup-dev-env: create-kind init-tilt
+
+create-kind:
+	bash ./hack/scripts/kind.sh kaas-cluster
+
+init-tilt:
+	kind export kubeconfig --name kaas-cluster
+	tilt down
+	tilt up
+
+apply-crossplane-dependencies:
+	bash ./hack/scripts/install-dependencies.sh
+
+wait-crossplane-dependencies-resources:
+	bash ./hack/scripts/wait-controllers.sh dependencies
+
+# Tilt targets
+apply-capi-crds:
+	kubectl apply -f ./hack/assets/crds/cluster-api
+
+apply-kubernetes-kops-operator-crds:
+	kubectl apply -f ./hack/assets/crds/kubernetes-kops-operator
