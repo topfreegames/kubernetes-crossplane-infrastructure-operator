@@ -27,10 +27,10 @@ type IngressRule struct {
 	Protocol string `json:"protocol,omitempty"`
 	// The start of port range for the TCP and UDP protocols, or an ICMP code.
 	// A value of -1 indicates all ICMP codes.
-	FromPort int `json:"fromPort,omitempty"`
+	FromPort int32 `json:"fromPort,omitempty"`
 	// The end of port range for the TCP and UDP protocols, or an ICMP code.
 	// A value of -1 indicates all ICMP codes.
-	ToPort int `json:"toPort,omitempty"`
+	ToPort int32 `json:"toPort,omitempty"`
 	// AllowedCIDRBlocks is a list of CIDR blocks allowed to access the referenced infrastructure.
 	AllowedCIDRBlocks []string `json:"allowedCIDRs,omitempty"`
 }
