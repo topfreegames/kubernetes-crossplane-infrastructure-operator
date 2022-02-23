@@ -29,8 +29,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
+	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
+	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
 	sgcontroller "github.com/topfreegames/provider-crossplane/controllers/securitygroup"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -42,6 +46,10 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
+	utilruntime.Must(crossec2v1beta1.SchemeBuilder.AddToScheme(scheme))
+	utilruntime.Must(kinfrastructurev1alpha1.AddToScheme(scheme))
+	utilruntime.Must(kcontrolplanev1alpha1.AddToScheme(scheme))
+	utilruntime.Must(clusterv1beta1.AddToScheme(scheme))
 	utilruntime.Must(securitygroupv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
@@ -77,8 +85,9 @@ func main() {
 	}
 
 	if err = (&sgcontroller.SecurityGroupReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:                  mgr.GetClient(),
+		Scheme:                  mgr.GetScheme(),
+		GetVPCIdFromCIDRFactory: sgcontroller.GetVPCIdFromCIDR,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityGroup")
 		os.Exit(1)
