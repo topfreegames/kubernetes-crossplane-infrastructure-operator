@@ -86,7 +86,7 @@ spec:
                         or an ICMP code. A value of -1 indicates all ICMP codes.
                       format: int32
                       type: integer
-                    protocol:
+                    ipProtocol:
                       description: The IP protocol name (tcp, udp, icmp) or number
                         (see Protocol Numbers (http://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml)).
                       type: string

@@ -24,7 +24,7 @@ import (
 type IngressRule struct {
 	// The IP protocol name (tcp, udp, icmp) or number (see Protocol Numbers
 	// (http://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml)).
-	Protocol string `json:"protocol,omitempty"`
+	IPProtocol string `json:"ipProtocol,omitempty"`
 	// The start of port range for the TCP and UDP protocols, or an ICMP code.
 	// A value of -1 indicates all ICMP codes.
 	FromPort int32 `json:"fromPort,omitempty"`
