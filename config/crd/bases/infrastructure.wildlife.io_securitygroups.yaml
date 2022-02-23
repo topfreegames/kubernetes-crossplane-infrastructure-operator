@@ -84,6 +84,7 @@ spec:
                     fromPort:
                       description: The start of port range for the TCP and UDP protocols,
                         or an ICMP code. A value of -1 indicates all ICMP codes.
+                      format: int32
                       type: integer
                     protocol:
                       description: The IP protocol name (tcp, udp, icmp) or number
@@ -92,6 +93,7 @@ spec:
                     toPort:
                       description: The end of port range for the TCP and UDP protocols,
                         or an ICMP code. A value of -1 indicates all ICMP codes.
+                      format: int32
                       type: integer
                   type: object
                 type: array
