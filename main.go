@@ -34,6 +34,7 @@ import (
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
 	sgcontroller "github.com/topfreegames/provider-crossplane/controllers/securitygroup"
+	"github.com/topfreegames/provider-crossplane/pkg/vpc"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	//+kubebuilder:scaffold:imports
 )
@@ -87,7 +88,7 @@ func main() {
 	if err = (&sgcontroller.SecurityGroupReconciler{
 		Client:                  mgr.GetClient(),
 		Scheme:                  mgr.GetScheme(),
-		GetVPCIdFromCIDRFactory: sgcontroller.GetVPCIdFromCIDR,
+		GetVPCIdFromCIDRFactory: vpc.GetVPCIdFromCIDR,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityGroup")
 		os.Exit(1)
