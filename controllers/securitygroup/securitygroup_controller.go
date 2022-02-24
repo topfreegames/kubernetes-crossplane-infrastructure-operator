@@ -20,16 +20,15 @@ import (
 	"context"
 	"fmt"
 
-	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
 	"github.com/go-logr/logr"
 
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
+	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
 	"github.com/topfreegames/provider-crossplane/pkg/kops"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/util/retry"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -41,88 +40,6 @@ type SecurityGroupReconciler struct {
 	Scheme                  *runtime.Scheme
 	log                     logr.Logger
 	GetVPCIdFromCIDRFactory func(*string, string) (*string, error)
-}
-
-
-
-
-
-
-
-func (r *SecurityGroupReconciler) newCrossplaneSecurityGroup(ctx context.Context, name, namespace string, vpcId, region *string, iRules []securitygroupv1alpha1.IngressRule) *crossec2v1beta1.SecurityGroup {
-	csg := &crossec2v1beta1.SecurityGroup{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-		},
-		Spec: crossec2v1beta1.SecurityGroupSpec{
-			ForProvider: crossec2v1beta1.SecurityGroupParameters{
-				Description: fmt.Sprintf("sg %s managed by provider-crossplane", name),
-				GroupName:   name,
-				Ingress:     []crossec2v1beta1.IPPermission{},
-				VPCID:       vpcId,
-				Region:      region,
-			},
-		},
-	}
-
-	var ingressRules []crossec2v1beta1.IPPermission
-	for _, ingressRule := range iRules {
-		ipPermission := crossec2v1beta1.IPPermission{
-			FromPort:   &ingressRule.FromPort,
-			ToPort:     &ingressRule.ToPort,
-			IPProtocol: ingressRule.IPProtocol,
-		}
-		var allowedCIDRBlocks []crossec2v1beta1.IPRange
-		for _, allowedCIDR := range ingressRule.AllowedCIDRBlocks {
-			ipRange := crossec2v1beta1.IPRange{
-				CIDRIP: allowedCIDR,
-			}
-			allowedCIDRBlocks = append(allowedCIDRBlocks, ipRange)
-		}
-		ipPermission.IPRanges = allowedCIDRBlocks
-		ingressRules = append(ingressRules, ipPermission)
-	}
-	csg.Spec.ForProvider.Ingress = ingressRules
-
-	return csg
-}
-
-
-
-
-
-
-
-
-func (r *SecurityGroupReconciler) manageCrossplaneSecurityGroupResource(ctx context.Context, csg *crossec2v1beta1.SecurityGroup) error {
-	r.log.Info(fmt.Sprintf("creating csg %s", csg.ObjectMeta.GetName()))
-	if err := r.Client.Create(ctx, csg); err != nil {
-		if !apierrors.IsAlreadyExists(err) {
-			return err
-		}
-		r.log.Info(fmt.Sprintf("csg %s already exists, updating", csg.ObjectMeta.GetName()))
-
-		retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			key := client.ObjectKey{
-				Namespace: csg.ObjectMeta.Namespace,
-				Name:      csg.ObjectMeta.Name,
-			}
-			var currentCSG crossec2v1beta1.SecurityGroup
-			err := r.Get(ctx, key, &currentCSG)
-			if err != nil {
-				return err
-			}
-			currentCSG.Spec = csg.Spec
-
-			err = r.Client.Update(ctx, &currentCSG)
-			return err
-		})
-		if retryErr != nil {
-			return retryErr
-		}
-	}
-	return nil
 }
 
 //+kubebuilder:rbac:groups=infrastructure.wildlife.io,resources=securitygroups,verbs=get;list;watch;create;update;patch;delete
@@ -213,8 +130,8 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, fmt.Errorf("region not defined")
 	}
 
-	csg := r.newCrossplaneSecurityGroup(ctx, securityGroup.ObjectMeta.Name, securityGroup.ObjectMeta.Namespace, vpcId, region, securityGroup.Spec.IngressRules)
-	err := r.manageCrossplaneSecurityGroupResource(ctx, csg)
+	csg := crossplane.NewCrossplaneSecurityGroup(ctx, securityGroup.ObjectMeta.Name, securityGroup.ObjectMeta.Namespace, vpcId, region, securityGroup.Spec.IngressRules)
+	err := crossplane.ManageCrossplaneSecurityGroupResource(ctx, r.Client, csg)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
