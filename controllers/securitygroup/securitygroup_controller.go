@@ -20,19 +20,16 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/ec2"
 	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
 	"github.com/go-logr/logr"
+
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/topfreegames/provider-crossplane/pkg/kops"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/util/retry"
-	kopsapi "k8s.io/kops/pkg/apis/kops"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -49,19 +46,8 @@ type SecurityGroupReconciler struct {
 
 
 
-func (r *SecurityGroupReconciler) getRegionFromKopsSubnet(subnet kopsapi.ClusterSubnetSpec) (*string, error) {
-	if subnet.Region != "" {
-		return &subnet.Region, nil
-	}
 
-	if subnet.Zone != "" {
-		zone := subnet.Zone
-		region := zone[:len(zone)-1]
-		return &region, nil
-	}
 
-	return nil, fmt.Errorf("couldn't get region from KopsControlPlane")
-}
 
 func (r *SecurityGroupReconciler) newCrossplaneSecurityGroup(ctx context.Context, name, namespace string, vpcId, region *string, iRules []securitygroupv1alpha1.IngressRule) *crossec2v1beta1.SecurityGroup {
 	csg := &crossec2v1beta1.SecurityGroup{
@@ -102,54 +88,12 @@ func (r *SecurityGroupReconciler) newCrossplaneSecurityGroup(ctx context.Context
 	return csg
 }
 
-func (r *SecurityGroupReconciler) retrieveKopsMachinePoolInfo(ctx context.Context, sg securitygroupv1alpha1.SecurityGroup) (*string, *string, error) {
-	// Fetch KopsMachinePool
-	kmp := &kinfrastructurev1alpha1.KopsMachinePool{}
-	key := client.ObjectKey{Name: sg.Spec.InfrastructureRef.Name, Namespace: sg.Spec.InfrastructureRef.Namespace}
-	if err := r.Client.Get(ctx, key, kmp); err != nil {
-		return nil, nil, err
-	}
 
-	// Fetch Cluster
-	cluster := &clusterv1beta1.Cluster{}
-	key = client.ObjectKey{
-		Namespace: kmp.ObjectMeta.Namespace,
-		Name:      kmp.Spec.ClusterName,
-	}
-	if err := r.Client.Get(ctx, key, cluster); err != nil {
-		return nil, nil, err
-	}
 
-	// Fetch KopsControlPlane
-	kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
-	key = client.ObjectKey{
-		Namespace: cluster.Spec.ControlPlaneRef.Namespace,
-		Name:      cluster.Spec.ControlPlaneRef.Name,
-	}
-	if err := r.Client.Get(ctx, key, kcp); err != nil {
-		return nil, nil, err
-	}
 
-	// Fetch subnet
-	if kcp.Spec.KopsClusterSpec.Subnets == nil {
-		return nil, nil, fmt.Errorf("subnet not found in KopsControlPlane")
-	}
-	subnet := kcp.Spec.KopsClusterSpec.Subnets[0]
 
-	// Fetch region
-	region, err := r.getRegionFromKopsSubnet(subnet)
-	if err != nil {
-		return nil, nil, err
-	}
 
-	// Fetch vpcId
-	vpcId, err := r.GetVPCIdFromCIDRFactory(*region, kcp.Spec.KopsClusterSpec.NetworkCIDR)
-	if err != nil {
-		return nil, nil, err
-	}
 
-	return region, vpcId, nil
-}
 
 func (r *SecurityGroupReconciler) manageCrossplaneSecurityGroupResource(ctx context.Context, csg *crossec2v1beta1.SecurityGroup) error {
 	r.log.Info(fmt.Sprintf("creating csg %s", csg.ObjectMeta.GetName()))
@@ -212,8 +156,48 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// Only supports KopsMachinePool for now
 	switch securityGroup.Spec.InfrastructureRef.Kind {
 	case "KopsMachinePool":
-		var err error
-		region, vpcId, err = r.retrieveKopsMachinePoolInfo(ctx, *securityGroup)
+
+		// Fetch KopsMachinePool
+		kmp := &kinfrastructurev1alpha1.KopsMachinePool{}
+		key := client.ObjectKey{
+			Name:      securityGroup.Spec.InfrastructureRef.Name,
+			Namespace: securityGroup.Spec.InfrastructureRef.Namespace,
+		}
+		if err := r.Client.Get(ctx, key, kmp); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		// Fetch Cluster
+		cluster := &clusterv1beta1.Cluster{}
+		key = client.ObjectKey{
+			Namespace: kmp.ObjectMeta.Namespace,
+			Name:      kmp.Spec.ClusterName,
+		}
+		if err := r.Client.Get(ctx, key, cluster); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		// Fetch KopsControlPlane
+		kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+		key = client.ObjectKey{
+			Namespace: cluster.Spec.ControlPlaneRef.Namespace,
+			Name:      cluster.Spec.ControlPlaneRef.Name,
+		}
+		if err := r.Client.Get(ctx, key, kcp); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		subnet, err := kops.GetSubnetFromKopsControlPlane(kcp)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		region, err = kops.GetRegionFromKopsSubnet(*subnet)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		vpcId, err = r.GetVPCIdFromCIDRFactory(region, kcp.Spec.KopsClusterSpec.NetworkCIDR)
 		if err != nil {
 			return ctrl.Result{}, err
 		}

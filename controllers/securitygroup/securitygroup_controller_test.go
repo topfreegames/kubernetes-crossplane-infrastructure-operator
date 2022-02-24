@@ -24,53 +24,6 @@ var (
 	testVPC = "vpc-xxxxx"
 )
 
-func TestGetRegionFromKopsSubnet(t *testing.T) {
-	testCases := []map[string]interface{}{
-		{
-			"description": "should succeed using subnet with zone",
-			"input": kopsapi.ClusterSubnetSpec{
-				Zone: "us-east-1d",
-			},
-			"expected":      "us-east-1",
-			"expectedError": false,
-		},
-		{
-			"description": "should succeed using subnet with region",
-			"input": kopsapi.ClusterSubnetSpec{
-				Region: "us-east-1",
-			},
-			"expected":      "us-east-1",
-			"expectedError": false,
-		},
-		{
-			"description":   "should fail using subnet empty",
-			"input":         kopsapi.ClusterSubnetSpec{},
-			"expectedError": true,
-		},
-	}
-	RegisterFailHandler(Fail)
-	g := NewWithT(t)
-	for _, tc := range testCases {
-		t.Run(tc["description"].(string), func(t *testing.T) {
-
-			reconciler := &SecurityGroupReconciler{
-				GetVPCIdFromCIDRFactory: func(string, string) (*string, error) {
-					return &testVPC, nil
-				},
-			}
-
-			region, err := reconciler.getRegionFromKopsSubnet(tc["input"].(kopsapi.ClusterSubnetSpec))
-
-			if !tc["expectedError"].(bool) {
-				g.Expect(region).ToNot(BeNil())
-				g.Expect(err).To(BeNil())
-				g.Expect(*region).To(Equal(tc["expected"].(string)))
-			} else {
-				g.Expect(err).ToNot(BeNil())
-			}
-		})
-	}
-}
 
 func TestManageCrossplaneSecurityGroupResource(t *testing.T) {
 	region := "us-east-1"
@@ -186,11 +139,7 @@ func TestManageCrossplaneSecurityGroupResource(t *testing.T) {
 	}
 }
 
-func TestRetrieveKopsMachinePoolInfo(t *testing.T) {
-	type expected struct {
-		vpcId  string
-		region string
-	}
+func TestSecurityGroupReconciler(t *testing.T) {
 
 	sg := &securitygroupv1alpha1.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
@@ -198,6 +147,16 @@ func TestRetrieveKopsMachinePoolInfo(t *testing.T) {
 			Namespace: metav1.NamespaceDefault,
 		},
 		Spec: securitygroupv1alpha1.SecurityGroupSpec{
+			IngressRules: []securitygroupv1alpha1.IngressRule{
+				{
+					IPProtocol: "TCP",
+					FromPort:   40000,
+					ToPort:     60000,
+					AllowedCIDRBlocks: []string{
+						"0.0.0.0/0",
+					},
+				},
+			},
 			InfrastructureRef: &corev1.ObjectReference{
 				APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
 				Kind:       "KopsMachinePool",
@@ -249,128 +208,32 @@ func TestRetrieveKopsMachinePoolInfo(t *testing.T) {
 			},
 		},
 	}
-
-	testCases := []map[string]interface{}{
-		{
-			"description": "should retrieve region and vpcId",
-			"k8sObjects": []client.Object{
-				kmp, cluster, kcp,
-			},
-			"expected": expected{
-				testVPC,
-				"us-east-1",
-			},
-			"expectedError": false,
-		},
-		{
-			"description": "should fail without finding KopsControlPlane",
-			"k8sObjects": []client.Object{
-				kmp, cluster,
-			},
-			"expectedError": true,
-		},
-		{
-			"description": "should fail without finding Cluster",
-			"k8sObjects": []client.Object{
-				kmp,
-			},
-			"expectedError": true,
-		},
-		{
-			"description":   "should fail without finding Cluster",
-			"k8sObjects":    []client.Object{},
-			"expectedError": true,
-		},
-	}
-	RegisterFailHandler(Fail)
-	g := NewWithT(t)
-
-	err := clusterv1beta1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = kcontrolplanev1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	for _, tc := range testCases {
-		t.Run(tc["description"].(string), func(t *testing.T) {
-			ctx := context.TODO()
-			k8sObjects := tc["k8sObjects"].([]client.Object)
-
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(k8sObjects...).Build()
-
-			reconciler := &SecurityGroupReconciler{
-				Client: fakeClient,
-				GetVPCIdFromCIDRFactory: func(string, string) (*string, error) {
-					return &testVPC, nil
-				},
-			}
-			region, vpcId, err := reconciler.retrieveKopsMachinePoolInfo(ctx, *sg)
-			if !tc["expectedError"].(bool) {
-				expectedOutput := tc["expected"].(expected)
-				g.Expect(err).To(BeNil())
-				g.Expect(*region).To(Equal(expectedOutput.region))
-				g.Expect(*vpcId).To(Equal(expectedOutput.vpcId))
-			} else {
-				g.Expect(err).ToNot(BeNil())
-			}
-		})
-	}
-}
-
-func TestSecurityGroupReconciler(t *testing.T) {
 	testCases := []map[string]interface{}{
 		{
 			"description": "should create a Crossplane SecurityGroup",
-			"input": &securitygroupv1alpha1.SecurityGroup{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-security-group",
-					Namespace: metav1.NamespaceDefault,
-				},
-				Spec: securitygroupv1alpha1.SecurityGroupSpec{
-					IngressRules: []securitygroupv1alpha1.IngressRule{
-						{
-							IPProtocol: "TCP",
-							FromPort:   40000,
-							ToPort:     60000,
-							AllowedCIDRBlocks: []string{
-								"0.0.0.0/0",
-							},
-						},
-					},
-					InfrastructureRef: &corev1.ObjectReference{
-						APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
-						Kind:       "KopsMachinePool",
-						Name:       "test-kops-machine-pool",
-						Namespace:  metav1.NamespaceDefault,
-					},
-				},
+			"k8sObjects": []client.Object{
+				kmp, cluster, kcp, sg,
 			},
 			"expectedError": false,
 		},
 		{
 			"description": "should fail without InfrastructureRef defined",
-			"input": &securitygroupv1alpha1.SecurityGroup{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-security-group",
-					Namespace: metav1.NamespaceDefault,
-				},
-				Spec: securitygroupv1alpha1.SecurityGroupSpec{
-					IngressRules: []securitygroupv1alpha1.IngressRule{
-						{
-							IPProtocol: "TCP",
-							FromPort:   40000,
-							ToPort:     60000,
-							AllowedCIDRBlocks: []string{
-								"0.0.0.0/0",
+			"k8sObjects": []client.Object{
+				kmp, cluster, kcp,
+				&securitygroupv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-security-group",
+						Namespace: metav1.NamespaceDefault,
+					},
+					Spec: securitygroupv1alpha1.SecurityGroupSpec{
+						IngressRules: []securitygroupv1alpha1.IngressRule{
+							{
+								IPProtocol: "TCP",
+								FromPort:   40000,
+								ToPort:     60000,
+								AllowedCIDRBlocks: []string{
+									"0.0.0.0/0",
+								},
 							},
 						},
 					},
@@ -380,29 +243,53 @@ func TestSecurityGroupReconciler(t *testing.T) {
 		},
 		{
 			"description": "should fail with InfrastructureRef Kind different from KopsMachinePool",
-			"input": &securitygroupv1alpha1.SecurityGroup{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-security-group",
-					Namespace: metav1.NamespaceDefault,
-				},
-				Spec: securitygroupv1alpha1.SecurityGroupSpec{
-					IngressRules: []securitygroupv1alpha1.IngressRule{
-						{
-							IPProtocol: "TCP",
-							FromPort:   40000,
-							ToPort:     60000,
-							AllowedCIDRBlocks: []string{
-								"0.0.0.0/0",
+			"k8sObjects": []client.Object{
+				kmp, cluster, kcp,
+				&securitygroupv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-security-group",
+						Namespace: metav1.NamespaceDefault,
+					},
+					Spec: securitygroupv1alpha1.SecurityGroupSpec{
+						IngressRules: []securitygroupv1alpha1.IngressRule{
+							{
+								IPProtocol: "TCP",
+								FromPort:   40000,
+								ToPort:     60000,
+								AllowedCIDRBlocks: []string{
+									"0.0.0.0/0",
+								},
 							},
 						},
-					},
-					InfrastructureRef: &corev1.ObjectReference{
-						APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
-						Kind:       "MachinePool",
-						Name:       "test-machine-pool",
-						Namespace:  metav1.NamespaceDefault,
+						InfrastructureRef: &corev1.ObjectReference{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "MachinePool",
+							Name:       "test-machine-pool",
+							Namespace:  metav1.NamespaceDefault,
+						},
 					},
 				},
+			},
+			"expectedError": true,
+		},
+		{
+			"description": "should fail without finding KopsControlPlane",
+			"k8sObjects": []client.Object{
+				kmp, cluster, sg,
+			},
+			"expectedError": true,
+		},
+		{
+			"description": "should fail without finding Cluster",
+			"k8sObjects": []client.Object{
+				kmp, sg,
+			},
+			"expectedError": true,
+		},
+		{
+			"description": "should fail without finding Cluster",
+			"k8sObjects": []client.Object{
+				sg,
 			},
 			"expectedError": true,
 		},
@@ -425,60 +312,16 @@ func TestSecurityGroupReconciler(t *testing.T) {
 	err = kcontrolplanev1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	kmp := &kinfrastructurev1alpha1.KopsMachinePool{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: metav1.NamespaceDefault,
-			Name:      "test-kops-machine-pool",
-		},
-		Spec: kinfrastructurev1alpha1.KopsMachinePoolSpec{
-			ClusterName: "test-cluster",
-		},
-	}
-
-	cluster := &clusterv1beta1.Cluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: metav1.NamespaceDefault,
-			Name:      "test-cluster",
-		},
-		Spec: clusterv1beta1.ClusterSpec{
-			ControlPlaneRef: &corev1.ObjectReference{
-				APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
-				Kind:       "KopsControlPlane",
-				Name:       "test-kops-control-plane",
-				Namespace:  metav1.NamespaceDefault,
-			},
-		},
-	}
-
-	kcp := &kcontrolplanev1alpha1.KopsControlPlane{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: metav1.NamespaceDefault,
-			Name:      "test-kops-control-plane",
-		},
-		Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
-			KopsClusterSpec: kopsapi.ClusterSpec{
-				Subnets: []kopsapi.ClusterSubnetSpec{
-					{
-						Name: "test-subnet",
-						CIDR: "0.0.0.0/26",
-						Zone: "us-east-1a",
-					},
-				},
-			},
-		},
-	}
-
 	for _, tc := range testCases {
 		t.Run(tc["description"].(string), func(t *testing.T) {
 			ctx := context.TODO()
 
-			sg := tc["input"].(*securitygroupv1alpha1.SecurityGroup)
+			k8sObjects := tc["k8sObjects"].([]client.Object)
 
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(cluster, sg, kmp, kcp).Build()
-
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(k8sObjects...).Build()
 			reconciler := &SecurityGroupReconciler{
 				Client: fakeClient,
-				GetVPCIdFromCIDRFactory: func(string, string) (*string, error) {
+				GetVPCIdFromCIDRFactory: func(*string, string) (*string, error) {
 					return &testVPC, nil
 				},
 			}
