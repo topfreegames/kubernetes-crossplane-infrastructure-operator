@@ -43,40 +43,11 @@ type SecurityGroupReconciler struct {
 	client.Client
 	Scheme                  *runtime.Scheme
 	log                     logr.Logger
-	GetVPCIdFromCIDRFactory func(string, string) (*string, error)
+	GetVPCIdFromCIDRFactory func(*string, string) (*string, error)
 }
 
-func GetVPCIdFromCIDR(region, CIDR string) (*string, error) {
-	awsClient, err := session.NewSession(
-		&aws.Config{
-			Region: aws.String(region),
-		},
-	)
-	if err != nil {
-		return nil, err
-	}
-	ec2svc := ec2.New(awsClient)
-	filter := "cidr"
-	result, err := ec2svc.DescribeVpcs(&ec2.DescribeVpcsInput{
-		Filters: []*ec2.Filter{
-			{
-				Name: &filter,
-				Values: []*string{
-					&CIDR,
-				},
-			},
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
 
-	if len(result.Vpcs) == 0 {
-		return nil, fmt.Errorf("failed to retrieve vpc with CIDR: %v", result)
-	}
 
-	return result.Vpcs[0].VpcId, nil
-}
 
 func (r *SecurityGroupReconciler) getRegionFromKopsSubnet(subnet kopsapi.ClusterSubnetSpec) (*string, error) {
 	if subnet.Region != "" {
