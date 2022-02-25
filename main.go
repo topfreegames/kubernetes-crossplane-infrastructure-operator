@@ -32,10 +32,13 @@ import (
 	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
+
+	clustermeshv1alpha1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
+	clustermeshcontrollers "github.com/topfreegames/provider-crossplane/controllers/clustermesh"
 	sgcontroller "github.com/topfreegames/provider-crossplane/controllers/securitygroup"
 	"github.com/topfreegames/provider-crossplane/pkg/vpc"
-	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -52,6 +55,7 @@ func init() {
 	utilruntime.Must(kcontrolplanev1alpha1.AddToScheme(scheme))
 	utilruntime.Must(clusterv1beta1.AddToScheme(scheme))
 	utilruntime.Must(securitygroupv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(clustermeshv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -91,6 +95,13 @@ func main() {
 		GetVPCIdFromCIDRFactory: vpc.GetVPCIdFromCIDR,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityGroup")
+		os.Exit(1)
+	}
+	if err = (&clustermeshcontrollers.ClusterMeshReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ClusterMesh")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder

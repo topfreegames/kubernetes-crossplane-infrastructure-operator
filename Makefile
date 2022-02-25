@@ -165,3 +165,8 @@ apply-capi-crds:
 
 apply-kubernetes-kops-operator-crds:
 	kubectl apply -f ./hack/assets/crds/kubernetes-kops-operator
+
+.PHONY: prepare-kind
+prepare-kind: apply-crossplane-dependencies install apply-capi-crds apply-kubernetes-kops-operator-crds ## Prepare cluster specified in ~/.kube/config for debug.
+	bash ./hack/scripts/wait-controllers.sh dependencies
+	kubectl apply -f ./hack/assets/dependencies/provider.yaml
