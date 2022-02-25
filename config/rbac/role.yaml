@@ -6,6 +6,60 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - clustermesh.infrastructure.wildlife.io
+  resources:
+  - clustermeshes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - clustermesh.infrastructure.wildlife.io
+  resources:
+  - clustermeshes/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - clustermesh.infrastructure.wildlife.io
+  resources:
+  - clustermeshes/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - controlplane.cluster.x-k8s.io
+  resources:
+  - kopscontrolplanes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ec2.aws.crossplane.io
+  resources:
+  - securitygroups
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - kopsmachinepools
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - infrastructure.wildlife.io
   resources:
   - securitygroups
@@ -31,39 +85,3 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - infrastructure.cluster.x-k8s.io
-  resources:
-  - kopsmachinepools
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - cluster.x-k8s.io
-  resources:
-  - clusters
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - controlplane.cluster.x-k8s.io
-  resources:
-  - kopscontrolplanes
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ec2.aws.crossplane.io
-  resources:
-  - securitygroups
-  verbs:
-  - get
-  - list
-  - watch
-  - create
-  - update
-  - patch
-  - delete
