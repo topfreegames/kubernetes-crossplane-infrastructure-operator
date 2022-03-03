@@ -136,8 +136,7 @@ func TestClusterMeshReconciler(t *testing.T) {
 			if !tc["expectedError"].(bool) {
 				crosscm := &clustermeshv1beta1.ClusterMesh{}
 				key := client.ObjectKey{
-					Namespace: "crossplane-system",
-					Name:      "testmesh",
+					Name: "testmesh",
 				}
 				err = fakeClient.Get(ctx, key, crosscm)
 				if _, ok := tc["noMesh"].(bool); ok {

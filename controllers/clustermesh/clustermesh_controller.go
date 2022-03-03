@@ -27,7 +27,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -62,9 +61,8 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	clustermesh := &clustermeshv1beta1.ClusterMesh{}
-	namespacedName := types.NamespacedName{
-		Namespace: "crossplane-system",
-		Name:      cluster.Labels["clusterGroup"],
+	key := client.ObjectKey{
+		Name: cluster.Labels["clusterGroup"],
 	}
 	clusterRefList := []*v1.ObjectReference{}
 	clusterRef := &v1.ObjectReference{
@@ -74,11 +72,11 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		Namespace:  cluster.ObjectMeta.Namespace,
 	}
 	clusterRefList = append(clusterRefList, clusterRef)
-	if err := r.Get(ctx, namespacedName, clustermesh); err != nil {
+	if err := r.Get(ctx, key, clustermesh); err != nil {
 		if !errors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
-		ccm := crossplane.NewCrossPlaneClusterMesh(ctx, namespacedName, cluster, clusterRefList)
+		ccm := crossplane.NewCrossPlaneClusterMesh(ctx, key, cluster, clusterRefList)
 		r.log.Info(fmt.Sprintf("creating clustermesh %s", ccm.ObjectMeta.GetName()))
 		if err := r.Create(ctx, ccm); err != nil {
 			return ctrl.Result{}, err

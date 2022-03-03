@@ -13,7 +13,7 @@ spec:
     listKind: ClusterMeshList
     plural: clustermeshes
     singular: clustermesh
-  scope: Namespaced
+  scope: Cluster
   versions:
   - name: v1alpha1
     schema:
