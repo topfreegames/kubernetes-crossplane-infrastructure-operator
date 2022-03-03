@@ -50,15 +50,14 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err := r.Get(ctx, req.NamespacedName, cluster); err != nil {
 		return ctrl.Result{}, err
 	}
+	if _, ok := cluster.Annotations["clustermesh.infrastructure.wildlife.io"]; !ok {
+		return ctrl.Result{}, nil
+	}
 	r.log.Info(fmt.Sprintf("starting reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
 
 	defer func() {
 		r.log.Info(fmt.Sprintf("finished reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
 	}()
-
-	if _, ok := cluster.Annotations["clustermesh.infrastructure.wildlife.io"]; !ok {
-		return ctrl.Result{}, nil
-	}
 
 	clustermesh := &clustermeshv1beta1.ClusterMesh{}
 	key := client.ObjectKey{
