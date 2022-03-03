@@ -38,6 +38,7 @@ require (
 	github.com/go-logr/logr v0.4.0
 	github.com/onsi/ginkgo v1.16.4
 	github.com/onsi/gomega v1.16.0
+	github.com/pkg/errors v0.9.1
 	github.com/topfreegames/kubernetes-kops-operator v0.0.0-20220117220216-08bce7402eb2
 	k8s.io/api v0.22.2
 	k8s.io/apimachinery v0.22.2
@@ -105,7 +106,6 @@ require (
 	github.com/modern-go/reflect2 v1.0.1 // indirect
 	github.com/nxadm/tail v1.4.8 // indirect
 	github.com/pierrec/lz4 v2.0.5+incompatible // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pkg/sftp v1.13.0 // indirect
 	github.com/prometheus/client_golang v1.11.0 // indirect
 	github.com/prometheus/client_model v0.2.0 // indirect
