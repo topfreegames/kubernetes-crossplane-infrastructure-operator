@@ -117,6 +117,32 @@ rules:
   - update
   - patch
   - delete
+- apiGroups:
+  - clustermesh.infrastructure.wildlife.io
+  resources:
+  - clustermeshes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - clustermesh.infrastructure.wildlife.io
+  resources:
+  - clustermeshes/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - clustermesh.infrastructure.wildlife.io
+  resources:
+  - clustermeshes/status
+  verbs:
+  - get
+  - patch
+  - update
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

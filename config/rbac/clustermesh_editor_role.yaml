@@ -1,0 +1,24 @@
+# permissions for end users to edit clustermeshes.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clustermesh-editor-role
+rules:
+- apiGroups:
+  - clustermesh.infrastructure.wildlife.io
+  resources:
+  - clustermeshes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - clustermesh.infrastructure.wildlife.io
+  resources:
+  - clustermeshes/status
+  verbs:
+  - get

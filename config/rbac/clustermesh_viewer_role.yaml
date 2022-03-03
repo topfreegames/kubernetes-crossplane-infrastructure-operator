@@ -1,0 +1,20 @@
+# permissions for end users to view clustermeshes.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clustermesh-viewer-role
+rules:
+- apiGroups:
+  - clustermesh.infrastructure.wildlife.io
+  resources:
+  - clustermeshes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - clustermesh.infrastructure.wildlife.io
+  resources:
+  - clustermeshes/status
+  verbs:
+  - get

@@ -1,0 +1,6 @@
+apiVersion: clustermesh.infrastructure.wildlife.io/v1alpha1
+kind: ClusterMesh
+metadata:
+  name: clustermesh-sample
+spec:
+  # TODO(user): Add fields here
