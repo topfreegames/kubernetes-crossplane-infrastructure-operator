@@ -38,6 +38,7 @@ type ClusterMeshStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:resource:scope=Cluster
 
 // ClusterMesh is the Schema for the clustermeshes API
 type ClusterMesh struct {

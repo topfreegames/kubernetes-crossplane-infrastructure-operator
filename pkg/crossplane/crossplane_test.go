@@ -12,7 +12,6 @@ import (
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/kubectl/pkg/scheme"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -62,7 +61,7 @@ func TestCrossPlaneClusterMeshResource(t *testing.T) {
 				Namespace:  cluster.ObjectMeta.Namespace,
 			}
 			clusterRefList = append(clusterRefList, clusterRef)
-			sg := NewCrossPlaneClusterMesh(ctx, types.NamespacedName{Namespace: "teste", Name: cluster.Labels["clusterGroup"]}, cluster, clusterRefList)
+			sg := NewCrossPlaneClusterMesh(ctx, client.ObjectKey{Name: cluster.Labels["clusterGroup"]}, cluster, clusterRefList)
 			g.Expect(sg.ObjectMeta.Name).To(ContainSubstring("testmesh"))
 		})
 	}
