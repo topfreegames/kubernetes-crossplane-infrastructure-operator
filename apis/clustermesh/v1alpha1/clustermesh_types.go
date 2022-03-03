@@ -23,18 +23,12 @@ import (
 
 // ClusterMeshSpec defines the desired state of ClusterMesh
 type ClusterMeshSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
 	// ClusterRefList is a reference to a provider-specific resource.
 	ClusterRefList []*corev1.ObjectReference `json:"clusterRefList,omitempty"`
 }
 
 // ClusterMeshStatus defines the observed state of ClusterMesh
-type ClusterMeshStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-}
+type ClusterMeshStatus struct{}
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
