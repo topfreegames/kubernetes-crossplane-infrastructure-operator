@@ -64,20 +64,16 @@ func (r *SecurityGroupReconciler) attachSGToKopsMachinePool(ctx context.Context,
 		return err
 	}
 
-	for _, sgID := range launchTemplateVersion.LaunchTemplateData.SecurityGroupIds {
-		if sgID == sgId {
-			return nil
+	ltVersionOutput, err := ec2.AttachSecurityGroupToLaunchTemplate(ctx, ec2Client, sgId, launchTemplateVersion)
+	if err != nil {
+		return err
+	}
+
+	if ltVersionOutput != nil {
+		_, err = autoscaling.UpdateAutoScalingGroupLaunchTemplate(ctx, asgClient, *ltVersionOutput.LaunchTemplateVersion, asgName)
+		if err != nil {
+			return err
 		}
-	}
-
-	_, err = ec2.AttachSecurityGroupToLaunchTemplate(ctx, ec2Client, sgId, launchTemplateVersion)
-	if err != nil {
-		return err
-	}
-
-	_, err = ec2.UpdateLaunchTemplateDefaultVersion(ctx, ec2Client, *launchTemplateVersion.LaunchTemplateId)
-	if err != nil {
-		return err
 	}
 
 	return nil
