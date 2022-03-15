@@ -364,8 +364,12 @@ func TestAttachSGToKopsMachinePool(t *testing.T) {
 						{
 							LaunchTemplateId: params.LaunchTemplateId,
 							LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
-								SecurityGroupIds: []string{
-									"sg-xxxx",
+								NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
+									{
+										Groups: []string{
+											"sg-xxxx",
+										},
+									},
 								},
 							},
 						},

@@ -131,8 +131,12 @@ func TestAttachSecurityGroupToLaunchTemplate(t *testing.T) {
 			"launchTemplateVersion": &ec2types.LaunchTemplateVersion{
 				LaunchTemplateId: aws.String("lt-xxxx"),
 				LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
-					SecurityGroupIds: []string{
-						"sg-old",
+					NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
+						{
+							Groups: []string{
+								"sg-old",
+							},
+						},
 					},
 				},
 			},
@@ -140,7 +144,12 @@ func TestAttachSecurityGroupToLaunchTemplate(t *testing.T) {
 				return &ec2.CreateLaunchTemplateVersionOutput{
 					LaunchTemplateVersion: &ec2types.LaunchTemplateVersion{
 						LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
-							SecurityGroupIds: params.LaunchTemplateData.SecurityGroupIds,
+							NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
+								{
+									Groups:           params.LaunchTemplateData.NetworkInterfaces[0].Groups,
+									NetworkCardIndex: params.LaunchTemplateData.NetworkInterfaces[0].NetworkCardIndex,
+								},
+							},
 						},
 					},
 				}, nil
@@ -148,26 +157,48 @@ func TestAttachSecurityGroupToLaunchTemplate(t *testing.T) {
 			"expectedError": false,
 		},
 		{
-			"description": "should fail with empty sgIds from LT",
+			"description": "should fail without NetworkInterfaces",
 			"launchTemplateVersion": &ec2types.LaunchTemplateVersion{
 				LaunchTemplateId: aws.String("lt-xxxx"),
 				LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
-					SecurityGroupIds: []string{},
+					NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{},
 				},
 			},
 			"mockCreateLaunchTemplateVersion": func(ctx context.Context, params *ec2.CreateLaunchTemplateVersionInput, optFns []func(*ec2.Options)) (*ec2.CreateLaunchTemplateVersionOutput, error) {
 				return nil, nil
 			},
 			"expectedError":        true,
-			"expectedErrorMessage": "failed to retrieve sgIds from LaunchTemplate",
+			"expectedErrorMessage": "failed to retrieve SGs from LaunchTemplate",
 		},
 		{
-			"description": "should fail to create lt version",
+			"description": "should fail with empty groups in NetworkInterface",
 			"launchTemplateVersion": &ec2types.LaunchTemplateVersion{
 				LaunchTemplateId: aws.String("lt-xxxx"),
 				LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
-					SecurityGroupIds: []string{
-						"sg-old",
+					NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
+						{
+							Groups: []string{},
+						},
+					},
+				},
+			},
+			"mockCreateLaunchTemplateVersion": func(ctx context.Context, params *ec2.CreateLaunchTemplateVersionInput, optFns []func(*ec2.Options)) (*ec2.CreateLaunchTemplateVersionOutput, error) {
+				return nil, nil
+			},
+			"expectedError":        true,
+			"expectedErrorMessage": "failed to retrieve SGs from LaunchTemplate",
+		},
+		{
+			"description": "should return error when failing to create LT version",
+			"launchTemplateVersion": &ec2types.LaunchTemplateVersion{
+				LaunchTemplateId: aws.String("lt-xxxx"),
+				LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
+					NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
+						{
+							Groups: []string{
+								"sg-old",
+							},
+						},
 					},
 				},
 			},
@@ -191,7 +222,7 @@ func TestAttachSecurityGroupToLaunchTemplate(t *testing.T) {
 			if !tc["expectedError"].(bool) {
 				g.Expect(err).To(BeNil())
 				g.Expect(output).ToNot(BeNil())
-				g.Expect(output.LaunchTemplateVersion.LaunchTemplateData.SecurityGroupIds).To(Equal([]string{"sg-old", "sg-new"}))
+				g.Expect(output.LaunchTemplateVersion.LaunchTemplateData.NetworkInterfaces[0].Groups).To(Equal([]string{"sg-old", "sg-new"}))
 			} else {
 				g.Expect(err).ToNot(BeNil())
 				g.Expect(err.Error()).To(ContainSubstring(tc["expectedErrorMessage"].(string)))
@@ -200,45 +231,45 @@ func TestAttachSecurityGroupToLaunchTemplate(t *testing.T) {
 	}
 }
 
-func TestUpdateLaunchTemplateDefaultVersion(t *testing.T) {
-	testCases := []map[string]interface{}{
-		{
-			"description": "should return the latest template version",
-			"mockModifyLaunchTemplate": func(ctx context.Context, params *ec2.ModifyLaunchTemplateInput, optFns []func(*ec2.Options)) (*ec2.ModifyLaunchTemplateOutput, error) {
-				return &ec2.ModifyLaunchTemplateOutput{
-					LaunchTemplate: &ec2types.LaunchTemplate{
-						LaunchTemplateId: aws.String("lt-xxxx"),
-					},
-				}, nil
-			},
-			"expectedError": false,
-		},
-		{
-			"description": "should return the latest template version",
-			"mockModifyLaunchTemplate": func(ctx context.Context, params *ec2.ModifyLaunchTemplateInput, optFns []func(*ec2.Options)) (*ec2.ModifyLaunchTemplateOutput, error) {
-				return nil, errors.New("some error")
-			},
-			"expectedError":        true,
-			"expectedErrorMessage": "failed to modify LaunchTemplate",
-		},
-	}
-	RegisterFailHandler(Fail)
-	g := NewWithT(t)
+// func TestUpdateLaunchTemplateDefaultVersion(t *testing.T) {
+// 	testCases := []map[string]interface{}{
+// 		{
+// 			"description": "should return the latest template version",
+// 			"mockModifyLaunchTemplate": func(ctx context.Context, params *ec2.ModifyLaunchTemplateInput, optFns []func(*ec2.Options)) (*ec2.ModifyLaunchTemplateOutput, error) {
+// 				return &ec2.ModifyLaunchTemplateOutput{
+// 					LaunchTemplate: &ec2types.LaunchTemplate{
+// 						LaunchTemplateId: aws.String("lt-xxxx"),
+// 					},
+// 				}, nil
+// 			},
+// 			"expectedError": false,
+// 		},
+// 		{
+// 			"description": "should return the latest template version",
+// 			"mockModifyLaunchTemplate": func(ctx context.Context, params *ec2.ModifyLaunchTemplateInput, optFns []func(*ec2.Options)) (*ec2.ModifyLaunchTemplateOutput, error) {
+// 				return nil, errors.New("some error")
+// 			},
+// 			"expectedError":        true,
+// 			"expectedErrorMessage": "failed to modify LaunchTemplate",
+// 		},
+// 	}
+// 	RegisterFailHandler(Fail)
+// 	g := NewWithT(t)
 
-	for _, tc := range testCases {
-		t.Run(tc["description"].(string), func(t *testing.T) {
-			ctx := context.TODO()
-			fakeEC2Client := &fake.MockEC2Client{}
-			fakeEC2Client.MockModifyLaunchTemplate = tc["mockModifyLaunchTemplate"].(func(ctx context.Context, params *ec2.ModifyLaunchTemplateInput, optFns []func(*ec2.Options)) (*ec2.ModifyLaunchTemplateOutput, error))
-			lt, err := UpdateLaunchTemplateDefaultVersion(ctx, fakeEC2Client, "lt-xxxxx")
+// 	for _, tc := range testCases {
+// 		t.Run(tc["description"].(string), func(t *testing.T) {
+// 			ctx := context.TODO()
+// 			fakeEC2Client := &fake.MockEC2Client{}
+// 			fakeEC2Client.MockModifyLaunchTemplate = tc["mockModifyLaunchTemplate"].(func(ctx context.Context, params *ec2.ModifyLaunchTemplateInput, optFns []func(*ec2.Options)) (*ec2.ModifyLaunchTemplateOutput, error))
+// 			lt, err := UpdateLaunchTemplateDefaultVersion(ctx, fakeEC2Client, "lt-xxxxx")
 
-			if !tc["expectedError"].(bool) {
-				g.Expect(err).To(BeNil())
-				g.Expect(lt).ToNot(BeNil())
-			} else {
-				g.Expect(err).ToNot(BeNil())
-				g.Expect(err.Error()).To(ContainSubstring(tc["expectedErrorMessage"].(string)))
-			}
-		})
-	}
-}
+// 			if !tc["expectedError"].(bool) {
+// 				g.Expect(err).To(BeNil())
+// 				g.Expect(lt).ToNot(BeNil())
+// 			} else {
+// 				g.Expect(err).ToNot(BeNil())
+// 				g.Expect(err.Error()).To(ContainSubstring(tc["expectedErrorMessage"].(string)))
+// 			}
+// 		})
+// 	}
+// }

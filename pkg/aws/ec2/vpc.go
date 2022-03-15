@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -68,15 +69,37 @@ func GetLastLaunchTemplateVersion(ctx context.Context, ec2Client EC2Client, laun
 
 func AttachSecurityGroupToLaunchTemplate(ctx context.Context, ec2Client EC2Client, securityGroupId string, launchTemplateVersion *ec2types.LaunchTemplateVersion) (*ec2.CreateLaunchTemplateVersionOutput, error) {
 
-	if len(launchTemplateVersion.LaunchTemplateData.SecurityGroupIds) == 0 {
-		return nil, fmt.Errorf("failed to retrieve sgIds from LaunchTemplate %s", *launchTemplateVersion.LaunchTemplateId)
+	if len(launchTemplateVersion.LaunchTemplateData.NetworkInterfaces) == 0 || len(launchTemplateVersion.LaunchTemplateData.NetworkInterfaces[0].Groups) == 0 {
+		return nil, fmt.Errorf("failed to retrieve SGs from LaunchTemplate %s", *launchTemplateVersion.LaunchTemplateId)
 	}
 
-	sgIds := append(launchTemplateVersion.LaunchTemplateData.SecurityGroupIds, securityGroupId)
+	networkInterface := launchTemplateVersion.LaunchTemplateData.NetworkInterfaces[0]
+	for _, group := range networkInterface.Groups {
+		if group == securityGroupId {
+			return nil, nil
+		}
+	}
+
+	sgIds := append(networkInterface.Groups, securityGroupId)
+
+	networkInterface.Groups = sgIds
+
+	b, err := json.Marshal(networkInterface)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to marshal networkInterface")
+	}
+
+	networkInterfaceRequest := ec2types.LaunchTemplateInstanceNetworkInterfaceSpecificationRequest{}
+	err = json.Unmarshal(b, &networkInterfaceRequest)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal networkInterfaceRequest")
+	}
 
 	input := &ec2.CreateLaunchTemplateVersionInput{
 		LaunchTemplateData: &ec2types.RequestLaunchTemplateData{
-			SecurityGroupIds: sgIds,
+			NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecificationRequest{
+				networkInterfaceRequest,
+			},
 		},
 		LaunchTemplateId: aws.String(*launchTemplateVersion.LaunchTemplateId),
 		SourceVersion:    aws.String("$Latest"),
@@ -88,17 +111,4 @@ func AttachSecurityGroupToLaunchTemplate(ctx context.Context, ec2Client EC2Clien
 	}
 
 	return output, nil
-}
-
-func UpdateLaunchTemplateDefaultVersion(ctx context.Context, ec2Client EC2Client, launchTemplateID string) (*ec2types.LaunchTemplate, error) {
-	input := &ec2.ModifyLaunchTemplateInput{
-		DefaultVersion:   aws.String("$Latest"),
-		LaunchTemplateId: aws.String(launchTemplateID),
-	}
-
-	lt, err := ec2Client.ModifyLaunchTemplate(ctx, input)
-	if err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("failed to modify LaunchTemplate %s", launchTemplateID))
-	}
-	return lt.LaunchTemplate, nil
 }
