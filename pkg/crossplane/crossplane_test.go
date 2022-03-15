@@ -2,6 +2,7 @@ package crossplane
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	. "github.com/onsi/ginkgo"
@@ -19,7 +20,8 @@ import (
 )
 
 var (
-	testVPC = "vpc-xxxxx"
+	testVPCId  = "vpc-xxxxx"
+	testRegion = "us-east-1"
 )
 
 func TestCrossPlaneClusterMeshResource(t *testing.T) {
@@ -66,6 +68,57 @@ func TestCrossPlaneClusterMeshResource(t *testing.T) {
 		})
 	}
 }
+
+func TestNewCrossplaneSecurityGroup(t *testing.T) {
+	testCases := []map[string]interface{}{
+		{
+			"description":  "should return a Crossplane SecurityGroup",
+			"ingressRules": []securitygroupv1alpha1.IngressRule{},
+		},
+		{
+			"description": "should return a Crossplane SecurityGroup with multiple Ingresses rules",
+			"ingressRules": []securitygroupv1alpha1.IngressRule{
+				{
+					IPProtocol: "TCP",
+					FromPort:   40000,
+					ToPort:     60000,
+					AllowedCIDRBlocks: []string{
+						"0.0.0.0/0",
+					},
+				},
+				{
+					IPProtocol: "UDP",
+					FromPort:   40000,
+					ToPort:     60000,
+					AllowedCIDRBlocks: []string{
+						"0.0.0.0/0",
+					},
+				},
+			},
+		},
+	}
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	err := crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	for _, tc := range testCases {
+		t.Run(tc["description"].(string), func(t *testing.T) {
+			ctx := context.TODO()
+			ingressRules := tc["ingressRules"].([]securitygroupv1alpha1.IngressRule)
+			sg := &securitygroupv1alpha1.SecurityGroup{
+				Spec: securitygroupv1alpha1.SecurityGroupSpec{
+					IngressRules: ingressRules,
+				},
+			}
+			csg := NewCrossplaneSecurityGroup(ctx, sg, &testVPCId, &testRegion)
+			g.Expect(csg.Spec.ForProvider.Description).To(Equal(fmt.Sprintf("sg %s managed by provider-crossplane", sg.GetName())))
+			g.Expect(len(csg.Spec.ForProvider.Ingress)).To(Equal(len(ingressRules)))
+		})
+	}
+}
+
 func TestManageCrossplaneSecurityGroupResource(t *testing.T) {
 	region := "us-east-1"
 	testCases := []map[string]interface{}{
@@ -89,45 +142,7 @@ func TestManageCrossplaneSecurityGroupResource(t *testing.T) {
 							Region:      &region,
 							Description: "test-sg",
 							GroupName:   "test-sg",
-							VPCID:       &testVPC,
-						},
-					},
-				},
-			},
-			"expectedError": false,
-		},
-		{
-			"description": "should update crossplane security group object with multiple ingressRules",
-			"ingressRules": []securitygroupv1alpha1.IngressRule{
-				{
-					IPProtocol: "TCP",
-					FromPort:   40000,
-					ToPort:     60000,
-					AllowedCIDRBlocks: []string{
-						"0.0.0.0/0",
-					},
-				},
-				{
-					IPProtocol: "UDP",
-					FromPort:   40000,
-					ToPort:     60000,
-					AllowedCIDRBlocks: []string{
-						"0.0.0.0/0",
-					},
-				},
-			},
-			"k8sObjects": []client.Object{
-				&crossec2v1beta1.SecurityGroup{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-sg",
-						Namespace: metav1.NamespaceDefault,
-					},
-					Spec: crossec2v1beta1.SecurityGroupSpec{
-						ForProvider: crossec2v1beta1.SecurityGroupParameters{
-							Region:      &region,
-							Description: "test-sg",
-							GroupName:   "test-sg",
-							VPCID:       &testVPC,
+							VPCID:       &testVPCId,
 						},
 					},
 				},
@@ -151,23 +166,30 @@ func TestManageCrossplaneSecurityGroupResource(t *testing.T) {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(k8sObjects...).Build()
 
 			ingressRules := tc["ingressRules"].([]securitygroupv1alpha1.IngressRule)
-			sg := NewCrossplaneSecurityGroup(context.TODO(), "test-sg", metav1.NamespaceDefault, &testVPC, &region, ingressRules)
+			sg := &securitygroupv1alpha1.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: metav1.NamespaceDefault,
+					Name:      "test-sg",
+				},
+				Spec: securitygroupv1alpha1.SecurityGroupSpec{
+					IngressRules: ingressRules,
+				},
+			}
+			csg := NewCrossplaneSecurityGroup(context.TODO(), sg, &testVPCId, &region)
 
-			err := ManageCrossplaneSecurityGroupResource(ctx, fakeClient, sg)
+			err := ManageCrossplaneSecurityGroupResource(ctx, fakeClient, csg)
 			if !tc["expectedError"].(bool) {
 				g.Expect(err).To(BeNil())
 			} else {
 				g.Expect(err).ToNot(BeNil())
-				crosssg := &crossec2v1beta1.SecurityGroup{}
+				csg := &crossec2v1beta1.SecurityGroup{}
 				key := client.ObjectKey{
 					Namespace: metav1.NamespaceDefault,
 					Name:      "test-sg",
 				}
-				err = fakeClient.Get(context.TODO(), key, crosssg)
+				err = fakeClient.Get(context.TODO(), key, csg)
 				g.Expect(err).To(BeNil())
-				g.Expect(crosssg).NotTo(BeNil())
-				g.Expect(crosssg.Spec.ForProvider.Description).NotTo(Equal("test-sg"))
-				g.Expect(len(crosssg.Spec.ForProvider.Ingress)).To(Equal(len(ingressRules)))
+				g.Expect(csg).NotTo(BeNil())
 
 			}
 
