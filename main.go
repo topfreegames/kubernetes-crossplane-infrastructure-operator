@@ -32,7 +32,6 @@ import (
 	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
-	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
 	clustermeshv1alpha1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
