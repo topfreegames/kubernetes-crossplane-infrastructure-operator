@@ -32,16 +32,16 @@ func NewCrossPlaneClusterMesh(ctx context.Context, namespacedName client.ObjectK
 	return ccm
 }
 
-func NewCrossplaneSecurityGroup(ctx context.Context, name, namespace string, vpcId, region *string, iRules []securitygroupv1alpha1.IngressRule) *crossec2v1beta1.SecurityGroup {
+func NewCrossplaneSecurityGroup(ctx context.Context, sg *securitygroupv1alpha1.SecurityGroup, vpcId, region *string) *crossec2v1beta1.SecurityGroup {
 	csg := &crossec2v1beta1.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
+			Name:      sg.GetName(),
+			Namespace: sg.GetNamespace(),
 		},
 		Spec: crossec2v1beta1.SecurityGroupSpec{
 			ForProvider: crossec2v1beta1.SecurityGroupParameters{
-				Description: fmt.Sprintf("sg %s managed by provider-crossplane", name),
-				GroupName:   name,
+				Description: fmt.Sprintf("sg %s managed by provider-crossplane", sg.GetName()),
+				GroupName:   sg.GetName(),
 				Ingress:     []crossec2v1beta1.IPPermission{},
 				VPCID:       vpcId,
 				Region:      region,
@@ -50,7 +50,7 @@ func NewCrossplaneSecurityGroup(ctx context.Context, name, namespace string, vpc
 	}
 
 	var ingressRules []crossec2v1beta1.IPPermission
-	for _, ingressRule := range iRules {
+	for _, ingressRule := range sg.Spec.IngressRules {
 		ipPermission := crossec2v1beta1.IPPermission{
 			FromPort:   &ingressRule.FromPort,
 			ToPort:     &ingressRule.ToPort,
