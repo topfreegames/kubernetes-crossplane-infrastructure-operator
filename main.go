@@ -38,7 +38,9 @@ import (
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
 	clustermeshcontrollers "github.com/topfreegames/provider-crossplane/controllers/clustermesh"
 	sgcontroller "github.com/topfreegames/provider-crossplane/controllers/securitygroup"
-	"github.com/topfreegames/provider-crossplane/pkg/vpc"
+	"github.com/topfreegames/provider-crossplane/pkg/aws/autoscaling"
+	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -90,9 +92,10 @@ func main() {
 	}
 
 	if err = (&sgcontroller.SecurityGroupReconciler{
-		Client:                  mgr.GetClient(),
-		Scheme:                  mgr.GetScheme(),
-		GetVPCIdFromCIDRFactory: vpc.GetVPCIdFromCIDR,
+		Client:                      mgr.GetClient(),
+		Scheme:                      mgr.GetScheme(),
+		NewEC2ClientFactory:         ec2.NewEC2Client,
+		NewAutoScalingClientFactory: autoscaling.NewAutoScalingClient,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityGroup")
 		os.Exit(1)
