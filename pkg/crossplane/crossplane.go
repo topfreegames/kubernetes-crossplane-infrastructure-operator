@@ -73,12 +73,10 @@ func NewCrossplaneSecurityGroup(ctx context.Context, sg *securitygroupv1alpha1.S
 
 func ManageCrossplaneSecurityGroupResource(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error {
 	log := ctrl.LoggerFrom(ctx)
-	log.Info(fmt.Sprintf("creating csg %s", csg.ObjectMeta.GetName()))
 	if err := kubeClient.Create(ctx, csg); err != nil {
 		if !apierrors.IsAlreadyExists(err) {
 			return err
 		}
-		log.Info(fmt.Sprintf("csg %s already exists, updating", csg.ObjectMeta.GetName()))
 
 		retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			key := client.ObjectKey{
@@ -98,6 +96,9 @@ func ManageCrossplaneSecurityGroupResource(ctx context.Context, kubeClient clien
 		if retryErr != nil {
 			return retryErr
 		}
+		log.Info(fmt.Sprintf("updated csg %s", csg.ObjectMeta.GetName()))
+		return nil
 	}
+	log.Info(fmt.Sprintf("created csg %s", csg.ObjectMeta.GetName()))
 	return nil
 }
