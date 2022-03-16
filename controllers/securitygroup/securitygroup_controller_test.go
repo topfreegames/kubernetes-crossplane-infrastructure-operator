@@ -321,10 +321,10 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 	}
 }
 
-func TestAttachSGToKopsMachinePool(t *testing.T) {
+func TestAttachSGToASG(t *testing.T) {
 	testCases := []map[string]interface{}{
 		{
-			"description": "should create a Crossplane SecurityGroup",
+			"description": "should attach SecurityGroup to the ASG",
 			"k8sObjects": []client.Object{
 				kmp, cluster, kcp, sg,
 			},
@@ -376,12 +376,19 @@ func TestAttachSGToKopsMachinePool(t *testing.T) {
 				}, nil
 			}
 			fakeEC2Client.MockCreateLaunchTemplateVersion = func(ctx context.Context, params *awsec2.CreateLaunchTemplateVersionInput, optFns []func(*awsec2.Options)) (*awsec2.CreateLaunchTemplateVersionOutput, error) {
-				return nil, nil
+				return &awsec2.CreateLaunchTemplateVersionOutput{
+					LaunchTemplateVersion: &ec2types.LaunchTemplateVersion{
+						VersionNumber: aws.Int64(1),
+					},
+				}, nil
 			}
 			fakeEC2Client.MockModifyLaunchTemplate = func(ctx context.Context, params *awsec2.ModifyLaunchTemplateInput, optFns []func(*awsec2.Options)) (*awsec2.ModifyLaunchTemplateOutput, error) {
 				return &awsec2.ModifyLaunchTemplateOutput{
 					LaunchTemplate: &ec2types.LaunchTemplate{},
 				}, nil
+			}
+			fakeEC2Client.MockDescribeSecurityGroups = func(ctx context.Context, params *awsec2.DescribeSecurityGroupsInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeSecurityGroupsOutput, error) {
+				return &awsec2.DescribeSecurityGroupsOutput{}, nil
 			}
 			fakeASGClient := &fakeasg.MockAutoScalingClient{}
 			fakeASGClient.MockDescribeAutoScalingGroups = func(ctx context.Context, params *awsautoscaling.DescribeAutoScalingGroupsInput, optFns []func(*awsautoscaling.Options)) (*awsautoscaling.DescribeAutoScalingGroupsOutput, error) {
@@ -391,6 +398,7 @@ func TestAttachSGToKopsMachinePool(t *testing.T) {
 							AutoScalingGroupName: aws.String("testASG"),
 							LaunchTemplate: &autoscalingtypes.LaunchTemplateSpecification{
 								LaunchTemplateId: aws.String("lt-xxxx"),
+								Version:          aws.String("1"),
 							},
 						},
 					},
@@ -403,13 +411,7 @@ func TestAttachSGToKopsMachinePool(t *testing.T) {
 				},
 			}
 
-			cfg, err := config.LoadDefaultConfig(ctx,
-				config.WithRegion(*aws.String("us-east-1")),
-			)
-			g.Expect(err).To(BeNil())
-
-			err = reconciler.attachSGToKopsMachinePool(ctx, fakeEC2Client, cfg, "asgName", "sg-yyyy")
-
+			err = reconciler.attachSGToASG(ctx, fakeEC2Client, fakeASGClient, "asgName", "sg-yyyy")
 			if !tc["expectedError"].(bool) {
 				g.Expect(err).To(BeNil())
 

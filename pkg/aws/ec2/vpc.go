@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/pkg/errors"
 )
 
@@ -16,6 +17,7 @@ type EC2Client interface {
 	DescribeLaunchTemplateVersions(ctx context.Context, params *ec2.DescribeLaunchTemplateVersionsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeLaunchTemplateVersionsOutput, error)
 	CreateLaunchTemplateVersion(ctx context.Context, params *ec2.CreateLaunchTemplateVersionInput, optFns ...func(*ec2.Options)) (*ec2.CreateLaunchTemplateVersionOutput, error)
 	ModifyLaunchTemplate(ctx context.Context, params *ec2.ModifyLaunchTemplateInput, optFns ...func(*ec2.Options)) (*ec2.ModifyLaunchTemplateOutput, error)
+	DescribeSecurityGroups(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error)
 }
 
 func NewEC2Client(cfg aws.Config) EC2Client {
@@ -67,6 +69,27 @@ func GetLastLaunchTemplateVersion(ctx context.Context, ec2Client EC2Client, laun
 	return &result.LaunchTemplateVersions[0], nil
 }
 
+func checkSecurityGroupExists(ctx context.Context, ec2Client EC2Client, sgId string) (bool, error) {
+	input := &ec2.DescribeSecurityGroupsInput{
+		GroupIds: []string{
+			sgId,
+		},
+	}
+
+	_, err := ec2Client.DescribeSecurityGroups(ctx, input)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case "InvalidGroup.NotFound":
+				return false, nil
+			default:
+				return false, err
+			}
+		}
+	}
+	return true, nil
+}
+
 func AttachSecurityGroupToLaunchTemplate(ctx context.Context, ec2Client EC2Client, securityGroupId string, launchTemplateVersion *ec2types.LaunchTemplateVersion) (*ec2.CreateLaunchTemplateVersionOutput, error) {
 
 	if len(launchTemplateVersion.LaunchTemplateData.NetworkInterfaces) == 0 || len(launchTemplateVersion.LaunchTemplateData.NetworkInterfaces[0].Groups) == 0 {
@@ -76,11 +99,24 @@ func AttachSecurityGroupToLaunchTemplate(ctx context.Context, ec2Client EC2Clien
 	networkInterface := launchTemplateVersion.LaunchTemplateData.NetworkInterfaces[0]
 	for _, group := range networkInterface.Groups {
 		if group == securityGroupId {
-			return nil, nil
+			return &ec2.CreateLaunchTemplateVersionOutput{
+				LaunchTemplateVersion: launchTemplateVersion,
+			}, nil
 		}
 	}
 
-	sgIds := append(networkInterface.Groups, securityGroupId)
+	sgIds := []string{}
+	for _, sgId := range networkInterface.Groups {
+		ok, err := checkSecurityGroupExists(ctx, ec2Client, sgId)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			sgIds = append(sgIds, sgId)
+		}
+	}
+
+	sgIds = append(sgIds, securityGroupId)
 
 	networkInterface.Groups = sgIds
 

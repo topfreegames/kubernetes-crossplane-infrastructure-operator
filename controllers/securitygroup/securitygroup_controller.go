@@ -164,7 +164,8 @@ func (r *SecurityGroupReconciler) ReconcileKopsMachinePool(ctx context.Context, 
 		return err
 	}
 
-	err = r.attachSGToKopsMachinePool(ctx, ec2Client, cfg, *asgName, csg.Status.AtProvider.SecurityGroupID)
+	asgClient := r.NewAutoScalingClientFactory(cfg)
+	err = r.attachSGToASG(ctx, ec2Client, asgClient, *asgName, csg.Status.AtProvider.SecurityGroupID)
 	if err != nil {
 		return err
 	}
