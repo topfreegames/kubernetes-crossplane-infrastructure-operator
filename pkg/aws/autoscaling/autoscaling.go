@@ -3,12 +3,10 @@ package autoscaling
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	autoscalingtypes "github.com/aws/aws-sdk-go-v2/service/autoscaling/types"
-	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/pkg/errors"
 )
 
@@ -41,14 +39,13 @@ func GetAutoScalingGroupByName(ctx context.Context, autoScalingClient AutoScalin
 
 }
 
-func UpdateAutoScalingGroupLaunchTemplate(ctx context.Context, autoScalingClient AutoScalingClient, launchTemplateVersion ec2types.LaunchTemplateVersion, asgName string) (*autoscaling.UpdateAutoScalingGroupOutput, error) {
+func UpdateAutoScalingGroupLaunchTemplate(ctx context.Context, autoScalingClient AutoScalingClient, ltId, ltVersion, asgName string) (*autoscaling.UpdateAutoScalingGroupOutput, error) {
 
-	version := strconv.FormatInt(*launchTemplateVersion.VersionNumber, 10)
 	input := &autoscaling.UpdateAutoScalingGroupInput{
 		AutoScalingGroupName: &asgName,
 		LaunchTemplate: &autoscalingtypes.LaunchTemplateSpecification{
-			LaunchTemplateId: launchTemplateVersion.LaunchTemplateId,
-			Version:          &version,
+			LaunchTemplateId: &ltId,
+			Version:          &ltVersion,
 		},
 	}
 

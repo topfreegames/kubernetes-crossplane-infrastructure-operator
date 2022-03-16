@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -51,9 +52,8 @@ type SecurityGroupReconciler struct {
 	NewAutoScalingClientFactory func(cfg aws.Config) autoscaling.AutoScalingClient
 }
 
-func (r *SecurityGroupReconciler) attachSGToKopsMachinePool(ctx context.Context, ec2Client ec2.EC2Client, cfg aws.Config, asgName, sgId string) error {
+func (r *SecurityGroupReconciler) attachSGToASG(ctx context.Context, ec2Client ec2.EC2Client, asgClient autoscaling.AutoScalingClient, asgName, sgId string) error {
 
-	asgClient := r.NewAutoScalingClientFactory(cfg)
 	asg, err := autoscaling.GetAutoScalingGroupByName(ctx, asgClient, asgName)
 	if err != nil {
 		return err
@@ -69,13 +69,14 @@ func (r *SecurityGroupReconciler) attachSGToKopsMachinePool(ctx context.Context,
 		return err
 	}
 
-	if ltVersionOutput != nil {
-		_, err = autoscaling.UpdateAutoScalingGroupLaunchTemplate(ctx, asgClient, *ltVersionOutput.LaunchTemplateVersion, asgName)
+	latestVersion := strconv.FormatInt(*ltVersionOutput.LaunchTemplateVersion.VersionNumber, 10)
+
+	if *asg.LaunchTemplate.Version != latestVersion {
+		_, err = autoscaling.UpdateAutoScalingGroupLaunchTemplate(ctx, asgClient, *ltVersionOutput.LaunchTemplateVersion.LaunchTemplateId, latestVersion, asgName)
 		if err != nil {
 			return err
 		}
 	}
-
 	return nil
 }
 

@@ -8,7 +8,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	autoscalingtypes "github.com/aws/aws-sdk-go-v2/service/autoscaling/types"
-	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/autoscaling/fake"
@@ -98,12 +97,7 @@ func TestUpdateAutoScalingGroupLaunchTemplate(t *testing.T) {
 			fakeASGClient := &fake.MockAutoScalingClient{}
 			fakeASGClient.MockUpdateAutoScalingGroup = tc["mockUpdateAutoScalingGroup"].(func(ctx context.Context, params *autoscaling.UpdateAutoScalingGroupInput, optFns []func(*autoscaling.Options)) (*autoscaling.UpdateAutoScalingGroupOutput, error))
 
-			ltVersion := ec2types.LaunchTemplateVersion{
-				VersionNumber:    aws.Int64(1),
-				LaunchTemplateId: aws.String("lt-xxxx"),
-			}
-
-			result, err := UpdateAutoScalingGroupLaunchTemplate(ctx, fakeASGClient, ltVersion, "nodes.cluster-name")
+			result, err := UpdateAutoScalingGroupLaunchTemplate(ctx, fakeASGClient, "lt-xxxx", "1", "nodes.cluster-name")
 			if !tc["expectedError"].(bool) {
 				g.Expect(err).To(BeNil())
 				g.Expect(result).ToNot(BeNil())
