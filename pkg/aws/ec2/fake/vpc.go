@@ -11,6 +11,7 @@ type MockEC2Client struct {
 	MockDescribeLaunchTemplateVersions func(ctx context.Context, params *ec2.DescribeLaunchTemplateVersionsInput, optFns []func(*ec2.Options)) (*ec2.DescribeLaunchTemplateVersionsOutput, error)
 	MockCreateLaunchTemplateVersion    func(ctx context.Context, params *ec2.CreateLaunchTemplateVersionInput, optFns []func(*ec2.Options)) (*ec2.CreateLaunchTemplateVersionOutput, error)
 	MockModifyLaunchTemplate           func(ctx context.Context, params *ec2.ModifyLaunchTemplateInput, optFns []func(*ec2.Options)) (*ec2.ModifyLaunchTemplateOutput, error)
+	MockDescribeSecurityGroups         func(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns []func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error)
 }
 
 func (m *MockEC2Client) DescribeVpcs(ctx context.Context, input *ec2.DescribeVpcsInput, opts ...func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error) {
@@ -27,4 +28,8 @@ func (m *MockEC2Client) CreateLaunchTemplateVersion(ctx context.Context, params 
 
 func (m *MockEC2Client) ModifyLaunchTemplate(ctx context.Context, params *ec2.ModifyLaunchTemplateInput, opts ...func(*ec2.Options)) (*ec2.ModifyLaunchTemplateOutput, error) {
 	return m.MockModifyLaunchTemplate(ctx, params, opts)
+}
+
+func (m *MockEC2Client) DescribeSecurityGroups(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, opts ...func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error) {
+	return m.MockDescribeSecurityGroups(ctx, params, opts)
 }
