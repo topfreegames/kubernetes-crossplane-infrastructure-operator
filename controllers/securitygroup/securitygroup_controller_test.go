@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	awsautoscaling "github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	autoscalingtypes "github.com/aws/aws-sdk-go-v2/service/autoscaling/types"
 	awsec2 "github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -237,21 +236,21 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 			"expectedError": false,
 		},
 		{
-			"description": "should fail without finding KopsMachinePool",
+			"description": "should fail when not finding KopsMachinePool",
 			"k8sObjects": []client.Object{
 				cluster, kcp, sg,
 			},
 			"expectedError": true,
 		},
 		{
-			"description": "should fail without finding Cluster",
+			"description": "should fail when not finding Cluster",
 			"k8sObjects": []client.Object{
 				kmp, kcp, sg,
 			},
 			"expectedError": true,
 		},
 		{
-			"description": "should fail without finding KopsControlPlane",
+			"description": "should fail when not finding KopsControlPlane",
 			"k8sObjects": []client.Object{
 				kmp, cluster, sg,
 			},
