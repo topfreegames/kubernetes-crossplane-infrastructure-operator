@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
 	"os"
 
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -93,8 +94,10 @@ func main() {
 	if err = (&sgcontroller.SecurityGroupReconciler{
 		Client:                      mgr.GetClient(),
 		Scheme:                      mgr.GetScheme(),
+		Recorder:                    mgr.GetEventRecorderFor("securityGroup-controller"),
 		NewEC2ClientFactory:         ec2.NewEC2Client,
 		NewAutoScalingClientFactory: autoscaling.NewAutoScalingClient,
+		ManageCrossplaneSGFactory:   crossplane.ManageCrossplaneSecurityGroupResource,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityGroup")
 		os.Exit(1)
