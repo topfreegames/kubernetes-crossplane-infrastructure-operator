@@ -3,6 +3,9 @@ package sgcontroller
 import (
 	"context"
 	"errors"
+	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
+	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/cluster-api/util/conditions"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -21,6 +24,7 @@ import (
 	fakeasg "github.com/topfreegames/provider-crossplane/pkg/aws/autoscaling/fake"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
 	fakeec2 "github.com/topfreegames/provider-crossplane/pkg/aws/ec2/fake"
+	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -57,6 +61,25 @@ var (
 		},
 	}
 
+	csg = &crossec2v1beta1.SecurityGroup{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-security-group",
+			Namespace: metav1.NamespaceDefault,
+		},
+		Status: crossec2v1beta1.SecurityGroupStatus{
+			ResourceStatus: crossplanev1.ResourceStatus{
+				ConditionedStatus: crossplanev1.ConditionedStatus{
+					Conditions: []crossplanev1.Condition{
+						{
+							Type:   "Ready",
+							Status: corev1.ConditionTrue,
+						},
+					},
+				},
+			},
+		},
+	}
+
 	kmp = &kinfrastructurev1alpha1.KopsMachinePool{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: metav1.NamespaceDefault,
@@ -64,6 +87,11 @@ var (
 		},
 		Spec: kinfrastructurev1alpha1.KopsMachinePoolSpec{
 			ClusterName: "test-cluster",
+			KopsInstanceGroupSpec: kopsapi.InstanceGroupSpec{
+				NodeLabels: map[string]string{
+					"kops.k8s.io/instance-group-name": "test-ig",
+				},
+			},
 		},
 	}
 
@@ -227,34 +255,39 @@ func TestSecurityGroupReconciler(t *testing.T) {
 }
 
 func TestReconcileKopsMachinePool(t *testing.T) {
-	testCases := []map[string]interface{}{
+
+	testCases := []struct {
+		description   string
+		k8sObjects    []client.Object
+		expectedError bool
+	}{
 		{
-			"description": "should create a Crossplane SecurityGroup",
-			"k8sObjects": []client.Object{
+			description: "should create a Crossplane SecurityGroup",
+			k8sObjects: []client.Object{
 				kmp, cluster, kcp, sg,
 			},
-			"expectedError": false,
+			expectedError: false,
 		},
 		{
-			"description": "should fail when not finding KopsMachinePool",
-			"k8sObjects": []client.Object{
+			description: "should fail when not finding KopsMachinePool",
+			k8sObjects: []client.Object{
 				cluster, kcp, sg,
 			},
-			"expectedError": true,
+			expectedError: true,
 		},
 		{
-			"description": "should fail when not finding Cluster",
-			"k8sObjects": []client.Object{
+			description: "should fail when not finding Cluster",
+			k8sObjects: []client.Object{
 				kmp, kcp, sg,
 			},
-			"expectedError": true,
+			expectedError: true,
 		},
 		{
-			"description": "should fail when not finding KopsControlPlane",
-			"k8sObjects": []client.Object{
+			description: "should fail when not finding KopsControlPlane",
+			k8sObjects: []client.Object{
 				kmp, cluster, sg,
 			},
-			"expectedError": true,
+			expectedError: true,
 		},
 	}
 	RegisterFailHandler(Fail)
@@ -276,12 +309,10 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
-		t.Run(tc["description"].(string), func(t *testing.T) {
+		t.Run(tc.description, func(t *testing.T) {
 			ctx := context.TODO()
 
-			k8sObjects := tc["k8sObjects"].([]client.Object)
-
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(k8sObjects...).Build()
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
 			fakeEC2Client := &fakeec2.MockEC2Client{}
 			fakeEC2Client.MockDescribeVpcs = func(ctx context.Context, input *awsec2.DescribeVpcsInput, opts []func(*awsec2.Options)) (*awsec2.DescribeVpcsOutput, error) {
 				return &awsec2.DescribeVpcsOutput{
@@ -292,16 +323,23 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 					},
 				}, nil
 			}
+
+			recorder := record.NewFakeRecorder(5)
+
 			reconciler := &SecurityGroupReconciler{
 				Client: fakeClient,
 				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
 					return fakeEC2Client
 				},
+				Recorder: recorder,
+				ManageCrossplaneSGFactory: func(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error {
+					return crossplane.ManageCrossplaneSecurityGroupResource(ctx, kubeClient, csg)
+				},
 			}
 			err := reconciler.ReconcileKopsMachinePool(ctx, sg)
 
-			if !tc["expectedError"].(bool) {
-				if !errors.Is(err, ErrSecurityGroupIDNotFound) {
+			if !tc.expectedError {
+				if !errors.Is(err, ErrSecurityGroupNotAvailable) {
 					g.Expect(err).To(BeNil())
 				}
 
@@ -419,5 +457,255 @@ func TestAttachSGToASG(t *testing.T) {
 				g.Expect(err).ToNot(BeNil())
 			}
 		})
+	}
+}
+
+func TestSecurityGroupStatus(t *testing.T) {
+	testCases := []struct {
+		description                   string
+		k8sObjects                    []client.Object
+		mockDescribeAutoScalingGroups func(ctx context.Context, params *awsautoscaling.DescribeAutoScalingGroupsInput, optFns []func(*awsautoscaling.Options)) (*awsautoscaling.DescribeAutoScalingGroupsOutput, error)
+		mockManageCrossplaneSG        func(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error
+		conditionsToAssert            []*clusterv1beta1.Condition
+		expectedError                 bool
+		expectedReadiness             bool
+	}{
+		{
+			description: "should successfully patch SecurityGroup",
+			k8sObjects: []client.Object{
+				kmp, cluster, kcp, sg, csg,
+			},
+			conditionsToAssert: []*clusterv1beta1.Condition{
+				conditions.TrueCondition(securitygroupv1alpha1.SecurityGroupReadyCondition),
+				conditions.TrueCondition(securitygroupv1alpha1.CrossplaneResourceReadyCondition),
+				conditions.TrueCondition(securitygroupv1alpha1.SecurityGroupAttachedCondition),
+			},
+			expectedError:     false,
+			expectedReadiness: true,
+		},
+		{
+			description: "should mark CrossplaneResourceReadyCondition as false when failing to create the CSG",
+			k8sObjects: []client.Object{
+				kmp, cluster, kcp, sg,
+			},
+			mockManageCrossplaneSG: func(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error {
+				return errors.New("some error creating CSG")
+			},
+			conditionsToAssert: []*clusterv1beta1.Condition{
+				conditions.FalseCondition(securitygroupv1alpha1.CrossplaneResourceReadyCondition,
+					securitygroupv1alpha1.CrossplaneResourceReconciliationFailedReason,
+					clusterv1beta1.ConditionSeverityError,
+					"some error creating CSG"),
+			},
+			expectedError: true,
+		},
+		{
+			description: "should mark SG ready condition as false when not available yet",
+			k8sObjects: []client.Object{
+				kmp, cluster, kcp, sg, &crossec2v1beta1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-security-group",
+						Namespace: metav1.NamespaceDefault,
+					},
+					Status: crossec2v1beta1.SecurityGroupStatus{
+						ResourceStatus: crossplanev1.ResourceStatus{
+							ConditionedStatus: crossplanev1.ConditionedStatus{
+								Conditions: []crossplanev1.Condition{
+									{
+										Type:    "Ready",
+										Status:  corev1.ConditionFalse,
+										Reason:  "Unavailable",
+										Message: "error message",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			conditionsToAssert: []*clusterv1beta1.Condition{
+				conditions.TrueCondition(securitygroupv1alpha1.CrossplaneResourceReadyCondition),
+				conditions.FalseCondition(securitygroupv1alpha1.SecurityGroupReadyCondition,
+					"Unavailable",
+					clusterv1beta1.ConditionSeverityError,
+					"error message",
+				),
+			},
+			expectedError: false,
+		},
+		{
+			description: "should mark attach condition as false when failed to attach",
+			k8sObjects: []client.Object{
+				kmp, cluster, kcp, sg, csg,
+			},
+			mockDescribeAutoScalingGroups: func(ctx context.Context, params *awsautoscaling.DescribeAutoScalingGroupsInput, optFns []func(*awsautoscaling.Options)) (*awsautoscaling.DescribeAutoScalingGroupsOutput, error) {
+				return nil, errors.New("some error when attaching asg")
+			},
+			conditionsToAssert: []*clusterv1beta1.Condition{
+				conditions.TrueCondition(securitygroupv1alpha1.SecurityGroupReadyCondition),
+				conditions.TrueCondition(securitygroupv1alpha1.CrossplaneResourceReadyCondition),
+				conditions.FalseCondition(securitygroupv1alpha1.SecurityGroupAttachedCondition,
+					securitygroupv1alpha1.SecurityGroupAttachmentFailedReason,
+					clusterv1beta1.ConditionSeverityError,
+					"some error when attaching asg"),
+			},
+			expectedError: true,
+		},
+	}
+
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	err := clusterv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = kcontrolplanev1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			ctx := context.TODO()
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
+			fakeEC2Client := &fakeec2.MockEC2Client{}
+			fakeEC2Client.MockDescribeVpcs = func(ctx context.Context, input *awsec2.DescribeVpcsInput, opts []func(*awsec2.Options)) (*awsec2.DescribeVpcsOutput, error) {
+				return &awsec2.DescribeVpcsOutput{
+					Vpcs: []ec2types.Vpc{
+						{
+							VpcId: aws.String("x.x.x.x"),
+						},
+					},
+				}, nil
+			}
+			fakeEC2Client.MockDescribeLaunchTemplateVersions = func(ctx context.Context, params *awsec2.DescribeLaunchTemplateVersionsInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplateVersionsOutput, error) {
+				return &awsec2.DescribeLaunchTemplateVersionsOutput{
+					LaunchTemplateVersions: []ec2types.LaunchTemplateVersion{
+						{
+							LaunchTemplateId: params.LaunchTemplateId,
+							LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
+								NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
+									{
+										Groups: []string{
+											"sg-xxxx",
+										},
+									},
+								},
+							},
+						},
+					},
+				}, nil
+			}
+			fakeEC2Client.MockCreateLaunchTemplateVersion = func(ctx context.Context, params *awsec2.CreateLaunchTemplateVersionInput, optFns []func(*awsec2.Options)) (*awsec2.CreateLaunchTemplateVersionOutput, error) {
+				return &awsec2.CreateLaunchTemplateVersionOutput{
+					LaunchTemplateVersion: &ec2types.LaunchTemplateVersion{
+						VersionNumber: aws.Int64(1),
+					},
+				}, nil
+			}
+			fakeEC2Client.MockModifyLaunchTemplate = func(ctx context.Context, params *awsec2.ModifyLaunchTemplateInput, optFns []func(*awsec2.Options)) (*awsec2.ModifyLaunchTemplateOutput, error) {
+				return &awsec2.ModifyLaunchTemplateOutput{
+					LaunchTemplate: &ec2types.LaunchTemplate{},
+				}, nil
+			}
+			fakeEC2Client.MockDescribeSecurityGroups = func(ctx context.Context, params *awsec2.DescribeSecurityGroupsInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeSecurityGroupsOutput, error) {
+				return &awsec2.DescribeSecurityGroupsOutput{}, nil
+			}
+
+			fakeASGClient := &fakeasg.MockAutoScalingClient{}
+			if tc.mockDescribeAutoScalingGroups == nil {
+				fakeASGClient.MockDescribeAutoScalingGroups = func(ctx context.Context, params *awsautoscaling.DescribeAutoScalingGroupsInput, optFns []func(*awsautoscaling.Options)) (*awsautoscaling.DescribeAutoScalingGroupsOutput, error) {
+					return &awsautoscaling.DescribeAutoScalingGroupsOutput{
+						AutoScalingGroups: []autoscalingtypes.AutoScalingGroup{
+							{
+								AutoScalingGroupName: aws.String("testASG"),
+								LaunchTemplate: &autoscalingtypes.LaunchTemplateSpecification{
+									LaunchTemplateId: aws.String("lt-xxxx"),
+									Version:          aws.String("1"),
+								},
+							},
+						},
+					}, nil
+				}
+			} else {
+				fakeASGClient.MockDescribeAutoScalingGroups = tc.mockDescribeAutoScalingGroups
+			}
+
+			reconciler := &SecurityGroupReconciler{
+				Client: fakeClient,
+				NewAutoScalingClientFactory: func(cfg aws.Config) autoscaling.AutoScalingClient {
+					return fakeASGClient
+				},
+				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
+					return fakeEC2Client
+				},
+			}
+
+			if tc.mockManageCrossplaneSG == nil {
+				reconciler.ManageCrossplaneSGFactory = func(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error {
+					return crossplane.ManageCrossplaneSecurityGroupResource(ctx, kubeClient, csg)
+				}
+			} else {
+				reconciler.ManageCrossplaneSGFactory = tc.mockManageCrossplaneSG
+			}
+
+			_, err := reconciler.Reconcile(ctx, ctrl.Request{
+				NamespacedName: client.ObjectKey{
+					Namespace: metav1.NamespaceDefault,
+					Name:      "test-security-group",
+				},
+			})
+			if !tc.expectedError {
+				g.Expect(err).To(BeNil())
+			} else {
+				g.Expect(err).ToNot(BeNil())
+			}
+
+			sg := &securitygroupv1alpha1.SecurityGroup{}
+			key := client.ObjectKey{
+				Namespace: metav1.NamespaceDefault,
+				Name:      "test-security-group",
+			}
+			err = fakeClient.Get(ctx, key, sg)
+			g.Expect(err).To(BeNil())
+			g.Expect(sg.Status.Conditions).ToNot(BeNil())
+
+			g.Expect(sg.Status.Ready).To(Equal(tc.expectedReadiness))
+
+			if tc.conditionsToAssert != nil {
+				assertConditions(g, sg, tc.conditionsToAssert...)
+			}
+
+		})
+	}
+}
+
+func assertConditions(g *WithT, from conditions.Getter, conditions ...*clusterv1beta1.Condition) {
+	for _, condition := range conditions {
+		assertCondition(g, from, condition)
+	}
+}
+
+func assertCondition(g *WithT, from conditions.Getter, condition *clusterv1beta1.Condition) {
+	g.Expect(conditions.Has(from, condition.Type)).To(BeTrue())
+
+	if condition.Status == corev1.ConditionTrue {
+		conditions.IsTrue(from, condition.Type)
+	} else {
+		conditionToBeAsserted := conditions.Get(from, condition.Type)
+		g.Expect(conditionToBeAsserted.Status).To(Equal(condition.Status))
+		g.Expect(conditionToBeAsserted.Severity).To(Equal(condition.Severity))
+		g.Expect(conditionToBeAsserted.Reason).To(Equal(condition.Reason))
+		if condition.Message != "" {
+			g.Expect(conditionToBeAsserted.Message).To(ContainSubstring(condition.Message))
+		}
 	}
 }

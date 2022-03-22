@@ -19,6 +19,26 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
+)
+
+const (
+	// CrossplaneResourceReadyCondition reports on the successful management of the Crossplane resource.
+	CrossplaneResourceReadyCondition clusterv1beta1.ConditionType = "CrossplaneResourceReady"
+
+	// SecurityGroupReadyCondition reports on the readiness of the SecurityGroup in AWS.
+	SecurityGroupReadyCondition clusterv1beta1.ConditionType = "SecurityGroupReady"
+
+	// SecurityGroupAttachedCondition reports on the successful attachment of the SecurityGroup in the InfrastructureRef.
+	SecurityGroupAttachedCondition clusterv1beta1.ConditionType = "SecurityGroupAttachedReady"
+)
+
+const (
+	// CrossplaneResourceReconciliationFailedReason (Severity=Error) indicates that Crossplane resource couldn't be created/updated.
+	CrossplaneResourceReconciliationFailedReason = "CrossplaneResourceReconciliationFailed"
+
+	// SecurityGroupAttachmentFailedReason (Severity=Error) indicates that the SecurityGroup couldn´t be attached in the InfrastructureRef.
+	SecurityGroupAttachmentFailedReason = "SecurityGroupAttachmentReconciliationFailed"
 )
 
 type IngressRule struct {
@@ -43,7 +63,20 @@ type SecurityGroupSpec struct {
 }
 
 // SecurityGroupStatus defines the observed state of SecurityGroup
-type SecurityGroupStatus struct{}
+type SecurityGroupStatus struct {
+	// Ready denotes that the SecurityGroup resource is created and attached
+	// +kubebuilder:default=false
+	Ready bool `json:"ready,omitempty"`
+
+	// ErrorMessage indicates that there is a terminal problem reconciling the
+	// state, and will be set to a descriptive error message.
+	// +optional
+	FailureMessage *string `json:"failureMessage,omitempty"`
+
+	// Conditions defines current service state of the SecurityGroup.
+	// +optional
+	Conditions clusterv1beta1.Conditions `json:"conditions,omitempty"`
+}
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
@@ -68,4 +101,14 @@ type SecurityGroupList struct {
 
 func init() {
 	SchemeBuilder.Register(&SecurityGroup{}, &SecurityGroupList{})
+}
+
+// GetConditions returns the set of conditions for this object.
+func (sg *SecurityGroup) GetConditions() clusterv1beta1.Conditions {
+	return sg.Status.Conditions
+}
+
+// SetConditions sets the conditions on this object.
+func (sg *SecurityGroup) SetConditions(conditions clusterv1beta1.Conditions) {
+	sg.Status.Conditions = conditions
 }
