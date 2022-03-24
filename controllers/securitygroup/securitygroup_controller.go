@@ -18,13 +18,20 @@ package sgcontroller
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strconv"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/go-logr/logr"
 
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
+	"github.com/topfreegames/provider-crossplane/pkg/aws/autoscaling"
+	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
 	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
 	"github.com/topfreegames/provider-crossplane/pkg/kops"
 
@@ -34,12 +41,136 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var ErrSecurityGroupIDNotFound = errors.New("security group ID still not found")
+
 // SecurityGroupReconciler reconciles a SecurityGroup object
 type SecurityGroupReconciler struct {
 	client.Client
-	Scheme                  *runtime.Scheme
-	log                     logr.Logger
-	GetVPCIdFromCIDRFactory func(*string, string) (*string, error)
+	Scheme                      *runtime.Scheme
+	log                         logr.Logger
+	NewEC2ClientFactory         func(cfg aws.Config) ec2.EC2Client
+	NewAutoScalingClientFactory func(cfg aws.Config) autoscaling.AutoScalingClient
+}
+
+func (r *SecurityGroupReconciler) attachSGToASG(ctx context.Context, ec2Client ec2.EC2Client, asgClient autoscaling.AutoScalingClient, asgName, sgId string) error {
+
+	asg, err := autoscaling.GetAutoScalingGroupByName(ctx, asgClient, asgName)
+	if err != nil {
+		return err
+	}
+
+	launchTemplateVersion, err := ec2.GetLastLaunchTemplateVersion(ctx, ec2Client, *asg.LaunchTemplate.LaunchTemplateId)
+	if err != nil {
+		return err
+	}
+
+	ltVersionOutput, err := ec2.AttachSecurityGroupToLaunchTemplate(ctx, ec2Client, sgId, launchTemplateVersion)
+	if err != nil {
+		return err
+	}
+
+	latestVersion := strconv.FormatInt(*ltVersionOutput.LaunchTemplateVersion.VersionNumber, 10)
+
+	if *asg.LaunchTemplate.Version != latestVersion {
+		_, err = autoscaling.UpdateAutoScalingGroupLaunchTemplate(ctx, asgClient, *ltVersionOutput.LaunchTemplateVersion.LaunchTemplateId, latestVersion, asgName)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *SecurityGroupReconciler) ReconcileKopsMachinePool(ctx context.Context, sg *securitygroupv1alpha1.SecurityGroup) error {
+
+	// Fetch KopsMachinePool
+	kmp := &kinfrastructurev1alpha1.KopsMachinePool{}
+	key := client.ObjectKey{
+		Name:      sg.Spec.InfrastructureRef.Name,
+		Namespace: sg.Spec.InfrastructureRef.Namespace,
+	}
+	if err := r.Client.Get(ctx, key, kmp); err != nil {
+		return err
+	}
+
+	// Fetch Cluster
+	cluster := &clusterv1beta1.Cluster{}
+	key = client.ObjectKey{
+		Namespace: kmp.ObjectMeta.Namespace,
+		Name:      kmp.Spec.ClusterName,
+	}
+	if err := r.Client.Get(ctx, key, cluster); err != nil {
+		return err
+	}
+
+	// Fetch KopsControlPlane
+	kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+	key = client.ObjectKey{
+		Namespace: cluster.Spec.ControlPlaneRef.Namespace,
+		Name:      cluster.Spec.ControlPlaneRef.Name,
+	}
+	if err := r.Client.Get(ctx, key, kcp); err != nil {
+		return err
+	}
+
+	subnet, err := kops.GetSubnetFromKopsControlPlane(kcp)
+	if err != nil {
+		return err
+	}
+
+	region, err := kops.GetRegionFromKopsSubnet(*subnet)
+	if err != nil {
+		return err
+	}
+
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion(*region),
+	)
+	if err != nil {
+		return err
+	}
+
+	ec2Client := r.NewEC2ClientFactory(cfg)
+
+	vpcId, err := ec2.GetVPCIdFromCIDR(ctx, ec2Client, kcp.Spec.KopsClusterSpec.NetworkCIDR)
+	if err != nil {
+		return err
+	}
+
+	if vpcId == nil {
+		return fmt.Errorf("vpcId not defined")
+	}
+
+	if region == nil {
+		return fmt.Errorf("region not defined")
+	}
+
+	csg := crossplane.NewCrossplaneSecurityGroup(ctx, sg, vpcId, region)
+	err = crossplane.ManageCrossplaneSecurityGroupResource(ctx, r.Client, csg)
+	if err != nil {
+		return err
+	}
+
+	err = r.Client.Get(ctx, client.ObjectKeyFromObject(csg), csg)
+	if err != nil {
+		return err
+	}
+
+	if csg.Status.AtProvider.SecurityGroupID == "" {
+		return ErrSecurityGroupIDNotFound
+	}
+
+	asgName, err := kops.GetAutoScalingGroupNameFromKopsMachinePool(*kmp)
+	if err != nil {
+		return err
+	}
+
+	asgClient := r.NewAutoScalingClientFactory(cfg)
+	err = r.attachSGToASG(ctx, ec2Client, asgClient, *asgName, csg.Status.AtProvider.SecurityGroupID)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 //+kubebuilder:rbac:groups=infrastructure.wildlife.io,resources=securitygroups,verbs=get;list;watch;create;update;patch;delete
@@ -68,73 +199,18 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, fmt.Errorf("infrastructureRef isn't defined")
 	}
 
-	var region *string
-	var vpcId *string
-
 	// Only supports KopsMachinePool for now
 	switch securityGroup.Spec.InfrastructureRef.Kind {
 	case "KopsMachinePool":
-
-		// Fetch KopsMachinePool
-		kmp := &kinfrastructurev1alpha1.KopsMachinePool{}
-		key := client.ObjectKey{
-			Name:      securityGroup.Spec.InfrastructureRef.Name,
-			Namespace: securityGroup.Spec.InfrastructureRef.Namespace,
-		}
-		if err := r.Client.Get(ctx, key, kmp); err != nil {
-			return ctrl.Result{}, err
-		}
-
-		// Fetch Cluster
-		cluster := &clusterv1beta1.Cluster{}
-		key = client.ObjectKey{
-			Namespace: kmp.ObjectMeta.Namespace,
-			Name:      kmp.Spec.ClusterName,
-		}
-		if err := r.Client.Get(ctx, key, cluster); err != nil {
-			return ctrl.Result{}, err
-		}
-
-		// Fetch KopsControlPlane
-		kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
-		key = client.ObjectKey{
-			Namespace: cluster.Spec.ControlPlaneRef.Namespace,
-			Name:      cluster.Spec.ControlPlaneRef.Name,
-		}
-		if err := r.Client.Get(ctx, key, kcp); err != nil {
-			return ctrl.Result{}, err
-		}
-
-		subnet, err := kops.GetSubnetFromKopsControlPlane(kcp)
+		err := r.ReconcileKopsMachinePool(ctx, securityGroup)
 		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		region, err = kops.GetRegionFromKopsSubnet(*subnet)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		vpcId, err = r.GetVPCIdFromCIDRFactory(region, kcp.Spec.KopsClusterSpec.NetworkCIDR)
-		if err != nil {
+			if errors.Is(err, ErrSecurityGroupIDNotFound) {
+				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+			}
 			return ctrl.Result{}, err
 		}
 	default:
 		return ctrl.Result{}, fmt.Errorf("infrastructureRef not supported")
-	}
-
-	if vpcId == nil {
-		return ctrl.Result{}, fmt.Errorf("vpcId not defined")
-	}
-
-	if region == nil {
-		return ctrl.Result{}, fmt.Errorf("region not defined")
-	}
-
-	csg := crossplane.NewCrossplaneSecurityGroup(ctx, securityGroup.ObjectMeta.Name, securityGroup.ObjectMeta.Namespace, vpcId, region, securityGroup.Spec.IngressRules)
-	err := crossplane.ManageCrossplaneSecurityGroupResource(ctx, r.Client, csg)
-	if err != nil {
-		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
