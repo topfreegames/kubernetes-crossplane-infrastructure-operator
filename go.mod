@@ -38,6 +38,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.10.0
 	github.com/aws/aws-sdk-go-v2/service/autoscaling v1.22.1
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.21.0
+	github.com/crossplane/crossplane-runtime v0.15.1-0.20210930095326-d5661210733b
 	github.com/crossplane/provider-aws v0.24.1
 	github.com/go-logr/logr v0.4.0
 	github.com/google/go-cmp v0.5.7
@@ -77,9 +78,9 @@ require (
 	github.com/blang/semver v3.5.1+incompatible // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
-	github.com/crossplane/crossplane-runtime v0.15.1-0.20210930095326-d5661210733b // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/denverdino/aliyungo v0.0.0-20210425065611-55bee4942cba // indirect
+	github.com/docker/distribution v2.8.1+incompatible // indirect
 	github.com/evanphx/json-patch v4.11.0+incompatible // indirect
 	github.com/form3tech-oss/jwt-go v3.2.2+incompatible // indirect
 	github.com/fsnotify/fsnotify v1.5.1 // indirect
