@@ -75,7 +75,7 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if !errors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
-		ccm := crossplane.NewCrossPlaneClusterMesh(ctx, key, cluster, clusterRefList)
+		ccm := crossplane.NewCrossPlaneClusterMesh(key, cluster, clusterRefList)
 		r.log.Info(fmt.Sprintf("creating clustermesh %s", ccm.ObjectMeta.GetName()))
 		if err := r.Create(ctx, ccm); err != nil {
 			return ctrl.Result{}, err
