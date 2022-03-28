@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
 	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
@@ -16,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func NewCrossPlaneClusterMesh(ctx context.Context, namespacedName client.ObjectKey, cluster *clusterv1beta1.Cluster, clusterRefList []*v1.ObjectReference) *clustermeshv1beta1.ClusterMesh {
+func NewCrossPlaneClusterMesh(namespacedName client.ObjectKey, cluster *clusterv1beta1.Cluster, clusterRefList []*v1.ObjectReference) *clustermeshv1beta1.ClusterMesh {
 	ccm := &clustermeshv1beta1.ClusterMesh{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: namespacedName.Name,
@@ -32,7 +33,7 @@ func NewCrossPlaneClusterMesh(ctx context.Context, namespacedName client.ObjectK
 	return ccm
 }
 
-func NewCrossplaneSecurityGroup(ctx context.Context, sg *securitygroupv1alpha1.SecurityGroup, vpcId, region *string) *crossec2v1beta1.SecurityGroup {
+func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha1.SecurityGroup, vpcId, region *string) *crossec2v1beta1.SecurityGroup {
 	csg := &crossec2v1beta1.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      sg.GetName(),
@@ -100,5 +101,14 @@ func ManageCrossplaneSecurityGroupResource(ctx context.Context, kubeClient clien
 		return nil
 	}
 	log.Info(fmt.Sprintf("created csg %s", csg.ObjectMeta.GetName()))
+	return nil
+}
+
+func GetSecurityGroupReadyCondition(csg *crossec2v1beta1.SecurityGroup) *crossplanev1.Condition {
+	for _, condition := range csg.Status.Conditions {
+		if condition.Type == "Ready" {
+			return &condition
+		}
+	}
 	return nil
 }
