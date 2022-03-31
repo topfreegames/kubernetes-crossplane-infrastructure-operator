@@ -5,7 +5,7 @@ metadata:
   name: provider-aws
   namespace: crossplane-system
 spec:
-  package: quay.io/l30bola/provider-aws-amd64:0.0.4
+  package: quay.io/l30bola/provider-aws-amd64:0.0.6
   packagePullPolicy: Always
   revisionActivationPolicy: Automatic
   revisionHistoryLimit: 1
