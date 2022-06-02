@@ -17,14 +17,20 @@ limitations under the License.
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+type ClusterSpec struct {
+	VPCID     string
+	Name      string
+	Namespace string
+	Region    string
+}
+
 // ClusterMeshSpec defines the desired state of ClusterMesh
 type ClusterMeshSpec struct {
-	// ClusterRefList is a reference to a provider-specific resource.
-	ClusterRefList []*corev1.ObjectReference `json:"clusterRefList,omitempty"`
+	// Clusters describes a AWS Kubernetes cluster.
+	Clusters []*ClusterSpec `json:"clusterSpec,omitempty"`
 }
 
 // ClusterMeshStatus defines the observed state of ClusterMesh

@@ -148,7 +148,7 @@ func TestClusterMeshReconciler(t *testing.T) {
 				g.Expect(crosscm).NotTo(BeNil())
 
 				if _, ok := tc["shouldUpdate"].(bool); ok {
-					g.Expect(crosscm.Spec.ClusterRefList).To(ContainElement(ContainSubstring("test-cluster2")))
+					g.Expect(crosscm.Spec.Clusters).To(ContainElement(ContainSubstring("test-cluster2")))
 				}
 
 			} else {

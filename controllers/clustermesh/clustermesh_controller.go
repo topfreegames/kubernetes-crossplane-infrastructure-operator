@@ -20,11 +20,15 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
+	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
+	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
 	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
-	v1 "k8s.io/api/core/v1"
+	"github.com/topfreegames/provider-crossplane/pkg/kops"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -35,8 +39,9 @@ import (
 // ClusterMeshReconciler reconciles a ClusterMesh object
 type ClusterMeshReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
-	log    logr.Logger
+	Scheme              *runtime.Scheme
+	log                 logr.Logger
+	NewEC2ClientFactory func(cfg aws.Config) ec2.EC2Client
 }
 
 //+kubebuilder:rbac:groups=clustermesh.infrastructure.wildlife.io,resources=clustermeshes,verbs=get;list;watch;create;update;patch;delete
@@ -45,11 +50,15 @@ type ClusterMeshReconciler struct {
 
 func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.log = ctrl.LoggerFrom(ctx)
-
 	cluster := &clusterv1beta1.Cluster{}
 	if err := r.Get(ctx, req.NamespacedName, cluster); err != nil {
 		return ctrl.Result{}, err
 	}
+
+	if _, ok := cluster.Labels["clusterGroup"]; !ok {
+		return ctrl.Result{}, nil
+	}
+
 	if _, ok := cluster.Annotations["clustermesh.infrastructure.wildlife.io"]; !ok {
 		return ctrl.Result{}, nil
 	}
@@ -60,22 +69,23 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}()
 
 	clustermesh := &clustermeshv1beta1.ClusterMesh{}
+
+	// populate spec
+	clSpec, err := r.populateClusterSpec(ctx, cluster)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	key := client.ObjectKey{
 		Name: cluster.Labels["clusterGroup"],
 	}
-	clusterRefList := []*v1.ObjectReference{}
-	clusterRef := &v1.ObjectReference{
-		APIVersion: cluster.TypeMeta.APIVersion,
-		Kind:       cluster.TypeMeta.Kind,
-		Name:       cluster.ObjectMeta.Name,
-		Namespace:  cluster.ObjectMeta.Namespace,
-	}
-	clusterRefList = append(clusterRefList, clusterRef)
+
 	if err := r.Get(ctx, key, clustermesh); err != nil {
 		if !errors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
-		ccm := crossplane.NewCrossPlaneClusterMesh(key, cluster, clusterRefList)
+
+		ccm := crossplane.NewCrossPlaneClusterMesh(cluster.Labels["clusterGroup"], clSpec)
 		r.log.Info(fmt.Sprintf("creating clustermesh %s", ccm.ObjectMeta.GetName()))
 		if err := r.Create(ctx, ccm); err != nil {
 			return ctrl.Result{}, err
@@ -83,20 +93,65 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
-	objectClusterRefList := clustermesh.Spec.ClusterRefList
-	for _, objClusterRef := range objectClusterRefList {
-		if cmp.Equal(objClusterRef, clusterRef) {
+	clusterList := clustermesh.Spec.Clusters
+	for _, objCluster := range clusterList {
+		if cmp.Equal(objCluster, clSpec) {
 			return ctrl.Result{}, nil
 		}
 	}
 
-	clustermesh.Spec.ClusterRefList = append(clustermesh.Spec.ClusterRefList, clusterRef)
+	clustermesh.Spec.Clusters = append(clustermesh.Spec.Clusters, clSpec)
 	r.log.Info(fmt.Sprintf("adding %s to clustermesh %s", cluster.ObjectMeta.Name, clustermesh.Name))
 	if err := r.Client.Update(ctx, clustermesh); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *ClusterMeshReconciler) populateClusterSpec(ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error) {
+	clusterSpec := &clustermeshv1beta1.ClusterSpec{}
+
+	// Fetch KopsControlPlane
+	kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+	key := client.ObjectKey{
+		Namespace: cluster.Spec.ControlPlaneRef.Namespace,
+		Name:      cluster.Spec.ControlPlaneRef.Name,
+	}
+	if err := r.Client.Get(ctx, key, kcp); err != nil {
+		return clusterSpec, err
+	}
+
+	subnet, err := kops.GetSubnetFromKopsControlPlane(kcp)
+	if err != nil {
+		return clusterSpec, err
+	}
+
+	region, err := kops.GetRegionFromKopsSubnet(*subnet)
+	if err != nil {
+		return clusterSpec, err
+	}
+
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion(*region),
+	)
+	if err != nil {
+		return clusterSpec, err
+	}
+
+	ec2Client := r.NewEC2ClientFactory(cfg)
+
+	vpcId, err := ec2.GetVPCIdFromCIDR(ctx, ec2Client, kcp.Spec.KopsClusterSpec.NetworkCIDR)
+	if err != nil {
+		return clusterSpec, err
+	}
+
+	clusterSpec.Name = cluster.Name
+	clusterSpec.Namespace = cluster.Namespace
+	clusterSpec.Region = *region
+	clusterSpec.VPCID = *vpcId
+
+	return clusterSpec, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

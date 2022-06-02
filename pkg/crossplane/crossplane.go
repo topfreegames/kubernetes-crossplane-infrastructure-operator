@@ -8,26 +8,21 @@ import (
 	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
 	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
-	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
-	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func NewCrossPlaneClusterMesh(namespacedName client.ObjectKey, cluster *clusterv1beta1.Cluster, clusterRefList []*v1.ObjectReference) *clustermeshv1beta1.ClusterMesh {
+func NewCrossPlaneClusterMesh(name string, clSpec *clustermeshv1beta1.ClusterSpec) *clustermeshv1beta1.ClusterMesh {
+	clusters := []*clustermeshv1beta1.ClusterSpec{clSpec}
 	ccm := &clustermeshv1beta1.ClusterMesh{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: namespacedName.Name,
-			Labels: map[string]string{
-				"clusterGroup": cluster.Labels["clusterGroup"],
-				"environment":  cluster.Labels["environment"],
-			},
+			Name: name,
 		},
 		Spec: clustermeshv1beta1.ClusterMeshSpec{
-			ClusterRefList: clusterRefList,
+			Clusters: clusters,
 		},
 	}
 	return ccm

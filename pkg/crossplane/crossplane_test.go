@@ -3,8 +3,9 @@ package crossplane
 import (
 	"context"
 	"fmt"
-	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	"testing"
+
+	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -13,7 +14,6 @@ import (
 	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
 	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubectl/pkg/scheme"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -55,15 +55,13 @@ func TestCrossPlaneClusterMeshResource(t *testing.T) {
 					},
 				},
 			}
-			clusterRefList := []*v1.ObjectReference{}
-			clusterRef := &v1.ObjectReference{
-				APIVersion: cluster.TypeMeta.APIVersion,
-				Kind:       cluster.TypeMeta.Kind,
-				Name:       cluster.ObjectMeta.Name,
-				Namespace:  cluster.ObjectMeta.Namespace,
-			}
-			clusterRefList = append(clusterRefList, clusterRef)
-			sg := NewCrossPlaneClusterMesh(client.ObjectKey{Name: cluster.Labels["clusterGroup"]}, cluster, clusterRefList)
+			clusters := []*clustermeshv1beta1.ClusterSpec{}
+			clusters = append(clusters, &clustermeshv1beta1.ClusterSpec{
+				Name:      "test-cluster",
+				Namespace: metav1.NamespaceDefault,
+				VPCID:     "vpc-asidjasidiasj",
+			})
+			sg := NewCrossPlaneClusterMesh(client.ObjectKey{Name: cluster.Labels["clusterGroup"]}, cluster, clusters)
 			g.Expect(sg.ObjectMeta.Name).To(ContainSubstring("testmesh"))
 		})
 	}
