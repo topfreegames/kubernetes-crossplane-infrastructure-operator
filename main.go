@@ -18,8 +18,9 @@ package main
 
 import (
 	"flag"
-	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
 	"os"
+
+	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
 
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
@@ -103,8 +104,9 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&clustermeshcontrollers.ClusterMeshReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:              mgr.GetClient(),
+		Scheme:              mgr.GetScheme(),
+		NewEC2ClientFactory: ec2.NewEC2Client,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterMesh")
 		os.Exit(1)
