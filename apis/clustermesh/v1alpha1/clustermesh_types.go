@@ -17,14 +17,14 @@ limitations under the License.
 package v1alpha1
 
 import (
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type ClusterSpec struct {
-	VPCID     string
-	Name      string
-	Namespace string
-	Region    string
+	VPCID  string `json:"vpcID,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Region string `json:"region,omitempty"`
 }
 
 // ClusterMeshSpec defines the desired state of ClusterMesh
@@ -34,7 +34,9 @@ type ClusterMeshSpec struct {
 }
 
 // ClusterMeshStatus defines the observed state of ClusterMesh
-type ClusterMeshStatus struct{}
+type ClusterMeshStatus struct {
+	CrossplanePeeringRef []*v1.ObjectReference `json:"crossplanePeeringRef,omitempty"`
+}
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
