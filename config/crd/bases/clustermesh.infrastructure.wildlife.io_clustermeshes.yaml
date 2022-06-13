@@ -35,9 +35,23 @@ spec:
           spec:
             description: ClusterMeshSpec defines the desired state of ClusterMesh
             properties:
-              clusterRefList:
-                description: ClusterRefList is a reference to a provider-specific
-                  resource.
+              clusterSpec:
+                description: Clusters describes a AWS Kubernetes cluster.
+                items:
+                  properties:
+                    name:
+                      type: string
+                    region:
+                      type: string
+                    vpcID:
+                      type: string
+                  type: object
+                type: array
+            type: object
+          status:
+            description: ClusterMeshStatus defines the observed state of ClusterMesh
+            properties:
+              crossplanePeeringRef:
                 items:
                   description: 'ObjectReference contains enough information to let
                     you inspect or modify the referred object. --- New uses of this
@@ -99,9 +113,6 @@ spec:
                       type: string
                   type: object
                 type: array
-            type: object
-          status:
-            description: ClusterMeshStatus defines the observed state of ClusterMesh
             type: object
         type: object
     served: true
