@@ -523,7 +523,6 @@ func TestReconcileNormal(t *testing.T) {
 		k8sObjects     []client.Object
 		cluster        *clusterv1beta1.Cluster
 		clustermesh    *clustermeshv1beta1.ClusterMesh
-		belongToMesh   bool
 		expectedOutput *clustermeshv1beta1.ClusterMesh
 	}{
 		{
@@ -541,7 +540,6 @@ func TestReconcileNormal(t *testing.T) {
 					Name: "test-clustermesh",
 				},
 			},
-			belongToMesh: false,
 			expectedOutput: &clustermeshv1beta1.ClusterMesh{
 				TypeMeta: metav1.TypeMeta{
 					Kind:       "ClusterMesh",
@@ -589,7 +587,6 @@ func TestReconcileNormal(t *testing.T) {
 					Name: "test-clustermesh",
 				},
 			},
-			belongToMesh: false,
 			expectedOutput: &clustermeshv1beta1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
@@ -635,7 +632,6 @@ func TestReconcileNormal(t *testing.T) {
 					Name: "test-clustermesh",
 				},
 			},
-			belongToMesh: true,
 			expectedOutput: &clustermeshv1beta1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
@@ -672,7 +668,6 @@ func TestReconcileNormal(t *testing.T) {
 					Name: "test-clustermesh",
 				},
 			},
-			belongToMesh: false,
 			expectedOutput: &clustermeshv1beta1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
@@ -710,7 +705,7 @@ func TestReconcileNormal(t *testing.T) {
 				},
 			}
 
-			_, _ = reconciler.reconcileNormal(ctx, tc.cluster, tc.clustermesh, tc.belongToMesh)
+			_, _ = reconciler.reconcileNormal(ctx, tc.cluster, tc.clustermesh)
 			clustermesh := &clustermeshv1beta1.ClusterMesh{}
 			err = fakeClient.Get(ctx, client.ObjectKey{Name: "test-clustermesh"}, clustermesh)
 			g.Expect(clustermesh.GetName()).To(BeEquivalentTo(tc.expectedOutput.GetName()))

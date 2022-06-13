@@ -78,25 +78,24 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		r.log.Info(fmt.Sprintf("finished reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
 	}()
 
-	// TODO: Improve how to determine that a cluster was marked for removal from a cluster group
-	clusterBelongsToMesh, err := r.isClusterBelongToAnyMesh(cluster.Name)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
 	shouldReconcileCluster := isClusterMeshEnabled(*cluster)
-	if clusterBelongsToMesh && !shouldReconcileCluster {
-		r.log.Info(fmt.Sprintf("starting reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
-		return r.reconcileDelete(ctx, cluster, clustermesh)
-	}
-
 	if !shouldReconcileCluster {
-		return ctrl.Result{}, nil
+		// TODO: Improve how to determine that a cluster was marked for removal from a cluster group
+		clusterBelongsToMesh, err := r.isClusterBelongToAnyMesh(cluster.Name)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if clusterBelongsToMesh {
+			r.log.Info(fmt.Sprintf("starting reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
+			return r.reconcileDelete(ctx, cluster, clustermesh)
+		} else {
+			return ctrl.Result{}, nil
+		}
 	}
 
 	r.log.Info(fmt.Sprintf("starting reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
 
-	return r.reconcileNormal(ctx, cluster, clustermesh, clusterBelongsToMesh)
+	return r.reconcileNormal(ctx, cluster, clustermesh)
 }
 
 func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *clusterv1beta1.Cluster, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
@@ -127,7 +126,7 @@ func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *cl
 	return r.ReconcilePeeringsFactory(r, ctx, clustermesh)
 }
 
-func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *clusterv1beta1.Cluster, clustermesh *clustermeshv1beta1.ClusterMesh, clusterBelongsToMesh bool) (ctrl.Result, error) {
+func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *clusterv1beta1.Cluster, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
 	clSpec, err := r.PopulateClusterSpecFactory(r, ctx, cluster)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -149,9 +148,11 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 		}
 		return ctrl.Result{}, nil
 	} else {
-		if !clusterBelongsToMesh {
+
+		if !r.isClusterBelongToMesh(cluster.Name, *clustermesh) {
 			clustermesh.Spec.Clusters = append(clustermesh.Spec.Clusters, clSpec)
 			r.log.Info(fmt.Sprintf("adding %s to clustermesh %s", cluster.ObjectMeta.Name, clustermesh.Name))
+			// TODO: Verify if we need this with Patch
 			if err := r.Client.Update(ctx, clustermesh); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -218,6 +219,15 @@ func (r *ClusterMeshReconciler) isClusterBelongToAnyMesh(clusterName string) (bo
 		}
 	}
 	return false, nil
+}
+
+func (r *ClusterMeshReconciler) isClusterBelongToMesh(clusterName string, clusterMesh clustermeshv1beta1.ClusterMesh) bool {
+	for _, clSpec := range clusterMesh.Spec.Clusters {
+		if clSpec.Name == clusterName {
+			return true
+		}
+	}
+	return false
 }
 
 func PopulateClusterSpec(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error) {
