@@ -18,8 +18,9 @@ package main
 
 import (
 	"flag"
-	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
 	"os"
+
+	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
 
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
@@ -30,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	crossec2v1alpha1 "github.com/crossplane/provider-aws/apis/ec2/v1alpha1"
 	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
@@ -53,6 +55,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(crossec2v1beta1.SchemeBuilder.AddToScheme(scheme))
+	utilruntime.Must(crossec2v1alpha1.SchemeBuilder.AddToScheme(scheme))
 	utilruntime.Must(kinfrastructurev1alpha1.AddToScheme(scheme))
 	utilruntime.Must(kcontrolplanev1alpha1.AddToScheme(scheme))
 	utilruntime.Must(clusterv1beta1.AddToScheme(scheme))
@@ -103,8 +106,11 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&clustermeshcontrollers.ClusterMeshReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:                     mgr.GetClient(),
+		Scheme:                     mgr.GetScheme(),
+		NewEC2ClientFactory:        ec2.NewEC2Client,
+		PopulateClusterSpecFactory: clustermeshcontrollers.PopulateClusterSpec,
+		ReconcilePeeringsFactory:   clustermeshcontrollers.ReconcilePeerings,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterMesh")
 		os.Exit(1)
