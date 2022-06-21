@@ -978,8 +978,17 @@ func TestReconcilePeerings(t *testing.T) {
 			description: "should not create a vpcpeering when it already exists",
 			k8sObjects: []client.Object{
 				&crossec2v1alpha1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						Kind:       "VPCPeeringConnection",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "A-B",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name: "test-clustermesh",
+							},
+						},
 					},
 				},
 			},
@@ -1013,8 +1022,17 @@ func TestReconcilePeerings(t *testing.T) {
 			description: "should not create a vpcpeering when it already exists inverted",
 			k8sObjects: []client.Object{
 				&crossec2v1alpha1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						Kind:       "VPCPeeringConnection",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "B-A",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name: "test-clustermesh",
+							},
+						},
 					},
 				},
 			},
@@ -1048,8 +1066,17 @@ func TestReconcilePeerings(t *testing.T) {
 			description: "should create correctly with different spec orders",
 			k8sObjects: []client.Object{
 				&crossec2v1alpha1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						Kind:       "VPCPeeringConnection",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "A-B",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name: "test-clustermesh",
+							},
+						},
 					},
 				},
 			},
@@ -1083,18 +1110,45 @@ func TestReconcilePeerings(t *testing.T) {
 			description: "should remove vpcpeerings related with cluster C",
 			k8sObjects: []client.Object{
 				&crossec2v1alpha1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						Kind:       "VPCPeeringConnection",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "A-B",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name: "test-clustermesh",
+							},
+						},
 					},
 				},
 				&crossec2v1alpha1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						Kind:       "VPCPeeringConnection",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "A-C",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name: "test-clustermesh",
+							},
+						},
 					},
 				},
 				&crossec2v1alpha1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						Kind:       "VPCPeeringConnection",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "B-C",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name: "test-clustermesh",
+							},
+						},
 					},
 				},
 			},
@@ -1139,8 +1193,17 @@ func TestReconcilePeerings(t *testing.T) {
 			description: "should remove last vpcpeering of the clustermesh",
 			k8sObjects: []client.Object{
 				&crossec2v1alpha1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						Kind:       "VPCPeeringConnection",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "A-B",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name: "test-clustermesh",
+							},
+						},
 					},
 				},
 			},

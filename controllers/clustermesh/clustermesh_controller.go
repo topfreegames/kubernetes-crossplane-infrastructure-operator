@@ -70,14 +70,13 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	defer func() {
 
-		err = patchHelper.Patch(ctx, clustermesh)
-		if err != nil {
-			r.log.Error(rerr, fmt.Sprintf("Failed to patch clustermesh: %s", err))
-			if rerr == nil {
+		if clustermesh != nil && len(clustermesh.Spec.Clusters) > 0 {
+			err = patchHelper.Patch(ctx, clustermesh)
+			if err != nil {
+				r.log.Error(rerr, fmt.Sprintf("failed to patch clustermesh: %s", err))
 				rerr = err
 			}
 		}
-		r.log.Info(fmt.Sprintf("finished reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
 	}()
 
 	shouldReconcileCluster := isClusterMeshEnabled(*cluster)
@@ -89,7 +88,9 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		if clusterBelongsToMesh {
 			r.log.Info(fmt.Sprintf("starting reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
-			return r.reconcileDelete(ctx, cluster, clustermesh)
+			result, err := r.reconcileDelete(ctx, cluster, clustermesh)
+			r.log.Info(fmt.Sprintf("finished reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
+			return result, err
 		} else {
 			return ctrl.Result{}, nil
 		}
@@ -97,7 +98,9 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	r.log.Info(fmt.Sprintf("starting reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
 
-	return r.reconcileNormal(ctx, cluster, clustermesh)
+	result, err := r.reconcileNormal(ctx, cluster, clustermesh)
+	r.log.Info(fmt.Sprintf("finished reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
+	return result, err
 }
 
 func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *clusterv1beta1.Cluster, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
@@ -120,6 +123,7 @@ func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *cl
 		if err := r.Client.Delete(ctx, clustermesh); err != nil {
 			return ctrl.Result{}, err
 		}
+		return ctrl.Result{}, nil
 	} else {
 		if err := r.Client.Update(ctx, clustermesh); err != nil {
 			return ctrl.Result{}, err
@@ -160,7 +164,6 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 			}
 		}
 	}
-
 	return r.ReconcilePeeringsFactory(r, ctx, clustermesh)
 }
 
