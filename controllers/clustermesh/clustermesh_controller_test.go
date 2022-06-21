@@ -118,8 +118,7 @@ func TestClusterMeshReconciler(t *testing.T) {
 				},
 				&clustermeshv1beta1.ClusterMesh{
 					ObjectMeta: metav1.ObjectMeta{
-						Namespace: metav1.NamespaceDefault,
-						Name:      "test-mesh",
+						Name: "test-mesh",
 					},
 					Spec: clustermeshv1beta1.ClusterMeshSpec{
 						Clusters: []*clustermeshv1beta1.ClusterSpec{
@@ -144,14 +143,8 @@ func TestClusterMeshReconciler(t *testing.T) {
 	err := clusterv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	//err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
-	//Expect(err).NotTo(HaveOccurred())
-	//
 	err = clustermeshv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
-
-	//err = kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
-	//Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
