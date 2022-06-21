@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/barkimedes/go-deepcopy"
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
@@ -28,6 +29,7 @@ import (
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
 	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
 	"github.com/topfreegames/provider-crossplane/pkg/kops"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -164,7 +166,18 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 
 func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
 
-	var vpcPeeringConnectionsRefToBeDeleted = clustermesh.Status.CrossplanePeeringRef
+	ownedVPCPeeringConnectionsRef, err := crossplane.GetOwnedVPCPeeringConnections(ctx, clustermesh, r.Client)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	clustermesh.Status.CrossplanePeeringRef = ownedVPCPeeringConnectionsRef
+
+	vpcPeeringConnectionsRefInterface, err := deepcopy.Anything(clustermesh.Status.CrossplanePeeringRef)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	vpcPeeringConnectionsRefToBeDeleted := vpcPeeringConnectionsRefInterface.([]*corev1.ObjectReference)
+
 	for _, peeringRequesterCluster := range clustermesh.Spec.Clusters {
 		for _, peeringAccepterCluster := range clustermesh.Spec.Clusters {
 			if cmp.Equal(peeringRequesterCluster, peeringAccepterCluster) {
@@ -189,18 +202,12 @@ func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clustermes
 
 	if len(vpcPeeringConnectionsRefToBeDeleted) > 0 {
 		for _, vpcPeeringConnectionsRef := range vpcPeeringConnectionsRefToBeDeleted {
-			err := crossplane.DeleteCrossplaneVPCPeeringConnection(ctx, r.Client, vpcPeeringConnectionsRef)
+			err := crossplane.DeleteCrossplaneVPCPeeringConnection(ctx, r.Client, clustermesh, vpcPeeringConnectionsRef)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
 		}
 	}
-
-	ownedVPCPeeringConnectionsRef, err := crossplane.GetOwnedVPCPeeringConnections(ctx, clustermesh, r.Client)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	clustermesh.Status.CrossplanePeeringRef = ownedVPCPeeringConnectionsRef
 
 	return ctrl.Result{}, nil
 }

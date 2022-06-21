@@ -208,7 +208,7 @@ func TestIsVPCPeeringAlreadyCreated(t *testing.T) {
 			expectedResult: false,
 		},
 		{
-			description: "should return true for A->B with AB created",
+			description: "should return false for A->B with AB created",
 			clustermeshCrossplanePeeringRef: []*corev1.ObjectReference{
 				{
 					Name: "A-B",
@@ -294,15 +294,19 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 	}
 
 	testCases := []struct {
-		description                  string
-		vpcPeeringConnections        []client.Object
-		peeringRequester             *clustermeshv1beta1.ClusterSpec
-		peeringAccepter              *clustermeshv1beta1.ClusterSpec
-		expectedVPCPeeringConnection *crossec2v1alphav1.VPCPeeringConnection
-		expectedError                bool
+		description                   string
+		vpcPeeringConnections         []client.Object
+		clustermeshStatus             clustermeshv1beta1.ClusterMeshStatus
+		peeringRequester              *clustermeshv1beta1.ClusterSpec
+		peeringAccepter               *clustermeshv1beta1.ClusterSpec
+		expectedVPCPeeringConnection  *crossec2v1alphav1.VPCPeeringConnection
+		expectedVPCPeeringConnections []*corev1.ObjectReference
 	}{
 		{
 			description: "should create vpcPeeringConnection",
+			clustermeshStatus: clustermeshv1beta1.ClusterMeshStatus{
+				CrossplanePeeringRef: []*corev1.ObjectReference{},
+			},
 			peeringRequester: &clustermeshv1beta1.ClusterSpec{
 				Name:   "A",
 				Region: "us-east-1",
@@ -342,9 +346,16 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 					},
 				},
 			},
+			expectedVPCPeeringConnections: []*corev1.ObjectReference{
+				{
+					Name:       "A-B",
+					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					Kind:       "VPCPeeringConnection",
+				},
+			},
 		},
 		{
-			description: "should fail creating a vpcPeeringConnection that already exists",
+			description: "should do nothing when trying to create a vpcPeeringConnection already created",
 			vpcPeeringConnections: []client.Object{
 				&crossec2v1alphav1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
@@ -353,14 +364,43 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "A-B",
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								Name:       clustermesh.ObjectMeta.Name,
-								APIVersion: clustermesh.TypeMeta.APIVersion,
-								Kind:       clustermesh.TypeMeta.Kind,
-								UID:        clustermesh.ObjectMeta.UID,
-							},
-						},
+					},
+				},
+				&crossec2v1alphav1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "VPCPeeringConnection",
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "A-C",
+					},
+				},
+				&crossec2v1alphav1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "VPCPeeringConnection",
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "B-C",
+					},
+				},
+			},
+			clustermeshStatus: clustermeshv1beta1.ClusterMeshStatus{
+				CrossplanePeeringRef: []*corev1.ObjectReference{
+					{
+						Name:       "A-B",
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						Kind:       "VPCPeeringConnection",
+					},
+					{
+						Name:       "A-C",
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						Kind:       "VPCPeeringConnection",
+					},
+					{
+						Name:       "B-C",
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						Kind:       "VPCPeeringConnection",
 					},
 				},
 			},
@@ -403,7 +443,116 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 					},
 				},
 			},
-			expectedError: true,
+			expectedVPCPeeringConnections: []*corev1.ObjectReference{
+				{
+					Name:       "A-B",
+					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					Kind:       "VPCPeeringConnection",
+				},
+				{
+					Name:       "A-C",
+					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					Kind:       "VPCPeeringConnection",
+				},
+				{
+					Name:       "B-C",
+					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					Kind:       "VPCPeeringConnection",
+				},
+			},
+		},
+		{
+			description: "should create a new vpcpeeringconnection when some are already created",
+			vpcPeeringConnections: []client.Object{
+				&crossec2v1alphav1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "VPCPeeringConnection",
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "A-B",
+					},
+				},
+				&crossec2v1alphav1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "VPCPeeringConnection",
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "B-C",
+					},
+				},
+			},
+			clustermeshStatus: clustermeshv1beta1.ClusterMeshStatus{
+				CrossplanePeeringRef: []*corev1.ObjectReference{
+					{
+						Name:       "A-B",
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						Kind:       "VPCPeeringConnection",
+					},
+					{
+						Name:       "B-C",
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						Kind:       "VPCPeeringConnection",
+					},
+				},
+			},
+			peeringRequester: &clustermeshv1beta1.ClusterSpec{
+				Name:   "A",
+				Region: "us-east-1",
+				VPCID:  "xxx",
+			},
+			peeringAccepter: &clustermeshv1beta1.ClusterSpec{
+				Name:   "C",
+				Region: "eu-central-1",
+				VPCID:  "yyy",
+			},
+			expectedVPCPeeringConnection: &crossec2v1alphav1.VPCPeeringConnection{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					Kind:       "VPCPeeringConnection",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "A-B",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name:       clustermesh.ObjectMeta.Name,
+							APIVersion: clustermesh.TypeMeta.APIVersion,
+							Kind:       clustermesh.TypeMeta.Kind,
+							UID:        clustermesh.ObjectMeta.UID,
+						},
+					},
+					ResourceVersion: "1",
+				},
+				Spec: crossec2v1alphav1.VPCPeeringConnectionSpec{
+					ForProvider: crossec2v1alphav1.VPCPeeringConnectionParameters{
+						Region:     "us-east-1",
+						PeerRegion: aws.String("eu-central-1"),
+						CustomVPCPeeringConnectionParameters: crossec2v1alphav1.CustomVPCPeeringConnectionParameters{
+							VPCID:         aws.String("xxx"),
+							PeerVPCID:     aws.String("yyy"),
+							AcceptRequest: true,
+						},
+					},
+				},
+			},
+			expectedVPCPeeringConnections: []*corev1.ObjectReference{
+				{
+					Name:       "A-B",
+					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					Kind:       "VPCPeeringConnection",
+				},
+				{
+					Name:       "A-C",
+					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					Kind:       "VPCPeeringConnection",
+				},
+				{
+					Name:       "B-C",
+					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					Kind:       "VPCPeeringConnection",
+				},
+			},
 		},
 	}
 
@@ -420,32 +569,176 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 		t.Run(tc.description, func(t *testing.T) {
 			ctx := context.TODO()
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.vpcPeeringConnections...).Build()
+			clustermesh.Status = tc.clustermeshStatus
 			err = CreateCrossplaneVPCPeeringConnection(ctx, fakeClient, clustermesh, tc.peeringRequester, tc.peeringAccepter)
-			if tc.expectedError {
-				g.Expect(err).ToNot(BeNil())
-			} else {
-				key := client.ObjectKey{
-					Name: fmt.Sprintf("%s-%s", tc.peeringRequester.Name, tc.peeringAccepter.Name),
-				}
-				vpcPeeringConnection := &crossec2v1alphav1.VPCPeeringConnection{}
-				err = fakeClient.Get(ctx, key, vpcPeeringConnection)
-				g.Expect(err).To(BeNil())
-				g.Expect(vpcPeeringConnection).ToNot(BeNil())
-				g.Expect(cmp.Equal(vpcPeeringConnection, tc.expectedVPCPeeringConnection)).To(BeTrue())
+			key := client.ObjectKey{
+				Name: fmt.Sprintf("%s-%s", tc.peeringRequester.Name, tc.peeringAccepter.Name),
 			}
+			vpcPeeringConnection := &crossec2v1alphav1.VPCPeeringConnection{}
+			err = fakeClient.Get(ctx, key, vpcPeeringConnection)
+			g.Expect(err).To(BeNil())
+			g.Expect(vpcPeeringConnection).ToNot(BeNil())
+			g.Expect(cmp.Equal(vpcPeeringConnection.Status, tc.expectedVPCPeeringConnection.Status)).To(BeTrue())
 		})
 	}
 }
 
 func TestDeleteCrossplaneVPCPeeringConnection(t *testing.T) {
 	testCases := []struct {
-		description           string
-		vpcPeeringConnections []client.Object
-		vpcPeeringToBeDeleted *corev1.ObjectReference
-		errorExpected         bool
+		description                   string
+		clustermesh                   *clustermeshv1beta1.ClusterMesh
+		vpcPeeringConnections         []client.Object
+		vpcPeeringToBeDeleted         *corev1.ObjectReference
+		expectedVPCPeeringConnections []*corev1.ObjectReference
 	}{
 		{
 			description: "should remove A-B VPCPeeringConnection",
+			clustermesh: &clustermeshv1beta1.ClusterMesh{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-clustermesh",
+				},
+				Status: clustermeshv1beta1.ClusterMeshStatus{
+					CrossplanePeeringRef: []*corev1.ObjectReference{
+						{
+							Name:       "A-B",
+							APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+							Kind:       "VPCPeeringConnection",
+						},
+						{
+							Name:       "A-C",
+							APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+							Kind:       "VPCPeeringConnection",
+						},
+						{
+							Name:       "B-C",
+							APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+							Kind:       "VPCPeeringConnection",
+						},
+					},
+				},
+			},
+			vpcPeeringConnections: []client.Object{
+				&crossec2v1alphav1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "VPCPeeringConnection",
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "A-B",
+					},
+				},
+				&crossec2v1alphav1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "VPCPeeringConnection",
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "A-C",
+					},
+				},
+				&crossec2v1alphav1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "VPCPeeringConnection",
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "B-C",
+					},
+				},
+			},
+			vpcPeeringToBeDeleted: &corev1.ObjectReference{
+				Name:       "A-B",
+				APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+				Kind:       "VPCPeeringConnection",
+			},
+			expectedVPCPeeringConnections: []*corev1.ObjectReference{
+				{
+					Name:       "B-C",
+					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					Kind:       "VPCPeeringConnection",
+				},
+				{
+					Name:       "A-C",
+					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					Kind:       "VPCPeeringConnection",
+				},
+			},
+		},
+		{
+			description: "should do nothing when removing a VPCPeeringConnection already deleted",
+			clustermesh: &clustermeshv1beta1.ClusterMesh{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-clustermesh",
+				},
+				Status: clustermeshv1beta1.ClusterMeshStatus{
+					CrossplanePeeringRef: []*corev1.ObjectReference{
+						{
+							Name:       "A-C",
+							APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+							Kind:       "VPCPeeringConnection",
+						},
+						{
+							Name:       "B-C",
+							APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+							Kind:       "VPCPeeringConnection",
+						},
+					},
+				},
+			},
+			vpcPeeringConnections: []client.Object{
+				&crossec2v1alphav1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "VPCPeeringConnection",
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "A-C",
+					},
+				},
+				&crossec2v1alphav1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "VPCPeeringConnection",
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "B-C",
+					},
+				},
+			},
+			vpcPeeringToBeDeleted: &corev1.ObjectReference{
+				Name:       "A-B",
+				APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+				Kind:       "VPCPeeringConnection",
+			},
+			expectedVPCPeeringConnections: []*corev1.ObjectReference{
+				{
+					Name:       "B-C",
+					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					Kind:       "VPCPeeringConnection",
+				},
+				{
+					Name:       "A-C",
+					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					Kind:       "VPCPeeringConnection",
+				},
+			},
+		},
+		{
+			description: "should remove A-B VPCPeeringConnection",
+			clustermesh: &clustermeshv1beta1.ClusterMesh{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-clustermesh",
+				},
+				Status: clustermeshv1beta1.ClusterMeshStatus{
+					CrossplanePeeringRef: []*corev1.ObjectReference{
+						{
+							Name:       "A-B",
+							APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+							Kind:       "VPCPeeringConnection",
+						},
+					},
+				},
+			},
 			vpcPeeringConnections: []client.Object{
 				&crossec2v1alphav1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
@@ -462,15 +755,7 @@ func TestDeleteCrossplaneVPCPeeringConnection(t *testing.T) {
 				APIVersion: "ec2.aws.crossplane.io/v1alpha1",
 				Kind:       "VPCPeeringConnection",
 			},
-		},
-		{
-			description: "should fail removing a inexisting VPCPeeringConnection",
-			vpcPeeringToBeDeleted: &corev1.ObjectReference{
-				Name:       "A-B",
-				APIVersion: "ec2.aws.crossplane.io/v1alpha1",
-				Kind:       "VPCPeeringConnection",
-			},
-			errorExpected: true,
+			expectedVPCPeeringConnections: []*corev1.ObjectReference{},
 		},
 	}
 
@@ -484,17 +769,25 @@ func TestDeleteCrossplaneVPCPeeringConnection(t *testing.T) {
 		t.Run(tc.description, func(t *testing.T) {
 			ctx := context.TODO()
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.vpcPeeringConnections...).Build()
-			err = DeleteCrossplaneVPCPeeringConnection(ctx, fakeClient, tc.vpcPeeringToBeDeleted)
-			if tc.errorExpected {
-				g.Expect(err).ToNot(BeNil())
-			} else {
-				key := client.ObjectKey{
-					Name: tc.vpcPeeringToBeDeleted.Name,
-				}
-				vpcPeeringConnection := &crossec2v1alphav1.VPCPeeringConnection{}
-				err = fakeClient.Get(ctx, key, vpcPeeringConnection)
-				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			err = DeleteCrossplaneVPCPeeringConnection(ctx, fakeClient, tc.clustermesh, tc.vpcPeeringToBeDeleted)
+			key := client.ObjectKey{
+				Name: tc.vpcPeeringToBeDeleted.Name,
 			}
+
+			vpcPeeringConnection := &crossec2v1alphav1.VPCPeeringConnection{}
+			err = fakeClient.Get(ctx, key, vpcPeeringConnection)
+			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+			for _, expectedVPCPeeringConnectionRef := range tc.expectedVPCPeeringConnections {
+				key = client.ObjectKey{
+					Name: expectedVPCPeeringConnectionRef.Name,
+				}
+				expectedVPCPeeringConnection := &crossec2v1alphav1.VPCPeeringConnection{}
+				err = fakeClient.Get(ctx, key, expectedVPCPeeringConnection)
+				g.Expect(err).To(BeNil())
+			}
+			g.Expect(cmp.Equal(tc.expectedVPCPeeringConnections, tc.clustermesh.Status.CrossplanePeeringRef))
+
 		})
 	}
 }
