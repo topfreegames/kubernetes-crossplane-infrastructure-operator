@@ -176,6 +176,7 @@ func TestClusterMeshReconciler(t *testing.T) {
 					Name:      "test-cluster",
 				},
 			})
+			g.Expect(err).To(BeNil())
 			for _, clustermesh := range tc.expectedClusterMesh {
 				ccm := &clustermeshv1beta1.ClusterMesh{}
 				key := client.ObjectKey{
