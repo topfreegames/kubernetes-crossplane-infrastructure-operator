@@ -139,7 +139,7 @@ func CreateCrossplaneVPCPeeringConnection(ctx context.Context, kubeClient client
 	crossplaneVPCPeeringConnection := NewCrossPlaneVPCPeeringConnection(clustermesh, peeringRequester, peeringAccepter)
 
 	err := kubeClient.Create(ctx, crossplaneVPCPeeringConnection)
-	if err != nil {
+	if err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 	log.Info(fmt.Sprintf("created vpc peering %s", crossplaneVPCPeeringConnection.ObjectMeta.GetName()))
@@ -155,7 +155,7 @@ func CreateCrossplaneVPCPeeringConnection(ctx context.Context, kubeClient client
 func DeleteCrossplaneVPCPeeringConnection(ctx context.Context, kubeClient client.Client, clustermesh *clustermeshv1beta1.ClusterMesh, vpcPeeringConnectionRef *corev1.ObjectReference) error {
 	log := ctrl.LoggerFrom(ctx)
 	err := kubeClient.Delete(ctx, util.ObjectReferenceToUnstructured(*vpcPeeringConnectionRef))
-	if err != nil {
+	if err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
 	log.Info(fmt.Sprintf("deleted vpc peering %s", vpcPeeringConnectionRef.Name))
