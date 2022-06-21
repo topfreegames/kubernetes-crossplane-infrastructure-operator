@@ -503,7 +503,7 @@ spec:
         - --leader-elect
         command:
         - /manager
-        image: controller:latest
+        image: tfgco/provider-crossplane:latest
         livenessProbe:
           httpGet:
             path: /healthz
