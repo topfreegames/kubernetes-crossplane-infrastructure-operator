@@ -42,8 +42,8 @@ func NewCrossPlaneVPCPeeringConnection(clustermesh *clustermeshv1beta1.ClusterMe
 			OwnerReferences: []metav1.OwnerReference{
 				{
 					Name:       clustermesh.ObjectMeta.Name,
-					APIVersion: clustermesh.TypeMeta.APIVersion,
-					Kind:       clustermesh.TypeMeta.Kind,
+					APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
+					Kind:       "ClusterMesh",
 					UID:        clustermesh.ObjectMeta.UID,
 				},
 			},
@@ -144,8 +144,8 @@ func CreateCrossplaneVPCPeeringConnection(ctx context.Context, kubeClient client
 	}
 	log.Info(fmt.Sprintf("created vpc peering %s", crossplaneVPCPeeringConnection.ObjectMeta.GetName()))
 	vpcPeeringRef := &corev1.ObjectReference{
-		APIVersion: crossplaneVPCPeeringConnection.TypeMeta.APIVersion,
-		Kind:       crossplaneVPCPeeringConnection.TypeMeta.Kind,
+		APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+		Kind:       "VPCPeeringConnection",
 		Name:       crossplaneVPCPeeringConnection.ObjectMeta.Name,
 	}
 	clustermesh.Status.CrossplanePeeringRef = append(clustermesh.Status.CrossplanePeeringRef, vpcPeeringRef)
