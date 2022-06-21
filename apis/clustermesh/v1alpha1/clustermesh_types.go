@@ -17,18 +17,26 @@ limitations under the License.
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+type ClusterSpec struct {
+	VPCID  string `json:"vpcID,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Region string `json:"region,omitempty"`
+}
+
 // ClusterMeshSpec defines the desired state of ClusterMesh
 type ClusterMeshSpec struct {
-	// ClusterRefList is a reference to a provider-specific resource.
-	ClusterRefList []*corev1.ObjectReference `json:"clusterRefList,omitempty"`
+	// Clusters describes a AWS Kubernetes cluster.
+	Clusters []*ClusterSpec `json:"clusterSpec,omitempty"`
 }
 
 // ClusterMeshStatus defines the observed state of ClusterMesh
-type ClusterMeshStatus struct{}
+type ClusterMeshStatus struct {
+	CrossplanePeeringRef []*v1.ObjectReference `json:"crossplanePeeringRef,omitempty"`
+}
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
