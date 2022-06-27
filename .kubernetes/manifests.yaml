@@ -276,6 +276,14 @@ metadata:
   name: provider-crossplane-manager-role
 rules:
 - apiGroups:
+  - cluster.x-k8s.io
+  resources:
+  - clusters
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - clustermesh.infrastructure.wildlife.io
   resources:
   - clustermeshes
@@ -320,6 +328,15 @@ rules:
   - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - ec2.aws.crossplane.io
+  resources:
+  - vpcpeeringconnections
+  verbs:
+  - create
+  - delete
+  - list
   - watch
 - apiGroups:
   - infrastructure.cluster.x-k8s.io
