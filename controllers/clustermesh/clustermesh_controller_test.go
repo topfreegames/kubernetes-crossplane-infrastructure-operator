@@ -2,6 +2,8 @@ package clustermesh
 
 import (
 	"context"
+	"testing"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsec2 "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -12,7 +14,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	kopsapi "k8s.io/kops/pkg/apis/kops"
-	"testing"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -694,8 +695,8 @@ func TestReconcileNormal(t *testing.T) {
 						Name: cluster.Name,
 					}, nil
 				},
-				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
-					return ctrl.Result{}, nil
+				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+					return nil
 				},
 			}
 
@@ -907,8 +908,8 @@ func TestReconcileDelete(t *testing.T) {
 			reconciler := &ClusterMeshReconciler{
 				Client: fakeClient,
 				log:    ctrl.LoggerFrom(ctx),
-				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
-					return ctrl.Result{}, nil
+				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+					return nil
 				},
 			}
 
@@ -1241,12 +1242,12 @@ func TestReconcilePeerings(t *testing.T) {
 			reconciler := &ClusterMeshReconciler{
 				Client: fakeClient,
 				log:    ctrl.LoggerFrom(ctx),
-				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
-					return ctrl.Result{}, nil
+				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+					return nil
 				},
 			}
 
-			_, _ = ReconcilePeerings(reconciler, ctx, tc.clustermesh)
+			_ = ReconcilePeerings(reconciler, ctx, tc.clustermesh)
 			for _, vpcPeeringConnectionName := range tc.expectedVpcPeeringConnections {
 				vpcPeeringConnection := &crossec2v1alpha1.VPCPeeringConnection{}
 				key := client.ObjectKey{
