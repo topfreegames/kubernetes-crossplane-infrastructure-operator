@@ -153,7 +153,7 @@ func TestClusterMeshReconciler(t *testing.T) {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
 			reconciler := &ClusterMeshReconciler{
 				Client: fakeClient,
-				PopulateClusterSpecFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error) {
+				PopulateClusterSpecFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster, kcp *kcontrolplanev1alpha1.KopsControlPlane) (*clustermeshv1beta1.ClusterSpec, error) {
 					return &clustermeshv1beta1.ClusterSpec{
 						Name:   cluster.Name,
 						VPCID:  "xxx",
@@ -403,7 +403,15 @@ func TestPopulateClusterSpec(t *testing.T) {
 				},
 			}
 
-			clSpec, err := PopulateClusterSpec(reconciler, context.TODO(), tc.cluster)
+			kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+			key := client.ObjectKey{
+				Namespace: tc.cluster.Spec.ControlPlaneRef.Namespace,
+				Name:      tc.cluster.Spec.ControlPlaneRef.Name,
+			}
+			err := fakeClient.Get(context.Background(), key, kcp)
+			g.Expect(err).NotTo(HaveOccurred())
+
+			clSpec, err := PopulateClusterSpec(reconciler, context.TODO(), tc.cluster, kcp)
 			if tc.errorValidation != nil {
 				g.Expect(tc.errorValidation(err)).To(BeTrue())
 			} else {
@@ -689,13 +697,13 @@ func TestReconcileNormal(t *testing.T) {
 			reconciler := &ClusterMeshReconciler{
 				Client: fakeClient,
 				log:    ctrl.LoggerFrom(ctx),
-				PopulateClusterSpecFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error) {
+				PopulateClusterSpecFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster, kcp *kcontrolplanev1alpha1.KopsControlPlane) (*clustermeshv1beta1.ClusterSpec, error) {
 					return &clustermeshv1beta1.ClusterSpec{
 						Name: cluster.Name,
 					}, nil
 				},
-				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
-					return ctrl.Result{}, nil
+				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+					return nil
 				},
 			}
 
@@ -907,12 +915,12 @@ func TestReconcileDelete(t *testing.T) {
 			reconciler := &ClusterMeshReconciler{
 				Client: fakeClient,
 				log:    ctrl.LoggerFrom(ctx),
-				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
-					return ctrl.Result{}, nil
+				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+					return nil
 				},
 			}
 
-			_, _ = reconciler.reconcileDelete(ctx, tc.cluster, tc.clustermesh)
+			_ = reconciler.reconcileDelete(ctx, tc.cluster, tc.clustermesh)
 			clustermesh := &clustermeshv1beta1.ClusterMesh{}
 			err = fakeClient.Get(ctx, client.ObjectKey{Name: "test-clustermesh"}, clustermesh)
 			if tc.expectedOutput != nil {
@@ -1241,12 +1249,12 @@ func TestReconcilePeerings(t *testing.T) {
 			reconciler := &ClusterMeshReconciler{
 				Client: fakeClient,
 				log:    ctrl.LoggerFrom(ctx),
-				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
-					return ctrl.Result{}, nil
+				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+					return nil
 				},
 			}
 
-			_, _ = ReconcilePeerings(reconciler, ctx, tc.clustermesh)
+			_ = ReconcilePeerings(reconciler, ctx, tc.clustermesh)
 			for _, vpcPeeringConnectionName := range tc.expectedVpcPeeringConnections {
 				vpcPeeringConnection := &crossec2v1alpha1.VPCPeeringConnection{}
 				key := client.ObjectKey{

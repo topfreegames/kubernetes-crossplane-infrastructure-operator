@@ -19,16 +19,21 @@ package clustermesh
 import (
 	"context"
 	"fmt"
+	"time"
+
+	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
+	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
+	sgv1beta1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
+	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
+	clmesh "github.com/topfreegames/provider-crossplane/pkg/clustermesh"
+	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
+	"github.com/topfreegames/provider-crossplane/pkg/kops"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/barkimedes/go-deepcopy"
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
-	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
-	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
-	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
-	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
-	"github.com/topfreegames/provider-crossplane/pkg/kops"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -37,16 +42,19 @@ import (
 	"sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 // ClusterMeshReconciler reconciles a ClusterMesh object
 type ClusterMeshReconciler struct {
 	client.Client
-	Scheme                     *runtime.Scheme
-	log                        logr.Logger
-	NewEC2ClientFactory        func(cfg aws.Config) ec2.EC2Client
-	PopulateClusterSpecFactory func(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error)
-	ReconcilePeeringsFactory   func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error)
+	Scheme                         *runtime.Scheme
+	log                            logr.Logger
+	NewEC2ClientFactory            func(cfg aws.Config) ec2.EC2Client
+	PopulateClusterSpecFactory     func(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster, kcp *kcontrolplanev1alpha1.KopsControlPlane) (*clustermeshv1beta1.ClusterSpec, error)
+	ReconcilePeeringsFactory       func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error
+	ReconcileSecurityGroupsFactory func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error
 }
 
 //+kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
@@ -56,6 +64,7 @@ type ClusterMeshReconciler struct {
 //+kubebuilder:rbac:groups=clustermesh.infrastructure.wildlife.io,resources=clustermeshes/finalizers,verbs=update
 
 func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
+	start := time.Now()
 	r.log = ctrl.LoggerFrom(ctx)
 	cluster := &clusterv1beta1.Cluster{}
 	if err := r.Get(ctx, req.NamespacedName, cluster); err != nil {
@@ -83,6 +92,7 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	shouldReconcileCluster := isClusterMeshEnabled(*cluster)
 	if !shouldReconcileCluster {
+
 		// TODO: Improve how to determine that a cluster was marked for removal from a cluster group
 		clusterBelongsToMesh, err := r.isClusterBelongToAnyMesh(cluster.Name)
 		if err != nil {
@@ -90,58 +100,41 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		if clusterBelongsToMesh {
 			r.log.Info(fmt.Sprintf("starting reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
-			result, err := r.reconcileDelete(ctx, cluster, clustermesh)
+			err = r.reconcileDelete(ctx, cluster, clustermesh)
 			r.log.Info(fmt.Sprintf("finished reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
-			return result, err
+			return ctrl.Result{}, err
 		} else {
 			return ctrl.Result{}, nil
 		}
 	}
 
-	r.log.Info(fmt.Sprintf("starting reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
-
 	result, err := r.reconcileNormal(ctx, cluster, clustermesh)
-	r.log.Info(fmt.Sprintf("finished reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
+	durationMsg := fmt.Sprintf("finished reconcile clustermesh loop for %s finished in %s ", cluster.ObjectMeta.Name, time.Now().Sub(start).String())
+	if result.RequeueAfter > 0 {
+		durationMsg = fmt.Sprintf("%s, next run in %s", durationMsg, result.RequeueAfter.String())
+	}
+	r.log.Info(durationMsg)
 	return result, err
 }
 
-func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *clusterv1beta1.Cluster, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
-
+func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *clusterv1beta1.Cluster, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
+	r.log.Info(fmt.Sprintf("starting reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
+	kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
 	key := client.ObjectKey{
-		Name: cluster.Labels["clusterGroup"],
+		Namespace: cluster.Spec.ControlPlaneRef.Namespace,
+		Name:      cluster.Spec.ControlPlaneRef.Name,
 	}
-
-	if err := r.Get(ctx, key, clustermesh); err != nil {
+	if err := r.Client.Get(ctx, key, kcp); err != nil {
 		return ctrl.Result{}, err
 	}
-	for i, clSpec := range clustermesh.Spec.Clusters {
-		if clSpec.Name == cluster.Name {
-			clustermesh.Spec.Clusters = append(clustermesh.Spec.Clusters[:i], clustermesh.Spec.Clusters[i+1:]...)
-			break
-		}
-	}
 
-	if len(clustermesh.Spec.Clusters) == 0 {
-		if err := r.Client.Delete(ctx, clustermesh); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
-	} else {
-		if err := r.Client.Update(ctx, clustermesh); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-	return r.ReconcilePeeringsFactory(r, ctx, clustermesh)
-}
-
-func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *clusterv1beta1.Cluster, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
-	clSpec, err := r.PopulateClusterSpecFactory(r, ctx, cluster)
+	clSpec, err := r.PopulateClusterSpecFactory(r, ctx, cluster, kcp)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	key := client.ObjectKey{
-		Name: cluster.Labels["clusterGroup"],
+	key = client.ObjectKey{
+		Name: cluster.Labels[clmesh.Label],
 	}
 
 	if err := r.Get(ctx, key, clustermesh); err != nil {
@@ -149,7 +142,7 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 			return ctrl.Result{}, err
 		}
 
-		ccm := crossplane.NewCrossPlaneClusterMesh(cluster.Labels["clusterGroup"], clSpec)
+		ccm := crossplane.NewCrossPlaneClusterMesh(cluster.Labels[clmesh.Label], clSpec)
 		r.log.Info(fmt.Sprintf("creating clustermesh %s", ccm.ObjectMeta.GetName()))
 		if err := r.Create(ctx, ccm); err != nil {
 			return ctrl.Result{}, err
@@ -166,20 +159,133 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 			}
 		}
 	}
+	return r.reconcileExternalResources(ctx, cluster, clustermesh)
+}
+
+func (r *ClusterMeshReconciler) reconcileExternalResources(ctx context.Context, cluster *clusterv1beta1.Cluster, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
+
+	err := r.ReconcilePeeringsFactory(r, ctx, clustermesh)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	err = r.ReconcileSecurityGroupsFactory(r, ctx, clustermesh)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{RequeueAfter: time.Minute * 5}, nil
+}
+
+func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *clusterv1beta1.Cluster, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+
+	key := client.ObjectKey{
+		Name: cluster.Labels[clmesh.Label],
+	}
+
+	if err := r.Get(ctx, key, clustermesh); err != nil {
+		return err
+	}
+	for i, clSpec := range clustermesh.Spec.Clusters {
+		if clSpec.Name == cluster.Name {
+			clustermesh.Spec.Clusters = append(clustermesh.Spec.Clusters[:i], clustermesh.Spec.Clusters[i+1:]...)
+			break
+		}
+	}
+
+	if len(clustermesh.Spec.Clusters) == 0 {
+		if err := r.Client.Delete(ctx, clustermesh); err != nil {
+			return err
+		}
+		return nil
+	} else {
+		if err := r.Client.Update(ctx, clustermesh); err != nil {
+			return err
+		}
+	}
 	return r.ReconcilePeeringsFactory(r, ctx, clustermesh)
 }
 
-func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
+func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+	// Update status
+	ownedSecurityGroupsRefs, err := crossplane.GetOwnedSecurityGroups(ctx, clustermesh, r.Client)
+	if err != nil {
+		return err
+	}
+	clustermesh.Status.CrossplaneSecurityGroupRef = ownedSecurityGroupsRefs
+
+	sgPrefix := "clustermesh-"
+	cidrResults := map[string][]string{}
+	for _, cl := range clustermesh.Spec.Clusters {
+
+		// Get control plane ASG
+		kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+		key := client.ObjectKey{
+			Namespace: "kubernetes-" + cl.Name,
+			Name:      cl.Name,
+		}
+		if err := r.Client.Get(ctx, key, kcp); err != nil {
+			return err
+		}
+		cidrResults[cl.Name] = append(cidrResults[cl.Name], kcp.Spec.KopsClusterSpec.NetworkCIDR)
+	}
+
+	for _, cl := range clustermesh.Spec.Clusters {
+		for _, cl2 := range clustermesh.Spec.Clusters {
+			if cl2.Name != cl.Name {
+				cidrResults[cl.Name] = append(cidrResults[cl.Name], cidrResults[cl2.Name]...)
+			}
+		}
+	}
+
+	for _, cl := range clustermesh.Spec.Clusters {
+		key := client.ObjectKey{
+			Name: sgPrefix + cl.Name,
+		}
+		machinePoolSG := &sgv1beta1.SecurityGroup{}
+		if err := r.Get(ctx, key, machinePoolSG); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return err
+			}
+
+			machinePoolSG.Name = sgPrefix + cl.Name
+			machinePoolSG.Namespace = "kubernetes-" + cl.Name
+
+			// Get nodes asg
+			machinePoolSG.Spec.InfrastructureRef = &corev1.ObjectReference{
+				APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+				Kind:       "KopsMachinePool",
+				Name:       machinePoolSG.Name,
+				Namespace:  machinePoolSG.Namespace,
+			}
+
+			machinePoolSG.Spec.IngressRules = []sgv1beta1.IngressRule{
+				{
+					IPProtocol:        "udp",
+					FromPort:          0,
+					ToPort:            65000,
+					AllowedCIDRBlocks: cidrResults[cl.Name]},
+			}
+			r.log.Info(fmt.Sprintf("creating security group %s", machinePoolSG.ObjectMeta.GetName()))
+			if err := r.Create(ctx, machinePoolSG); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
 
 	ownedVPCPeeringConnectionsRef, err := crossplane.GetOwnedVPCPeeringConnections(ctx, clustermesh, r.Client)
 	if err != nil {
-		return ctrl.Result{}, err
+		return err
 	}
 	clustermesh.Status.CrossplanePeeringRef = ownedVPCPeeringConnectionsRef
 
 	vpcPeeringConnectionsRefInterface, err := deepcopy.Anything(clustermesh.Status.CrossplanePeeringRef)
 	if err != nil {
-		return ctrl.Result{}, err
+		return err
 	}
 	vpcPeeringConnectionsRefToBeDeleted := vpcPeeringConnectionsRefInterface.([]*corev1.ObjectReference)
 
@@ -191,7 +297,7 @@ func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clustermes
 			if !crossplane.IsVPCPeeringAlreadyCreated(clustermesh, peeringRequesterCluster, peeringAccepterCluster) {
 				err := crossplane.CreateCrossplaneVPCPeeringConnection(ctx, r.Client, clustermesh, peeringRequesterCluster, peeringAccepterCluster)
 				if err != nil && !apierrors.IsAlreadyExists(err) {
-					return ctrl.Result{}, err
+					return err
 				}
 			} else {
 				for i, actualVPCPeeringConnectionRef := range vpcPeeringConnectionsRefToBeDeleted {
@@ -209,12 +315,12 @@ func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clustermes
 		for _, vpcPeeringConnectionsRef := range vpcPeeringConnectionsRefToBeDeleted {
 			err := crossplane.DeleteCrossplaneVPCPeeringConnection(ctx, r.Client, clustermesh, vpcPeeringConnectionsRef)
 			if err != nil {
-				return ctrl.Result{}, err
+				return err
 			}
 		}
 	}
 
-	return ctrl.Result{}, nil
+	return nil
 }
 
 func (r *ClusterMeshReconciler) isClusterBelongToAnyMesh(clusterName string) (bool, error) {
@@ -242,17 +348,8 @@ func (r *ClusterMeshReconciler) isClusterBelongToMesh(clusterName string, cluste
 	return false
 }
 
-func PopulateClusterSpec(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error) {
+func PopulateClusterSpec(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster, kcp *kcontrolplanev1alpha1.KopsControlPlane) (*clustermeshv1beta1.ClusterSpec, error) {
 	clusterSpec := &clustermeshv1beta1.ClusterSpec{}
-
-	kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
-	key := client.ObjectKey{
-		Namespace: cluster.Spec.ControlPlaneRef.Namespace,
-		Name:      cluster.Spec.ControlPlaneRef.Name,
-	}
-	if err := r.Client.Get(ctx, key, kcp); err != nil {
-		return clusterSpec, err
-	}
 
 	subnet, err := kops.GetSubnetFromKopsControlPlane(kcp)
 	if err != nil {
@@ -286,11 +383,11 @@ func PopulateClusterSpec(r *ClusterMeshReconciler, ctx context.Context, cluster 
 }
 
 func isClusterMeshEnabled(cluster clusterv1beta1.Cluster) bool {
-	if _, ok := cluster.Labels["clusterGroup"]; !ok {
+	if _, ok := cluster.Labels[clmesh.Label]; !ok {
 		return false
 	}
 
-	if _, ok := cluster.Annotations["clustermesh.infrastructure.wildlife.io"]; !ok {
+	if _, ok := cluster.Annotations[clmesh.Annotation]; !ok {
 		return false
 	}
 
@@ -300,6 +397,7 @@ func isClusterMeshEnabled(cluster clusterv1beta1.Cluster) bool {
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterMeshReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&clusterv1beta1.Cluster{}).
+		For(&clustermeshv1beta1.ClusterMesh{}).
+		Watches(&source.Kind{Type: &clusterv1beta1.Cluster{}}, &handler.EnqueueRequestForObject{}).
 		Complete(r)
 }

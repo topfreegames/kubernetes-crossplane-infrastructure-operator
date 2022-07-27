@@ -3,12 +3,14 @@ package crossplane
 import (
 	"context"
 	"fmt"
+
+	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
+	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	crossec2v1alphav1 "github.com/crossplane/provider-aws/apis/ec2/v1alpha1"
 	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
-	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
-	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -202,6 +204,27 @@ func GetOwnedVPCPeeringConnections(ctx context.Context, owner client.Object, kub
 				APIVersion: vpcPeeringConnection.TypeMeta.APIVersion,
 				Kind:       vpcPeeringConnection.TypeMeta.Kind,
 				Name:       vpcPeeringConnection.ObjectMeta.Name,
+			}
+			ss = append(ss, objectRef)
+		}
+	}
+	return ss, nil
+}
+
+func GetOwnedSecurityGroups(ctx context.Context, owner client.Object, kubeclient client.Client) ([]*corev1.ObjectReference, error) {
+	securityGroups := &securitygroupv1alpha1.SecurityGroupList{}
+	err := kubeclient.List(ctx, securityGroups)
+	if err != nil {
+		return nil, err
+	}
+	var ss []*corev1.ObjectReference
+
+	for _, sg := range securityGroups.Items {
+		if util.IsOwnedByObject(&sg, owner) {
+			objectRef := &corev1.ObjectReference{
+				APIVersion: sg.TypeMeta.APIVersion,
+				Kind:       sg.TypeMeta.Kind,
+				Name:       sg.ObjectMeta.Name,
 			}
 			ss = append(ss, objectRef)
 		}

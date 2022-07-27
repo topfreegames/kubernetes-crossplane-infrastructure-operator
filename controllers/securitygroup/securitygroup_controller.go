@@ -20,10 +20,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
-	corev1 "k8s.io/api/core/v1"
 	"strconv"
 	"time"
+
+	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -58,6 +59,73 @@ type SecurityGroupReconciler struct {
 	ManageCrossplaneSGFactory   func(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error
 }
 
+//+kubebuilder:rbac:groups=infrastructure.wildlife.io,resources=securitygroups,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=infrastructure.wildlife.io,resources=securitygroups/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=infrastructure.wildlife.io,resources=securitygroups/finalizers,verbs=update
+//+kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kopsmachinepools,verbs=get;list;watch
+//+kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=kopscontrolplanes,verbs=get;list;watch
+//+kubebuilder:rbac:groups=ec2.aws.crossplane.io,resources=securitygroups,verbs=get;list;watch;create;update;patch;delete
+
+func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
+
+	r.log = ctrl.LoggerFrom(ctx)
+
+	securityGroup := &securitygroupv1alpha1.SecurityGroup{}
+	if err := r.Get(ctx, req.NamespacedName, securityGroup); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if securityGroup.Spec.InfrastructureRef == nil {
+		return ctrl.Result{}, fmt.Errorf("infrastructureRef isn't defined")
+	}
+
+	r.log.Info(fmt.Sprintf("starting reconcile loop for %s", securityGroup.ObjectMeta.GetName()))
+
+	// Initialize the patch helper.
+	patchHelper, err := patch.NewHelper(securityGroup, r.Client)
+	if err != nil {
+		r.log.Error(err, "failed to initialize patch helper")
+		return ctrl.Result{}, err
+	}
+
+	defer func() {
+
+		err = patchHelper.Patch(ctx, securityGroup)
+		if err != nil {
+			r.log.Error(rerr, "Failed to patch kopsControlPlane")
+			if rerr == nil {
+				rerr = err
+			}
+		}
+		r.log.Info(fmt.Sprintf("finished reconcile loop for %s", securityGroup.ObjectMeta.GetName()))
+	}()
+
+	switch securityGroup.Spec.InfrastructureRef.Kind {
+	case "KopsMachinePool":
+		err := r.ReconcileKopsMachinePool(ctx, securityGroup)
+		if err != nil {
+			if errors.Is(err, ErrSecurityGroupNotAvailable) {
+				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+			}
+			return ctrl.Result{}, err
+		}
+	case "KopsControlPlane":
+		err := r.ReconcileKopsControlPlane(ctx, securityGroup)
+		if err != nil {
+			if errors.Is(err, ErrSecurityGroupNotAvailable) {
+				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+			}
+			return ctrl.Result{}, err
+		}
+	default:
+		return ctrl.Result{}, fmt.Errorf("infrastructureRef not supported")
+	}
+
+	securityGroup.Status.Ready = true
+
+	return ctrl.Result{}, nil
+}
+
 func (r *SecurityGroupReconciler) attachSGToASG(ctx context.Context, ec2Client ec2.EC2Client, asgClient autoscaling.AutoScalingClient, asgName, sgId string) error {
 
 	asg, err := autoscaling.GetAutoScalingGroupByName(ctx, asgClient, asgName)
@@ -83,6 +151,11 @@ func (r *SecurityGroupReconciler) attachSGToASG(ctx context.Context, ec2Client e
 			return err
 		}
 	}
+	return nil
+}
+
+func (r *SecurityGroupReconciler) ReconcileKopsControlPlane(ctx context.Context, sg *securitygroupv1alpha1.SecurityGroup) error {
+
 	return nil
 }
 
@@ -128,6 +201,10 @@ func (r *SecurityGroupReconciler) ReconcileKopsMachinePool(ctx context.Context, 
 		return err
 	}
 
+	if region == nil {
+		return fmt.Errorf("region not defined")
+	}
+
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(*region),
 	)
@@ -144,10 +221,6 @@ func (r *SecurityGroupReconciler) ReconcileKopsMachinePool(ctx context.Context, 
 
 	if vpcId == nil {
 		return fmt.Errorf("vpcId not defined")
-	}
-
-	if region == nil {
-		return fmt.Errorf("region not defined")
 	}
 
 	csg := crossplane.NewCrossplaneSecurityGroup(sg, vpcId, region)
@@ -210,66 +283,6 @@ func (r *SecurityGroupReconciler) ReconcileKopsMachinePool(ctx context.Context, 
 	conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupAttachedCondition)
 
 	return nil
-}
-
-//+kubebuilder:rbac:groups=infrastructure.wildlife.io,resources=securitygroups,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=infrastructure.wildlife.io,resources=securitygroups/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=infrastructure.wildlife.io,resources=securitygroups/finalizers,verbs=update
-//+kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kopsmachinepools,verbs=get;list;watch
-//+kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=kopscontrolplanes,verbs=get;list;watch
-//+kubebuilder:rbac:groups=ec2.aws.crossplane.io,resources=securitygroups,verbs=get;list;watch;create;update;patch;delete
-
-func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
-
-	r.log = ctrl.LoggerFrom(ctx)
-
-	securityGroup := &securitygroupv1alpha1.SecurityGroup{}
-	if err := r.Get(ctx, req.NamespacedName, securityGroup); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if securityGroup.Spec.InfrastructureRef == nil {
-		return ctrl.Result{}, fmt.Errorf("infrastructureRef isn't defined")
-	}
-
-	r.log.Info(fmt.Sprintf("starting reconcile loop for %s", securityGroup.ObjectMeta.GetName()))
-
-	// Initialize the patch helper.
-	patchHelper, err := patch.NewHelper(securityGroup, r.Client)
-	if err != nil {
-		r.log.Error(err, "failed to initialize patch helper")
-		return ctrl.Result{}, err
-	}
-
-	defer func() {
-
-		err = patchHelper.Patch(ctx, securityGroup)
-		if err != nil {
-			r.log.Error(rerr, "Failed to patch kopsControlPlane")
-			if rerr == nil {
-				rerr = err
-			}
-		}
-		r.log.Info(fmt.Sprintf("finished reconcile loop for %s", securityGroup.ObjectMeta.GetName()))
-	}()
-
-	// Only supports KopsMachinePool for now
-	switch securityGroup.Spec.InfrastructureRef.Kind {
-	case "KopsMachinePool":
-		err := r.ReconcileKopsMachinePool(ctx, securityGroup)
-		if err != nil {
-			if errors.Is(err, ErrSecurityGroupNotAvailable) {
-				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-			}
-			return ctrl.Result{}, err
-		}
-	default:
-		return ctrl.Result{}, fmt.Errorf("infrastructureRef not supported")
-	}
-
-	securityGroup.Status.Ready = true
-
-	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
