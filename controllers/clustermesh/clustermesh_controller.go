@@ -231,9 +231,36 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 	}
 
 	for _, cl := range clustermesh.Spec.Clusters {
-		for _, cl2 := range clustermesh.Spec.Clusters {
-			if cl2.Name != cl.Name {
-				cidrResults[cl.Name] = append(cidrResults[cl.Name], cidrResults[cl2.Name]...)
+		key := client.ObjectKey{
+			Name: sgPrefix + cl.Name,
+		}
+		kopsControlPlaneSG := &sgv1beta1.SecurityGroup{}
+		if err := r.Get(ctx, key, kopsControlPlaneSG); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return err
+			}
+
+			kopsControlPlaneSG.Name = sgPrefix + cl.Name
+			kopsControlPlaneSG.Namespace = "kubernetes-" + cl.Name
+
+			// Get nodes asg
+			kopsControlPlaneSG.Spec.InfrastructureRef = &corev1.ObjectReference{
+				APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+				Kind:       "KopsControlPlane",
+				Name:       kopsControlPlaneSG.Name,
+				Namespace:  kopsControlPlaneSG.Namespace,
+			}
+
+			kopsControlPlaneSG.Spec.IngressRules = []sgv1beta1.IngressRule{
+				{
+					IPProtocol:        "udp",
+					FromPort:          0,
+					ToPort:            65000,
+					AllowedCIDRBlocks: cidrResults[cl.Name]},
+			}
+			r.log.Info(fmt.Sprintf("creating security group %s for control plane", kopsControlPlaneSG.ObjectMeta.GetName()))
+			if err := r.Create(ctx, kopsControlPlaneSG); err != nil {
+				return err
 			}
 		}
 	}
@@ -242,36 +269,37 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 		key := client.ObjectKey{
 			Name: sgPrefix + cl.Name,
 		}
-		machinePoolSG := &sgv1beta1.SecurityGroup{}
-		if err := r.Get(ctx, key, machinePoolSG); err != nil {
+		kopsMachinePoolSG := &sgv1beta1.SecurityGroup{}
+		if err := r.Get(ctx, key, kopsMachinePoolSG); err != nil {
 			if !apierrors.IsNotFound(err) {
 				return err
 			}
 
-			machinePoolSG.Name = sgPrefix + cl.Name
-			machinePoolSG.Namespace = "kubernetes-" + cl.Name
+			kopsMachinePoolSG.Name = sgPrefix + cl.Name
+			kopsMachinePoolSG.Namespace = "kubernetes-" + cl.Name
 
 			// Get nodes asg
-			machinePoolSG.Spec.InfrastructureRef = &corev1.ObjectReference{
+			kopsMachinePoolSG.Spec.InfrastructureRef = &corev1.ObjectReference{
 				APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
 				Kind:       "KopsMachinePool",
-				Name:       machinePoolSG.Name,
-				Namespace:  machinePoolSG.Namespace,
+				Name:       kopsMachinePoolSG.Name,
+				Namespace:  kopsMachinePoolSG.Namespace,
 			}
 
-			machinePoolSG.Spec.IngressRules = []sgv1beta1.IngressRule{
+			kopsMachinePoolSG.Spec.IngressRules = []sgv1beta1.IngressRule{
 				{
 					IPProtocol:        "udp",
 					FromPort:          0,
 					ToPort:            65000,
 					AllowedCIDRBlocks: cidrResults[cl.Name]},
 			}
-			r.log.Info(fmt.Sprintf("creating security group %s", machinePoolSG.ObjectMeta.GetName()))
-			if err := r.Create(ctx, machinePoolSG); err != nil {
+			r.log.Info(fmt.Sprintf("creating security group %s for machine pool", kopsMachinePoolSG.ObjectMeta.GetName()))
+			if err := r.Create(ctx, kopsMachinePoolSG); err != nil {
 				return err
 			}
 		}
 	}
+
 	return nil
 }
 

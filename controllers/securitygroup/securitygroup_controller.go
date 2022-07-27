@@ -23,12 +23,6 @@ import (
 	"strconv"
 	"time"
 
-	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
-	corev1 "k8s.io/api/core/v1"
-
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/go-logr/logr"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
@@ -37,6 +31,11 @@ import (
 	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
 	"github.com/topfreegames/provider-crossplane/pkg/kops"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
+	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
