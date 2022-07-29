@@ -8,6 +8,7 @@ import (
 	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	crossec2v1alphav1 "github.com/crossplane/provider-aws/apis/ec2/v1alpha1"
 	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
+	"github.com/google/go-cmp/cmp"
 	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -103,7 +104,8 @@ func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha1.SecurityGroup, vpcId, 
 	return csg
 }
 
-func NewCrossplaneRoute(region, destinationCIRDBlock, vpcPeeringConnectionID, routeTable string) *crossec2v1alphav1.Route {
+func NewCrossplaneRoute(region, destinationCIRDBlock, routeTable string, vpcPeeringConnection crossec2v1alphav1.VPCPeeringConnection) *crossec2v1alphav1.Route {
+	vpcPeeringConnectionID := vpcPeeringConnection.ObjectMeta.Annotations["crossplane.io/external-name"]
 	croute := &crossec2v1alphav1.Route{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -111,6 +113,14 @@ func NewCrossplaneRoute(region, destinationCIRDBlock, vpcPeeringConnectionID, ro
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: routeTable + "-" + vpcPeeringConnectionID,
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					Name:       vpcPeeringConnection.ObjectMeta.Name,
+					Kind:       vpcPeeringConnection.TypeMeta.Kind,
+					APIVersion: vpcPeeringConnection.TypeMeta.APIVersion,
+					UID:        vpcPeeringConnection.ObjectMeta.UID,
+				},
+			},
 		},
 		Spec: crossec2v1alphav1.RouteSpec{
 			ForProvider: crossec2v1alphav1.RouteParameters{
@@ -177,9 +187,9 @@ func CreateCrossplaneVPCPeeringConnection(ctx context.Context, kubeClient client
 	return nil
 }
 
-func CreateCrossplaneRoute(ctx context.Context, kubeClient client.Client, region, destinationCIRDBlock, vpcPeeringConnectionID, routeTable string) error {
+func CreateCrossplaneRoute(ctx context.Context, kubeClient client.Client, region, destinationCIRDBlock, routeTable string, vpcPeeringConnection crossec2v1alphav1.VPCPeeringConnection) error {
 	log := ctrl.LoggerFrom(ctx)
-	crossplaneRoute := NewCrossplaneRoute(region, destinationCIRDBlock, vpcPeeringConnectionID, routeTable)
+	crossplaneRoute := NewCrossplaneRoute(region, destinationCIRDBlock, routeTable, vpcPeeringConnection)
 
 	err := kubeClient.Create(ctx, crossplaneRoute)
 	if err != nil && !apierrors.IsAlreadyExists(err) {
@@ -223,7 +233,7 @@ func IsRouteToVpcPeeringAlreadyCreated(ctx context.Context, clusterCIRD, vpcPeer
 		return false, err
 	}
 	for _, route := range routes.Items {
-		if route.Spec.ForProvider.DestinationCIDRBlock == &clusterCIRD && route.Spec.ForProvider.VPCPeeringConnectionID == &vpcPeeringConnectionID {
+		if cmp.Equal(route.Spec.ForProvider.DestinationCIDRBlock, &clusterCIRD) && cmp.Equal(route.Spec.ForProvider.VPCPeeringConnectionID, &vpcPeeringConnectionID) {
 			return true, nil
 		}
 	}
