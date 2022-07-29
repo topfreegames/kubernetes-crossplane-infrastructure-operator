@@ -257,16 +257,22 @@ func TestPopulateClusterSpec(t *testing.T) {
 		error
 	}
 
+	type mockDescribeRouteTableOutput struct {
+		*awsec2.DescribeRouteTablesOutput
+		error
+	}
+
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
 
 	testCases := []struct {
-		description           string
-		k8sObjects            []client.Object
-		cluster               *clusterv1beta1.Cluster
-		mockDescribeVPCOutput *mockDescribeVPCOutput
-		errorValidation       func(error) bool
-		expectedOutput        *clustermeshv1beta1.ClusterSpec
+		description                  string
+		k8sObjects                   []client.Object
+		cluster                      *clusterv1beta1.Cluster
+		mockDescribeVPCOutput        *mockDescribeVPCOutput
+		mockDescribeRouteTableOutput *mockDescribeRouteTableOutput
+		errorValidation              func(error) bool
+		expectedOutput               *clustermeshv1beta1.ClusterSpec
 	}{
 		{
 			description: "should return the clSpec as expected",
@@ -309,6 +315,15 @@ func TestPopulateClusterSpec(t *testing.T) {
 					},
 				}, nil,
 			},
+			mockDescribeRouteTableOutput: &mockDescribeRouteTableOutput{
+				&awsec2.DescribeRouteTablesOutput{
+					RouteTables: []ec2types.RouteTable{
+						{
+							RouteTableId: aws.String("rt-xxxxx"),
+						},
+					},
+				}, nil,
+			},
 			expectedOutput: &clustermeshv1beta1.ClusterSpec{
 				Name:   "cluster-test",
 				Region: "us-east-1",
@@ -334,6 +349,15 @@ func TestPopulateClusterSpec(t *testing.T) {
 					Vpcs: []ec2types.Vpc{
 						{
 							VpcId: aws.String("xxx"),
+						},
+					},
+				}, nil,
+			},
+			mockDescribeRouteTableOutput: &mockDescribeRouteTableOutput{
+				&awsec2.DescribeRouteTablesOutput{
+					RouteTables: []ec2types.RouteTable{
+						{
+							RouteTableId: aws.String("rt-xxxxx"),
 						},
 					},
 				}, nil,
@@ -377,6 +401,9 @@ func TestPopulateClusterSpec(t *testing.T) {
 			mockDescribeVPCOutput: &mockDescribeVPCOutput{
 				&awsec2.DescribeVpcsOutput{}, nil,
 			},
+			mockDescribeRouteTableOutput: &mockDescribeRouteTableOutput{
+				&awsec2.DescribeRouteTablesOutput{}, nil,
+			},
 			errorValidation: func(err error) bool {
 				return g.Expect(err.Error()).Should(ContainSubstring("VPC Not Found"))
 			},
@@ -394,6 +421,9 @@ func TestPopulateClusterSpec(t *testing.T) {
 			fakeEC2Client := &fakeec2.MockEC2Client{
 				MockDescribeVpcs: func(ctx context.Context, input *awsec2.DescribeVpcsInput, opts []func(*awsec2.Options)) (*awsec2.DescribeVpcsOutput, error) {
 					return tc.mockDescribeVPCOutput.DescribeVpcsOutput, tc.mockDescribeVPCOutput.error
+				},
+				MockDescribeRouteTables: func(ctx context.Context, params *awsec2.DescribeRouteTablesInput, opts []func(*awsec2.Options)) (*awsec2.DescribeRouteTablesOutput, error) {
+					return tc.mockDescribeRouteTableOutput.DescribeRouteTablesOutput, tc.mockDescribeRouteTableOutput.error
 				},
 			}
 
@@ -697,6 +727,9 @@ func TestReconcileNormal(t *testing.T) {
 				},
 				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
 					return nil
+				},
+				ReconcileRoutesFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
+					return ctrl.Result{}, nil
 				},
 			}
 
