@@ -19,6 +19,7 @@ package clustermesh
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -48,7 +49,7 @@ type ClusterMeshReconciler struct {
 	NewEC2ClientFactory        func(cfg aws.Config) ec2.EC2Client
 	PopulateClusterSpecFactory func(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error)
 	ReconcilePeeringsFactory   func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error
-	ReconcileRoutesFactory     func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) error
+	ReconcileRoutesFactory     func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error)
 }
 
 //+kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
@@ -178,11 +179,7 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 		return ctrl.Result{}, err
 	}
 
-	if err := r.ReconcileRoutesFactory(r, ctx, clSpec, clustermesh); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	return ctrl.Result{}, nil
+	return r.ReconcileRoutesFactory(r, ctx, clSpec, clustermesh)
 }
 
 func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
@@ -232,39 +229,49 @@ func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clustermes
 	return nil
 }
 
-func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
 	vpcPeeringConnections := &crossec2v1alphav1.VPCPeeringConnectionList{}
 	err := r.Client.List(ctx, vpcPeeringConnections)
 	if err != nil {
-		return err
+		return ctrl.Result{}, err
 	}
 
 	for _, vpcPeeringConnection := range vpcPeeringConnections.Items {
-		vpcPeeringConnectionID := vpcPeeringConnection.ObjectMeta.Annotations["crossplane.io/external-name"]
+		ready := false
+		for _, condition := range vpcPeeringConnection.Status.Conditions {
+			if condition.Reason == "Available" && condition.Status == "True" {
+				ready = true
+			}
+		}
+		if !ready {
+			r.log.Info("can't create routes yet, vpc " + vpcPeeringConnection.Name + " not ready, requeuing cluster " + clSpec.Name)
+			return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
+		}
 		if cmp.Equal(vpcPeeringConnection.Status.AtProvider.AccepterVPCInfo.CIDRBlock, &clSpec.CIRD) {
-			err := manageCrossplaneRoutes(r, ctx, *vpcPeeringConnection.Status.AtProvider.RequesterVPCInfo.CIDRBlock, vpcPeeringConnectionID, clSpec)
+			err := manageCrossplaneRoutes(r, ctx, *vpcPeeringConnection.Status.AtProvider.RequesterVPCInfo.CIDRBlock, vpcPeeringConnection, clSpec)
 			if err != nil {
-				return err
+				return ctrl.Result{}, err
 			}
 		} else if cmp.Equal(vpcPeeringConnection.Status.AtProvider.RequesterVPCInfo.CIDRBlock, &clSpec.CIRD) {
-			err := manageCrossplaneRoutes(r, ctx, *vpcPeeringConnection.Status.AtProvider.AccepterVPCInfo.CIDRBlock, vpcPeeringConnectionID, clSpec)
+			err := manageCrossplaneRoutes(r, ctx, *vpcPeeringConnection.Status.AtProvider.AccepterVPCInfo.CIDRBlock, vpcPeeringConnection, clSpec)
 			if err != nil {
-				return err
+				return ctrl.Result{}, err
 			}
 		}
 	}
 
-	return nil
+	return ctrl.Result{}, nil
 }
 
-func manageCrossplaneRoutes(r *ClusterMeshReconciler, ctx context.Context, clusterCIRD, vpcPeeringConnectionID string, clSpec *clustermeshv1beta1.ClusterSpec) error {
+func manageCrossplaneRoutes(r *ClusterMeshReconciler, ctx context.Context, clusterCIRD string, vpcPeeringConnection crossec2v1alphav1.VPCPeeringConnection, clSpec *clustermeshv1beta1.ClusterSpec) error {
+	vpcPeeringConnectionID := vpcPeeringConnection.ObjectMeta.Annotations["crossplane.io/external-name"]
 	isRouteCreated, err := crossplane.IsRouteToVpcPeeringAlreadyCreated(ctx, clusterCIRD, vpcPeeringConnectionID, r.Client)
 	if err != nil {
 		return err
 	}
 	if !isRouteCreated {
 		for _, routeTable := range clSpec.RouteTablesIDs {
-			err := crossplane.CreateCrossplaneRoute(ctx, r.Client, clSpec.Region, clusterCIRD, vpcPeeringConnectionID, routeTable)
+			err := crossplane.CreateCrossplaneRoute(ctx, r.Client, clSpec.Region, clusterCIRD, routeTable, vpcPeeringConnection)
 			if err != nil {
 				return err
 			}
