@@ -49,7 +49,7 @@ func GetVPCIdFromCIDR(ctx context.Context, ec2Client EC2Client, CIDR string) (*s
 	return result.Vpcs[0].VpcId, nil
 }
 
-func GetRouteTableFromVPCId(ctx context.Context, ec2Client EC2Client, VPCId string) ([]string, error) {
+func GetRouteTableIDsFromVPCId(ctx context.Context, ec2Client EC2Client, VPCId string) ([]string, error) {
 
 	filter := "vpc-id"
 	result, err := ec2Client.DescribeRouteTables(ctx, &ec2.DescribeRouteTablesInput{
