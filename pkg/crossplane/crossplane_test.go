@@ -1182,8 +1182,12 @@ func TestCreateCrossplaneRoute(t *testing.T) {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
 
 			err := CreateCrossplaneRoute(ctx, fakeClient, tc.clusterSpec.Region, tc.clusterSpec.CIRD, tc.routeTable, *vpcPeeringConnection)
-
 			g.Expect(err).To(BeNil())
+			route := crossec2v1alphav1.Route{}
+			fakeClient.Get(ctx, client.ObjectKey{Name: tc.routeTable + "-" + vpcPeeringConnection.ObjectMeta.Annotations["crossplane.io/external-name"]}, &route)
+			g.Expect(route.Spec.ForProvider.RouteTableID).To(BeEquivalentTo(aws.String(tc.routeTable)))
+			g.Expect(route.Spec.ForProvider.DestinationCIDRBlock).To(BeEquivalentTo(aws.String(tc.clusterSpec.CIRD)))
+			g.Expect(route.Spec.ForProvider.VPCPeeringConnectionID).To(BeEquivalentTo(aws.String(vpcPeeringConnection.ObjectMeta.Annotations["crossplane.io/external-name"])))
 		})
 	}
 }
