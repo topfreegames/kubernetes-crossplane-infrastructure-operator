@@ -341,7 +341,7 @@ func PopulateClusterSpec(r *ClusterMeshReconciler, ctx context.Context, cluster 
 		return clusterSpec, err
 	}
 
-	routeTablesIDs, err := ec2.GetRouteTableFromVPCId(ctx, ec2Client, *vpcId)
+	routeTablesIDs, err := ec2.GetRouteTableIDsFromVPCId(ctx, ec2Client, *vpcId)
 	if err != nil {
 		return clusterSpec, err
 	}
