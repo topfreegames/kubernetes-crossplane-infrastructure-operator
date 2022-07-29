@@ -49,7 +49,7 @@ type ClusterMeshReconciler struct {
 	NewEC2ClientFactory        func(cfg aws.Config) ec2.EC2Client
 	PopulateClusterSpecFactory func(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error)
 	ReconcilePeeringsFactory   func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error
-	ReconcileRoutesFactory     func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error)
+	ReconcileRoutesFactory     func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec) (ctrl.Result, error)
 }
 
 //+kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
@@ -179,7 +179,7 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 		return ctrl.Result{}, err
 	}
 
-	return r.ReconcileRoutesFactory(r, ctx, clSpec, clustermesh)
+	return r.ReconcileRoutesFactory(r, ctx, clSpec)
 }
 
 func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
@@ -229,7 +229,7 @@ func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clustermes
 	return nil
 }
 
-func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
+func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clustermeshv1beta1.ClusterSpec) (ctrl.Result, error) {
 	vpcPeeringConnections := &crossec2v1alphav1.VPCPeeringConnectionList{}
 	err := r.Client.List(ctx, vpcPeeringConnections)
 	if err != nil {
