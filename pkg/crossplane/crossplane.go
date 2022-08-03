@@ -104,7 +104,7 @@ func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha1.SecurityGroup, vpcId, 
 	return csg
 }
 
-func NewCrossplaneRoute(region, destinationCIRDBlock, routeTable string, vpcPeeringConnection crossec2v1alphav1.VPCPeeringConnection) *crossec2v1alphav1.Route {
+func NewCrossplaneRoute(region, destinationCIDRBlock, routeTable string, vpcPeeringConnection crossec2v1alphav1.VPCPeeringConnection) *crossec2v1alphav1.Route {
 	vpcPeeringConnectionID := vpcPeeringConnection.ObjectMeta.Annotations["crossplane.io/external-name"]
 	croute := &crossec2v1alphav1.Route{
 		TypeMeta: metav1.TypeMeta{
@@ -125,7 +125,7 @@ func NewCrossplaneRoute(region, destinationCIRDBlock, routeTable string, vpcPeer
 		Spec: crossec2v1alphav1.RouteSpec{
 			ForProvider: crossec2v1alphav1.RouteParameters{
 				Region:               region,
-				DestinationCIDRBlock: &destinationCIRDBlock,
+				DestinationCIDRBlock: &destinationCIDRBlock,
 				CustomRouteParameters: crossec2v1alphav1.CustomRouteParameters{
 					RouteTableID:           &routeTable,
 					VPCPeeringConnectionID: &vpcPeeringConnectionID,
@@ -187,9 +187,9 @@ func CreateCrossplaneVPCPeeringConnection(ctx context.Context, kubeClient client
 	return nil
 }
 
-func CreateCrossplaneRoute(ctx context.Context, kubeClient client.Client, region, destinationCIRDBlock, routeTable string, vpcPeeringConnection crossec2v1alphav1.VPCPeeringConnection) error {
+func CreateCrossplaneRoute(ctx context.Context, kubeClient client.Client, region, destinationCIDRBlock, routeTable string, vpcPeeringConnection crossec2v1alphav1.VPCPeeringConnection) error {
 	log := ctrl.LoggerFrom(ctx)
-	crossplaneRoute := NewCrossplaneRoute(region, destinationCIRDBlock, routeTable, vpcPeeringConnection)
+	crossplaneRoute := NewCrossplaneRoute(region, destinationCIDRBlock, routeTable, vpcPeeringConnection)
 
 	err := kubeClient.Create(ctx, crossplaneRoute)
 	if err != nil && !apierrors.IsAlreadyExists(err) {
@@ -226,14 +226,14 @@ func IsVPCPeeringAlreadyCreated(clustermesh *clustermeshv1beta1.ClusterMesh, pee
 	return false
 }
 
-func IsRouteToVpcPeeringAlreadyCreated(ctx context.Context, clusterCIRD, vpcPeeringConnectionID string, kubeclient client.Client) (bool, error) {
+func IsRouteToVpcPeeringAlreadyCreated(ctx context.Context, clusterCIDR, vpcPeeringConnectionID string, kubeclient client.Client) (bool, error) {
 	routes := &crossec2v1alphav1.RouteList{}
 	err := kubeclient.List(ctx, routes)
 	if err != nil {
 		return false, err
 	}
 	for _, route := range routes.Items {
-		if cmp.Equal(route.Spec.ForProvider.DestinationCIDRBlock, &clusterCIRD) && cmp.Equal(route.Spec.ForProvider.VPCPeeringConnectionID, &vpcPeeringConnectionID) {
+		if cmp.Equal(route.Spec.ForProvider.DestinationCIDRBlock, &clusterCIDR) && cmp.Equal(route.Spec.ForProvider.VPCPeeringConnectionID, &vpcPeeringConnectionID) {
 			return true, nil
 		}
 	}
