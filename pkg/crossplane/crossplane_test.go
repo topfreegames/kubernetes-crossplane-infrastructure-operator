@@ -1073,7 +1073,7 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 				Name:   "A",
 				Region: "us-east-1",
 				VPCID:  "xxx",
-				CIRD:   "aaaa",
+				CIDR:   "aaaa",
 			},
 			vpcPeeringConnectionID: "ab",
 			route:                  route,
@@ -1085,7 +1085,7 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 				Name:   "A",
 				Region: "us-east-1",
 				VPCID:  "xxx",
-				CIRD:   "aaaa",
+				CIDR:   "aaaa",
 			},
 			vpcPeeringConnectionID: "ac",
 			route:                  route,
@@ -1097,7 +1097,7 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 				Name:   "C",
 				Region: "us-east-1",
 				VPCID:  "xxx",
-				CIRD:   "cccc",
+				CIDR:   "cccc",
 			},
 			vpcPeeringConnectionID: "ab",
 			route:                  route,
@@ -1109,7 +1109,7 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 				Name:   "C",
 				Region: "us-east-1",
 				VPCID:  "xxx",
-				CIRD:   "cccc",
+				CIDR:   "cccc",
 			},
 			vpcPeeringConnectionID: "ab",
 			route:                  []client.Object{},
@@ -1128,7 +1128,7 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 			ctx := context.TODO()
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.route...).Build()
 
-			result, _ := IsRouteToVpcPeeringAlreadyCreated(ctx, tc.clusterSpec.CIRD, tc.vpcPeeringConnectionID, fakeClient)
+			result, _ := IsRouteToVpcPeeringAlreadyCreated(ctx, tc.clusterSpec.CIDR, tc.vpcPeeringConnectionID, fakeClient)
 
 			g.Expect(result).To(Equal(tc.expectedResult))
 		})
@@ -1164,7 +1164,7 @@ func TestCreateCrossplaneRoute(t *testing.T) {
 				Name:   "A",
 				Region: "us-east-1",
 				VPCID:  "xxx",
-				CIRD:   "aaaa",
+				CIDR:   "aaaa",
 			},
 			expectedResult: true,
 		},
@@ -1181,13 +1181,13 @@ func TestCreateCrossplaneRoute(t *testing.T) {
 			ctx := context.TODO()
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
 
-			err := CreateCrossplaneRoute(ctx, fakeClient, tc.clusterSpec.Region, tc.clusterSpec.CIRD, tc.routeTable, *vpcPeeringConnection)
+			err := CreateCrossplaneRoute(ctx, fakeClient, tc.clusterSpec.Region, tc.clusterSpec.CIDR, tc.routeTable, *vpcPeeringConnection)
 			g.Expect(err).To(BeNil())
 			route := crossec2v1alphav1.Route{}
 			err = fakeClient.Get(ctx, client.ObjectKey{Name: tc.routeTable + "-" + vpcPeeringConnection.ObjectMeta.Annotations["crossplane.io/external-name"]}, &route)
 			g.Expect(err).To(BeNil())
 			g.Expect(route.Spec.ForProvider.RouteTableID).To(BeEquivalentTo(aws.String(tc.routeTable)))
-			g.Expect(route.Spec.ForProvider.DestinationCIDRBlock).To(BeEquivalentTo(aws.String(tc.clusterSpec.CIRD)))
+			g.Expect(route.Spec.ForProvider.DestinationCIDRBlock).To(BeEquivalentTo(aws.String(tc.clusterSpec.CIDR)))
 			g.Expect(route.Spec.ForProvider.VPCPeeringConnectionID).To(BeEquivalentTo(aws.String(vpcPeeringConnection.ObjectMeta.Annotations["crossplane.io/external-name"])))
 		})
 	}
