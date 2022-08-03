@@ -263,15 +263,15 @@ func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clus
 	return ctrl.Result{}, nil
 }
 
-func manageCrossplaneRoutes(r *ClusterMeshReconciler, ctx context.Context, clusterCIRD string, vpcPeeringConnection crossec2v1alphav1.VPCPeeringConnection, clSpec *clustermeshv1beta1.ClusterSpec) error {
+func manageCrossplaneRoutes(r *ClusterMeshReconciler, ctx context.Context, clusterCIDR string, vpcPeeringConnection crossec2v1alphav1.VPCPeeringConnection, clSpec *clustermeshv1beta1.ClusterSpec) error {
 	vpcPeeringConnectionID := vpcPeeringConnection.ObjectMeta.Annotations["crossplane.io/external-name"]
-	isRouteCreated, err := crossplane.IsRouteToVpcPeeringAlreadyCreated(ctx, clusterCIRD, vpcPeeringConnectionID, r.Client)
+	isRouteCreated, err := crossplane.IsRouteToVpcPeeringAlreadyCreated(ctx, clusterCIDR, vpcPeeringConnectionID, r.Client)
 	if err != nil {
 		return err
 	}
 	if !isRouteCreated {
 		for _, routeTable := range clSpec.RouteTableIDs {
-			err := crossplane.CreateCrossplaneRoute(ctx, r.Client, clSpec.Region, clusterCIRD, routeTable, vpcPeeringConnection)
+			err := crossplane.CreateCrossplaneRoute(ctx, r.Client, clSpec.Region, clusterCIDR, routeTable, vpcPeeringConnection)
 			if err != nil {
 				if apierrors.IsAlreadyExists(err) {
 					continue
