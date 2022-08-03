@@ -1349,8 +1349,8 @@ func TestReconcileRoutes(t *testing.T) {
 				VPCID:  "vpc-xxxxx",
 				Name:   "cluster-a",
 				Region: "us-east-1",
-				CIRD:   "aaaaa",
-				RouteTablesIDs: []string{
+				CIDR:   "aaaaa",
+				RouteTableIDs: []string{
 					"rt-xxxx",
 					"rt-zzzz",
 				},
@@ -1366,8 +1366,8 @@ func TestReconcileRoutes(t *testing.T) {
 				VPCID:  "vpc-xxxxx",
 				Name:   "cluster-a",
 				Region: "us-east-1",
-				CIRD:   "bbbbb",
-				RouteTablesIDs: []string{
+				CIDR:   "bbbbb",
+				RouteTableIDs: []string{
 					"rt-xxxx",
 					"rt-zzzz",
 				},
@@ -1396,8 +1396,8 @@ func TestReconcileRoutes(t *testing.T) {
 				VPCID:  "vpc-xxxxx",
 				Name:   "cluster-a",
 				Region: "us-east-1",
-				CIRD:   "bbbbb",
-				RouteTablesIDs: []string{
+				CIDR:   "bbbbb",
+				RouteTableIDs: []string{
 					"rt-xxxx",
 					"rt-zzzz",
 				},
@@ -1437,8 +1437,8 @@ func TestReconcileRoutes(t *testing.T) {
 				VPCID:  "vpc-xxxxx",
 				Name:   "cluster-a",
 				Region: "us-east-1",
-				CIRD:   "aaaaa",
-				RouteTablesIDs: []string{
+				CIDR:   "aaaaa",
+				RouteTableIDs: []string{
 					"rt-xxxx",
 					"rt-zzzz",
 				},
@@ -1477,7 +1477,7 @@ func TestReconcileRoutes(t *testing.T) {
 			}
 
 			for _, route := range routes.Items {
-				g.Expect(aws.ToString(route.Spec.ForProvider.RouteTableID)).To(BeElementOf(tc.clSpec.RouteTablesIDs))
+				g.Expect(aws.ToString(route.Spec.ForProvider.RouteTableID)).To(BeElementOf(tc.clSpec.RouteTableIDs))
 				g.Expect(route.Spec.ForProvider.VPCPeeringConnectionID).To(BeEquivalentTo(aws.String(vpcPeeringConnection.Annotations["crossplane.io/external-name"])))
 				g.Expect(route.Spec.ForProvider.DestinationCIDRBlock).To(Or(BeEquivalentTo(vpcPeeringConnection.Status.AtProvider.RequesterVPCInfo.CIDRBlock), BeEquivalentTo(vpcPeeringConnection.Status.AtProvider.AccepterVPCInfo.CIDRBlock)))
 				g.Expect(route.Spec.ForProvider.Region).To(BeEquivalentTo(tc.clSpec.Region))

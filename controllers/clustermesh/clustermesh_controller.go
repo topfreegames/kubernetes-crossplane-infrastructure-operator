@@ -247,12 +247,12 @@ func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clus
 			r.log.Info("can't create routes yet, vpc " + vpcPeeringConnection.Name + " not ready, requeuing cluster " + clSpec.Name)
 			return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 		}
-		if cmp.Equal(vpcPeeringConnection.Status.AtProvider.AccepterVPCInfo.CIDRBlock, &clSpec.CIRD) {
+		if cmp.Equal(vpcPeeringConnection.Status.AtProvider.AccepterVPCInfo.CIDRBlock, &clSpec.CIDR) {
 			err := manageCrossplaneRoutes(r, ctx, *vpcPeeringConnection.Status.AtProvider.RequesterVPCInfo.CIDRBlock, vpcPeeringConnection, clSpec)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
-		} else if cmp.Equal(vpcPeeringConnection.Status.AtProvider.RequesterVPCInfo.CIDRBlock, &clSpec.CIRD) {
+		} else if cmp.Equal(vpcPeeringConnection.Status.AtProvider.RequesterVPCInfo.CIDRBlock, &clSpec.CIDR) {
 			err := manageCrossplaneRoutes(r, ctx, *vpcPeeringConnection.Status.AtProvider.AccepterVPCInfo.CIDRBlock, vpcPeeringConnection, clSpec)
 			if err != nil {
 				return ctrl.Result{}, err
@@ -270,7 +270,7 @@ func manageCrossplaneRoutes(r *ClusterMeshReconciler, ctx context.Context, clust
 		return err
 	}
 	if !isRouteCreated {
-		for _, routeTable := range clSpec.RouteTablesIDs {
+		for _, routeTable := range clSpec.RouteTableIDs {
 			err := crossplane.CreateCrossplaneRoute(ctx, r.Client, clSpec.Region, clusterCIRD, routeTable, vpcPeeringConnection)
 			if err != nil {
 				return err
@@ -341,7 +341,7 @@ func PopulateClusterSpec(r *ClusterMeshReconciler, ctx context.Context, cluster 
 		return clusterSpec, err
 	}
 
-	routeTablesIDs, err := ec2.GetRouteTableIDsFromVPCId(ctx, ec2Client, *vpcId)
+	routeTableIDs, err := ec2.GetRouteTableIDsFromVPCId(ctx, ec2Client, *vpcId)
 	if err != nil {
 		return clusterSpec, err
 	}
@@ -349,8 +349,8 @@ func PopulateClusterSpec(r *ClusterMeshReconciler, ctx context.Context, cluster 
 	clusterSpec.Name = cluster.Name
 	clusterSpec.Region = *region
 	clusterSpec.VPCID = *vpcId
-	clusterSpec.CIRD = kcp.Spec.KopsClusterSpec.NetworkCIDR
-	clusterSpec.RouteTablesIDs = routeTablesIDs
+	clusterSpec.CIDR = kcp.Spec.KopsClusterSpec.NetworkCIDR
+	clusterSpec.RouteTableIDs = routeTableIDs
 
 	return clusterSpec, nil
 }
