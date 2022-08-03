@@ -273,6 +273,9 @@ func manageCrossplaneRoutes(r *ClusterMeshReconciler, ctx context.Context, clust
 		for _, routeTable := range clSpec.RouteTableIDs {
 			err := crossplane.CreateCrossplaneRoute(ctx, r.Client, clSpec.Region, clusterCIRD, routeTable, vpcPeeringConnection)
 			if err != nil {
+				if apierrors.IsAlreadyExists(err) {
+					continue
+				}
 				return err
 			}
 		}
