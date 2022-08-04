@@ -1054,6 +1054,7 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 					DestinationCIDRBlock: aws.String("aaaa"),
 					CustomRouteParameters: crossec2v1alphav1.CustomRouteParameters{
 						VPCPeeringConnectionID: aws.String("ab"),
+						RouteTableID:           aws.String("rt-xxxx"),
 					},
 				},
 			},
@@ -1065,6 +1066,7 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 		vpcPeeringConnectionID string
 		clusterSpec            *clustermeshv1beta1.ClusterSpec
 		route                  []client.Object
+		routeTableIDs          []string
 		expectedResult         bool
 	}{
 		{
@@ -1077,7 +1079,10 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 			},
 			vpcPeeringConnectionID: "ab",
 			route:                  route,
-			expectedResult:         true,
+			routeTableIDs: []string{
+				"rt-xxxx",
+			},
+			expectedResult: true,
 		},
 		{
 			description: "should return false for cidr aaaa to vpcPeering ac",
@@ -1088,8 +1093,11 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 				CIDR:   "aaaa",
 			},
 			vpcPeeringConnectionID: "ac",
-			route:                  route,
-			expectedResult:         false,
+			routeTableIDs: []string{
+				"rt-xxxx",
+			},
+			route:          route,
+			expectedResult: false,
 		},
 		{
 			description: "should return false for cidr cccc to vpcPeering ab",
@@ -1100,8 +1108,11 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 				CIDR:   "cccc",
 			},
 			vpcPeeringConnectionID: "ab",
-			route:                  route,
-			expectedResult:         false,
+			routeTableIDs: []string{
+				"rt-xxxx",
+			},
+			route:          route,
+			expectedResult: false,
 		},
 		{
 			description: "should return false if no roule is found",
@@ -1112,8 +1123,27 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 				CIDR:   "cccc",
 			},
 			vpcPeeringConnectionID: "ab",
-			route:                  []client.Object{},
-			expectedResult:         false,
+			routeTableIDs: []string{
+				"rt-xxxx",
+			},
+			route:          []client.Object{},
+			expectedResult: false,
+		},
+		{
+			description: "should return false if roule dos not exists in both route tables",
+			clusterSpec: &clustermeshv1beta1.ClusterSpec{
+				Name:   "C",
+				Region: "us-east-1",
+				VPCID:  "xxx",
+				CIDR:   "cccc",
+			},
+			vpcPeeringConnectionID: "ab",
+			routeTableIDs: []string{
+				"rt-xxxx",
+				"rt-zzzz",
+			},
+			route:          []client.Object{},
+			expectedResult: false,
 		},
 	}
 
@@ -1128,7 +1158,7 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 			ctx := context.TODO()
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.route...).Build()
 
-			result, _ := IsRouteToVpcPeeringAlreadyCreated(ctx, tc.clusterSpec.CIDR, tc.vpcPeeringConnectionID, fakeClient)
+			result, _ := IsRouteToVpcPeeringAlreadyCreated(ctx, tc.clusterSpec.CIDR, tc.vpcPeeringConnectionID, tc.routeTableIDs, fakeClient)
 
 			g.Expect(result).To(Equal(tc.expectedResult))
 		})

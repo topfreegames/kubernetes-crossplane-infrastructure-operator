@@ -39,10 +39,16 @@ spec:
                 description: Clusters describes a AWS Kubernetes cluster.
                 items:
                   properties:
+                    cidr:
+                      type: string
                     name:
                       type: string
                     region:
                       type: string
+                    routeTableIDs:
+                      items:
+                        type: string
+                      type: array
                     vpcID:
                       type: string
                   type: object

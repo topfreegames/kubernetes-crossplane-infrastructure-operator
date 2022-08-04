@@ -226,19 +226,26 @@ func IsVPCPeeringAlreadyCreated(clustermesh *clustermeshv1beta1.ClusterMesh, pee
 	return false
 }
 
-func IsRouteToVpcPeeringAlreadyCreated(ctx context.Context, clusterCIDR, vpcPeeringConnectionID string, kubeclient client.Client) (bool, error) {
+func IsRouteToVpcPeeringAlreadyCreated(ctx context.Context, clusterCIDR, vpcPeeringConnectionID string, routeTableIDs []string, kubeclient client.Client) (bool, error) {
 	routes := &crossec2v1alphav1.RouteList{}
 	err := kubeclient.List(ctx, routes)
 	if err != nil {
 		return false, err
 	}
-	for _, route := range routes.Items {
-		if cmp.Equal(route.Spec.ForProvider.DestinationCIDRBlock, &clusterCIDR) && cmp.Equal(route.Spec.ForProvider.VPCPeeringConnectionID, &vpcPeeringConnectionID) {
-			return true, nil
+	if len(routes.Items) == 0 {
+		return false, nil
+	}
+
+	for _, routeTableID := range routeTableIDs {
+		for _, route := range routes.Items {
+			if cmp.Equal(route.Spec.ForProvider.DestinationCIDRBlock, &clusterCIDR) && cmp.Equal(route.Spec.ForProvider.VPCPeeringConnectionID, &vpcPeeringConnectionID) && cmp.Equal(route.Spec.ForProvider.RouteTableID, &routeTableID) {
+				break
+			}
+			return false, nil
 		}
 	}
 
-	return false, nil
+	return true, nil
 }
 
 func GetSecurityGroupReadyCondition(csg *crossec2v1beta1.SecurityGroup) *crossplanev1.Condition {

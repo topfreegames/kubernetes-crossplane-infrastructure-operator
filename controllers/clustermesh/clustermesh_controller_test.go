@@ -1445,6 +1445,43 @@ func TestReconcileRoutes(t *testing.T) {
 			},
 			shouldCreateRoute: false,
 		},
+		{
+			description: "should create routes even if not all routes are created",
+			k8sObjects: []client.Object{
+				&vpcPeeringConnection,
+				&crossec2v1alpha1.Route{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						Kind:       "Route",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "route-A-ab",
+						UID:  "xxx",
+					},
+					Spec: crossec2v1alpha1.RouteSpec{
+						ForProvider: crossec2v1alpha1.RouteParameters{
+							DestinationCIDRBlock: aws.String("aaaaa"),
+							Region:               "us-east-1",
+							CustomRouteParameters: crossec2v1alpha1.CustomRouteParameters{
+								VPCPeeringConnectionID: aws.String("pcx-xxxx"),
+								RouteTableID:           aws.String("rt-xxxx"),
+							},
+						},
+					},
+				},
+			},
+			clSpec: &clustermeshv1beta1.ClusterSpec{
+				VPCID:  "vpc-xxxxx",
+				Name:   "cluster-a",
+				Region: "us-east-1",
+				CIDR:   "aaaaa",
+				RouteTableIDs: []string{
+					"rt-xxxx",
+					"rt-zzzz",
+				},
+			},
+			shouldCreateRoute: true,
+		},
 	}
 
 	err := crossec2v1alpha1.AddToScheme(scheme.Scheme)
