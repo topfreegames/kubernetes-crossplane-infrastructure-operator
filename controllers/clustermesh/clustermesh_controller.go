@@ -265,7 +265,7 @@ func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clus
 
 func manageCrossplaneRoutes(r *ClusterMeshReconciler, ctx context.Context, clusterCIDR string, vpcPeeringConnection crossec2v1alphav1.VPCPeeringConnection, clSpec *clustermeshv1beta1.ClusterSpec) error {
 	vpcPeeringConnectionID := vpcPeeringConnection.ObjectMeta.Annotations["crossplane.io/external-name"]
-	isRouteCreated, err := crossplane.IsRouteToVpcPeeringAlreadyCreated(ctx, clusterCIDR, vpcPeeringConnectionID, r.Client)
+	isRouteCreated, err := crossplane.IsRouteToVpcPeeringAlreadyCreated(ctx, clusterCIDR, vpcPeeringConnectionID, clSpec.RouteTableIDs, r.Client)
 	if err != nil {
 		return err
 	}
