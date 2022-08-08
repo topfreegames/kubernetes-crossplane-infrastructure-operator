@@ -235,12 +235,14 @@ func IsRouteToVpcPeeringAlreadyCreated(ctx context.Context, clusterCIDR, vpcPeer
 	if len(routes.Items) == 0 {
 		return false, nil
 	}
-
+	routeCreated := false
 	for _, routeTableID := range routeTableIDs {
 		for _, route := range routes.Items {
 			if cmp.Equal(route.Spec.ForProvider.DestinationCIDRBlock, &clusterCIDR) && cmp.Equal(route.Spec.ForProvider.VPCPeeringConnectionID, &vpcPeeringConnectionID) && cmp.Equal(route.Spec.ForProvider.RouteTableID, &routeTableID) {
-				break
+				routeCreated = true
 			}
+		}
+		if !routeCreated {
 			return false, nil
 		}
 	}
