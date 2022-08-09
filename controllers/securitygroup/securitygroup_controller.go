@@ -66,7 +66,7 @@ type SecurityGroupReconciler struct {
 //+kubebuilder:rbac:groups=ec2.aws.crossplane.io,resources=securitygroups,verbs=get;list;watch;create;update;patch;delete
 
 func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
-
+	start := time.Now()
 	r.log = ctrl.LoggerFrom(ctx)
 
 	securityGroup := &securitygroupv1alpha1.SecurityGroup{}
@@ -98,6 +98,17 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 		r.log.Info(fmt.Sprintf("finished reconcile loop for %s", securityGroup.ObjectMeta.GetName()))
 	}()
+
+	result, err := r.reconcileNormal(ctx, securityGroup)
+	durationMsg := fmt.Sprintf("finished reconcile clustermesh loop for %s finished in %s ", securityGroup.ObjectMeta.Name, time.Since(start).String())
+	if result.RequeueAfter > 0 {
+		durationMsg = fmt.Sprintf("%s, next run in %s", durationMsg, result.RequeueAfter.String())
+	}
+	r.log.Info(durationMsg)
+	return result, err
+}
+
+func (r *SecurityGroupReconciler) reconcileNormal(ctx context.Context, securityGroup *securitygroupv1alpha1.SecurityGroup) (ctrl.Result, error) {
 
 	// Fetch KopsMachinePool
 	kmp := &kinfrastructurev1alpha1.KopsMachinePool{}
@@ -157,6 +168,10 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
+	if vpcId == nil {
+		return ctrl.Result{}, fmt.Errorf("vpcId not defined")
+	}
+
 	switch securityGroup.Spec.InfrastructureRef.Kind {
 	case "KopsMachinePool":
 		err := r.ReconcileKopsMachinePool(ctx, securityGroup, vpcId, region, kmp, cfg, ec2Client)
@@ -177,10 +192,8 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	default:
 		return ctrl.Result{}, fmt.Errorf("infrastructureRef not supported")
 	}
-
 	securityGroup.Status.Ready = true
-
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: time.Minute * 5}, nil
 }
 
 func (r *SecurityGroupReconciler) ReconcileKopsControlPlane(
@@ -189,12 +202,7 @@ func (r *SecurityGroupReconciler) ReconcileKopsControlPlane(
 	vpcId, region *string,
 	kmp *kinfrastructurev1alpha1.KopsMachinePool,
 	cfg aws.Config,
-	ec2Client ec2.EC2Client,
-) error {
-
-	if vpcId == nil {
-		return fmt.Errorf("vpcId not defined")
-	}
+	ec2Client ec2.EC2Client) error {
 
 	csg := crossplane.NewCrossplaneSecurityGroup(sg, vpcId, region)
 	err := r.ManageCrossplaneSGFactory(ctx, r.Client, csg)
