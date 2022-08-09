@@ -111,6 +111,7 @@ func main() {
 		NewEC2ClientFactory:        ec2.NewEC2Client,
 		PopulateClusterSpecFactory: clustermeshcontrollers.PopulateClusterSpec,
 		ReconcilePeeringsFactory:   clustermeshcontrollers.ReconcilePeerings,
+		ReconcileRoutesFactory:     clustermeshcontrollers.ReconcileRoutes,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterMesh")
 		os.Exit(1)
