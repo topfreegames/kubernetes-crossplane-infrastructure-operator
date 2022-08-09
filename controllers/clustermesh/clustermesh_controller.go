@@ -229,25 +229,29 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 		}
 		cidrResults[cl.Name] = append(cidrResults[cl.Name], kcp.Spec.KopsClusterSpec.NetworkCIDR)
 	}
+	const (
+		maxPort = 65535
+		minPort = 1
+	)
 
 	defaultRules := func(clusterName string) []sgv1beta1.IngressRule {
 		return []sgv1beta1.IngressRule{
 			{
 				IPProtocol:        "tcp",
-				FromPort:          0,
-				ToPort:            65000,
+				FromPort:          minPort,
+				ToPort:            maxPort,
 				AllowedCIDRBlocks: cidrResults[clusterName],
 			},
 			{
 				IPProtocol:        "udp",
-				FromPort:          0,
-				ToPort:            65000,
+				FromPort:          minPort,
+				ToPort:            maxPort,
 				AllowedCIDRBlocks: cidrResults[clusterName],
 			},
 			{
 				IPProtocol:        "icmp",
-				FromPort:          0,
-				ToPort:            65000,
+				FromPort:          minPort,
+				ToPort:            maxPort,
 				AllowedCIDRBlocks: cidrResults[clusterName],
 			},
 		}
