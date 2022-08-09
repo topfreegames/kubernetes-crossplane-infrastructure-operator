@@ -39,6 +39,8 @@ import (
 	"sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 // ClusterMeshReconciler reconciles a ClusterMesh object
@@ -375,5 +377,40 @@ func isClusterMeshEnabled(cluster clusterv1beta1.Cluster) bool {
 func (r *ClusterMeshReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&clusterv1beta1.Cluster{}).
+		Watches(
+			&source.Kind{Type: &clusterv1beta1.Cluster{}},
+			handler.EnqueueRequestsFromMapFunc(r.clusterToClustersMapFunc),
+		).
 		Complete(r)
+}
+
+func (r *ClusterMeshReconciler) clusterToClustersMapFunc(o client.Object) []ctrl.Request {
+	c, ok := o.(*clusterv1beta1.Cluster)
+	if !ok {
+		panic(fmt.Sprintf("Expected a Cluster but got a %T", o))
+	}
+
+	var result []ctrl.Request
+
+	clustermesh := &clustermeshv1beta1.ClusterMesh{}
+
+	key := client.ObjectKey{
+		Name: c.Labels["clusterGroup"],
+	}
+
+	err := r.Get(context.TODO(), key, clustermesh)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			name := client.ObjectKey{Namespace: c.Namespace, Name: c.Name}
+			result = append(result, ctrl.Request{NamespacedName: name})
+			return result
+		}
+	}
+
+	for _, clSpec := range clustermesh.Spec.Clusters {
+		name := client.ObjectKey{Namespace: clSpec.Namespace, Name: clSpec.Name}
+		result = append(result, ctrl.Request{NamespacedName: name})
+	}
+	return result
+
 }
