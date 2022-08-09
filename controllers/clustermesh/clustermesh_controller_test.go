@@ -156,7 +156,7 @@ func TestClusterMeshReconciler(t *testing.T) {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
 			reconciler := &ClusterMeshReconciler{
 				Client: fakeClient,
-				PopulateClusterSpecFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster, kcp *kcontrolplanev1alpha1.KopsControlPlane) (*clustermeshv1beta1.ClusterSpec, error) {
+				PopulateClusterSpecFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error) {
 					return &clustermeshv1beta1.ClusterSpec{
 						Name:   cluster.Name,
 						VPCID:  "xxx",
@@ -730,7 +730,7 @@ func TestReconcileNormal(t *testing.T) {
 			reconciler := &ClusterMeshReconciler{
 				Client: fakeClient,
 				log:    ctrl.LoggerFrom(ctx),
-				PopulateClusterSpecFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster, kcp *kcontrolplanev1alpha1.KopsControlPlane) (*clustermeshv1beta1.ClusterSpec, error) {
+				PopulateClusterSpecFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error) {
 					return &clustermeshv1beta1.ClusterSpec{
 						Name: cluster.Name,
 					}, nil

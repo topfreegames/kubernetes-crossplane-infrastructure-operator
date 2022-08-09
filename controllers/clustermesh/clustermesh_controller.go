@@ -21,13 +21,6 @@ import (
 	"fmt"
 	"time"
 
-
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/barkimedes/go-deepcopy"
-	crossec2v1alphav1 "github.com/crossplane/provider-aws/apis/ec2/v1alpha1"
-	"github.com/go-logr/logr"
-	"github.com/google/go-cmp/cmp"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
 	sgv1beta1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
@@ -39,6 +32,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/barkimedes/go-deepcopy"
+	crossec2v1alphav1 "github.com/crossplane/provider-aws/apis/ec2/v1alpha1"
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
@@ -55,13 +49,13 @@ import (
 // ClusterMeshReconciler reconciles a ClusterMesh object
 type ClusterMeshReconciler struct {
 	client.Client
-	Scheme                     *runtime.Scheme
-	log                        logr.Logger
-	NewEC2ClientFactory        func(cfg aws.Config) ec2.EC2Client
-	PopulateClusterSpecFactory func(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error)
+	Scheme                         *runtime.Scheme
+	log                            logr.Logger
+	NewEC2ClientFactory            func(cfg aws.Config) ec2.EC2Client
+	PopulateClusterSpecFactory     func(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error)
 	ReconcilePeeringsFactory       func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error
-  ReconcileSecurityGroupsFactory func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error
-	ReconcileRoutesFactory     func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec) (ctrl.Result, error)
+	ReconcileSecurityGroupsFactory func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error
+	ReconcileRoutesFactory         func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec) (ctrl.Result, error)
 }
 
 //+kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
@@ -135,7 +129,7 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 		return ctrl.Result{}, err
 	}
 
-	clSpec, err := r.PopulateClusterSpecFactory(r, ctx, cluster, kcp)
+	clSpec, err := r.PopulateClusterSpecFactory(r, ctx, cluster)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -145,7 +139,7 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 	}
 
 	if err := r.Get(ctx, key, clustermesh); err != nil {
-		if !errors.IsNotFound(err) {
+		if !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
 
@@ -212,10 +206,10 @@ func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *cl
 	}
 
 	if err := r.ReconcilePeeringsFactory(r, ctx, clustermesh); err != nil {
-		return ctrl.Result{}, err
+		return err
 	}
 
-	return ctrl.Result{}, nil
+	return nil
 }
 
 func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
@@ -298,7 +292,7 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 			}
 		}
 	}
-  
+
 	for _, cl := range clustermesh.Spec.Clusters {
 		key := client.ObjectKey{
 			Name: sgPrefix + cl.Name,
@@ -410,7 +404,7 @@ func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clus
 		}
 	}
 
-	return nil
+	return ctrl.Result{}, nil
 }
 
 func manageCrossplaneRoutes(r *ClusterMeshReconciler, ctx context.Context, clusterCIDR string, vpcPeeringConnection crossec2v1alphav1.VPCPeeringConnection, clSpec *clustermeshv1beta1.ClusterSpec) error {
