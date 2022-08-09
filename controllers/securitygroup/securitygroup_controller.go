@@ -100,7 +100,7 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}()
 
 	result, err := r.reconcileNormal(ctx, securityGroup)
-	durationMsg := fmt.Sprintf("finished reconcile clustermesh loop for %s finished in %s ", securityGroup.ObjectMeta.Name, time.Since(start).String())
+	durationMsg := fmt.Sprintf("finished reconcile security groups loop for %s finished in %s ", securityGroup.ObjectMeta.Name, time.Since(start).String())
 	if result.RequeueAfter > 0 {
 		durationMsg = fmt.Sprintf("%s, next run in %s", durationMsg, result.RequeueAfter.String())
 	}

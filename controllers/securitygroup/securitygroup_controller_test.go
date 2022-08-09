@@ -336,7 +336,7 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 					return crossplane.ManageCrossplaneSecurityGroupResource(ctx, kubeClient, csg)
 				},
 			}
-			err := reconciler.ReconcileKopsMachinePool(ctx, sg)
+			err := reconciler.ReconcileKopsMachinePool(ctx, sg, aws.String("x.x.x.x"), aws.String("us-east-1"), kmp, aws.Config{}, fakeEC2Client)
 
 			if !tc.expectedError {
 				if !errors.Is(err, ErrSecurityGroupNotAvailable) {
