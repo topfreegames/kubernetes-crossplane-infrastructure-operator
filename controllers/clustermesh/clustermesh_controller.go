@@ -109,7 +109,7 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	result, err := r.reconcileNormal(ctx, cluster, clustermesh)
-	durationMsg := fmt.Sprintf("finished reconcile clustermesh loop for %s finished in %s ", cluster.ObjectMeta.Name, time.Now().Sub(start).String())
+	durationMsg := fmt.Sprintf("finished reconcile clustermesh loop for %s finished in %s ", cluster.ObjectMeta.Name, time.Since(start).String())
 	if result.RequeueAfter > 0 {
 		durationMsg = fmt.Sprintf("%s, next run in %s", durationMsg, result.RequeueAfter.String())
 	}
@@ -221,7 +221,7 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 		// Get control plane ASG
 		kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
 		key := client.ObjectKey{
-			Namespace: "kubernetes-" + cl.Name,
+			Namespace: cl.Namespace,
 			Name:      cl.Name,
 		}
 		if err := r.Client.Get(ctx, key, kcp); err != nil {
@@ -230,7 +230,31 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 		cidrResults[cl.Name] = append(cidrResults[cl.Name], kcp.Spec.KopsClusterSpec.NetworkCIDR)
 	}
 
+	defaultRules := func(clusterName string) []sgv1beta1.IngressRule {
+		return []sgv1beta1.IngressRule{
+			{
+				IPProtocol:        "tcp",
+				FromPort:          0,
+				ToPort:            65000,
+				AllowedCIDRBlocks: cidrResults[clusterName],
+			},
+			{
+				IPProtocol:        "udp",
+				FromPort:          0,
+				ToPort:            65000,
+				AllowedCIDRBlocks: cidrResults[clusterName],
+			},
+			{
+				IPProtocol:        "icmp",
+				FromPort:          0,
+				ToPort:            65000,
+				AllowedCIDRBlocks: cidrResults[clusterName],
+			},
+		}
+	}
+
 	for _, cl := range clustermesh.Spec.Clusters {
+
 		key := client.ObjectKey{
 			Name: sgPrefix + cl.Name,
 		}
@@ -241,7 +265,7 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 			}
 
 			kopsControlPlaneSG.Name = sgPrefix + cl.Name
-			kopsControlPlaneSG.Namespace = "kubernetes-" + cl.Name
+			kopsControlPlaneSG.Namespace = cl.Namespace
 
 			// Get nodes asg
 			kopsControlPlaneSG.Spec.InfrastructureRef = &corev1.ObjectReference{
@@ -251,14 +275,8 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 				Namespace:  kopsControlPlaneSG.Namespace,
 			}
 
-			kopsControlPlaneSG.Spec.IngressRules = []sgv1beta1.IngressRule{
-				{
-					IPProtocol:        "udp",
-					FromPort:          0,
-					ToPort:            65000,
-					AllowedCIDRBlocks: cidrResults[cl.Name]},
-			}
-			r.log.Info(fmt.Sprintf("creating security group %s for control plane", kopsControlPlaneSG.ObjectMeta.GetName()))
+			kopsControlPlaneSG.Spec.IngressRules = defaultRules(cl.Name)
+
 			if err := r.Create(ctx, kopsControlPlaneSG); err != nil {
 				return err
 			}
@@ -286,13 +304,8 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 				Namespace:  kopsMachinePoolSG.Namespace,
 			}
 
-			kopsMachinePoolSG.Spec.IngressRules = []sgv1beta1.IngressRule{
-				{
-					IPProtocol:        "udp",
-					FromPort:          0,
-					ToPort:            65000,
-					AllowedCIDRBlocks: cidrResults[cl.Name]},
-			}
+			kopsMachinePoolSG.Spec.IngressRules = defaultRules(cl.Name)
+
 			r.log.Info(fmt.Sprintf("creating security group %s for machine pool", kopsMachinePoolSG.ObjectMeta.GetName()))
 			if err := r.Create(ctx, kopsMachinePoolSG); err != nil {
 				return err
@@ -404,6 +417,7 @@ func PopulateClusterSpec(r *ClusterMeshReconciler, ctx context.Context, cluster 
 	}
 
 	clusterSpec.Name = cluster.Name
+	clusterSpec.Namespace = cluster.Namespace
 	clusterSpec.Region = *region
 	clusterSpec.VPCID = *vpcId
 

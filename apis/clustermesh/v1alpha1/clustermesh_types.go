@@ -22,9 +22,10 @@ import (
 )
 
 type ClusterSpec struct {
-	VPCID  string `json:"vpcID,omitempty"`
-	Name   string `json:"name,omitempty"`
-	Region string `json:"region,omitempty"`
+	VPCID     string `json:"vpcID,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
+	Region    string `json:"region,omitempty"`
 }
 
 // ClusterMeshSpec defines the desired state of ClusterMesh

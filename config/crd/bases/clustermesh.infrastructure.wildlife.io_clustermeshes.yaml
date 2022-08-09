@@ -41,6 +41,8 @@ spec:
                   properties:
                     name:
                       type: string
+                    namespace:
+                      type: string
                     region:
                       type: string
                     vpcID:
