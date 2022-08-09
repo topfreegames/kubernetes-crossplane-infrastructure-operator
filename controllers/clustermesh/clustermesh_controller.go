@@ -350,6 +350,7 @@ func PopulateClusterSpec(r *ClusterMeshReconciler, ctx context.Context, cluster 
 	}
 
 	clusterSpec.Name = cluster.Name
+	clusterSpec.Namespace = cluster.Namespace
 	clusterSpec.Region = *region
 	clusterSpec.VPCID = *vpcId
 	clusterSpec.CIDR = kcp.Spec.KopsClusterSpec.NetworkCIDR
