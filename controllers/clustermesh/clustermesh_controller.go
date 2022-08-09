@@ -19,9 +19,12 @@ package clustermesh
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/barkimedes/go-deepcopy"
+	crossec2v1alphav1 "github.com/crossplane/provider-aws/apis/ec2/v1alpha1"
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
@@ -30,13 +33,14 @@ import (
 	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
 	"github.com/topfreegames/provider-crossplane/pkg/kops"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 // ClusterMeshReconciler reconciles a ClusterMesh object
@@ -46,7 +50,8 @@ type ClusterMeshReconciler struct {
 	log                        logr.Logger
 	NewEC2ClientFactory        func(cfg aws.Config) ec2.EC2Client
 	PopulateClusterSpecFactory func(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error)
-	ReconcilePeeringsFactory   func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error)
+	ReconcilePeeringsFactory   func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error
+	ReconcileRoutesFactory     func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec) (ctrl.Result, error)
 }
 
 //+kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
@@ -131,7 +136,12 @@ func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *cl
 			return ctrl.Result{}, err
 		}
 	}
-	return r.ReconcilePeeringsFactory(r, ctx, clustermesh)
+
+	if err := r.ReconcilePeeringsFactory(r, ctx, clustermesh); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{}, nil
 }
 
 func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *clusterv1beta1.Cluster, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
@@ -145,7 +155,7 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 	}
 
 	if err := r.Get(ctx, key, clustermesh); err != nil {
-		if !errors.IsNotFound(err) {
+		if !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
 
@@ -166,20 +176,25 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 			}
 		}
 	}
-	return r.ReconcilePeeringsFactory(r, ctx, clustermesh)
+
+	if err := r.ReconcilePeeringsFactory(r, ctx, clustermesh); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	return r.ReconcileRoutesFactory(r, ctx, clSpec)
 }
 
-func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
+func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
 
 	ownedVPCPeeringConnectionsRef, err := crossplane.GetOwnedVPCPeeringConnections(ctx, clustermesh, r.Client)
 	if err != nil {
-		return ctrl.Result{}, err
+		return err
 	}
 	clustermesh.Status.CrossplanePeeringRef = ownedVPCPeeringConnectionsRef
 
 	vpcPeeringConnectionsRefInterface, err := deepcopy.Anything(clustermesh.Status.CrossplanePeeringRef)
 	if err != nil {
-		return ctrl.Result{}, err
+		return err
 	}
 	vpcPeeringConnectionsRefToBeDeleted := vpcPeeringConnectionsRefInterface.([]*corev1.ObjectReference)
 
@@ -191,7 +206,7 @@ func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clustermes
 			if !crossplane.IsVPCPeeringAlreadyCreated(clustermesh, peeringRequesterCluster, peeringAccepterCluster) {
 				err := crossplane.CreateCrossplaneVPCPeeringConnection(ctx, r.Client, clustermesh, peeringRequesterCluster, peeringAccepterCluster)
 				if err != nil && !apierrors.IsAlreadyExists(err) {
-					return ctrl.Result{}, err
+					return err
 				}
 			} else {
 				for i, actualVPCPeeringConnectionRef := range vpcPeeringConnectionsRefToBeDeleted {
@@ -201,7 +216,6 @@ func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clustermes
 					}
 				}
 			}
-
 		}
 	}
 
@@ -209,12 +223,66 @@ func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clustermes
 		for _, vpcPeeringConnectionsRef := range vpcPeeringConnectionsRefToBeDeleted {
 			err := crossplane.DeleteCrossplaneVPCPeeringConnection(ctx, r.Client, clustermesh, vpcPeeringConnectionsRef)
 			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clustermeshv1beta1.ClusterSpec) (ctrl.Result, error) {
+	vpcPeeringConnections := &crossec2v1alphav1.VPCPeeringConnectionList{}
+	err := r.Client.List(ctx, vpcPeeringConnections)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	for _, vpcPeeringConnection := range vpcPeeringConnections.Items {
+		ready := false
+		for _, condition := range vpcPeeringConnection.Status.Conditions {
+			if condition.Reason == "Available" && condition.Status == "True" {
+				ready = true
+			}
+		}
+		if !ready {
+			r.log.Info("can't create routes yet, vpc " + vpcPeeringConnection.Name + " not ready, requeuing cluster " + clSpec.Name)
+			return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
+		}
+		if cmp.Equal(vpcPeeringConnection.Status.AtProvider.AccepterVPCInfo.CIDRBlock, &clSpec.CIDR) {
+			err := manageCrossplaneRoutes(r, ctx, *vpcPeeringConnection.Status.AtProvider.RequesterVPCInfo.CIDRBlock, vpcPeeringConnection, clSpec)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		} else if cmp.Equal(vpcPeeringConnection.Status.AtProvider.RequesterVPCInfo.CIDRBlock, &clSpec.CIDR) {
+			err := manageCrossplaneRoutes(r, ctx, *vpcPeeringConnection.Status.AtProvider.AccepterVPCInfo.CIDRBlock, vpcPeeringConnection, clSpec)
+			if err != nil {
 				return ctrl.Result{}, err
 			}
 		}
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func manageCrossplaneRoutes(r *ClusterMeshReconciler, ctx context.Context, clusterCIDR string, vpcPeeringConnection crossec2v1alphav1.VPCPeeringConnection, clSpec *clustermeshv1beta1.ClusterSpec) error {
+	vpcPeeringConnectionID := vpcPeeringConnection.ObjectMeta.Annotations["crossplane.io/external-name"]
+	isRouteCreated, err := crossplane.IsRouteToVpcPeeringAlreadyCreated(ctx, clusterCIDR, vpcPeeringConnectionID, clSpec.RouteTableIDs, r.Client)
+	if err != nil {
+		return err
+	}
+	if !isRouteCreated {
+		for _, routeTable := range clSpec.RouteTableIDs {
+			err := crossplane.CreateCrossplaneRoute(ctx, r.Client, clSpec.Region, clusterCIDR, routeTable, vpcPeeringConnection)
+			if err != nil {
+				if apierrors.IsAlreadyExists(err) {
+					continue
+				}
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (r *ClusterMeshReconciler) isClusterBelongToAnyMesh(clusterName string) (bool, error) {
@@ -278,9 +346,17 @@ func PopulateClusterSpec(r *ClusterMeshReconciler, ctx context.Context, cluster 
 		return clusterSpec, err
 	}
 
+	routeTableIDs, err := ec2.GetRouteTableIDsFromVPCId(ctx, ec2Client, *vpcId)
+	if err != nil {
+		return clusterSpec, err
+	}
+
 	clusterSpec.Name = cluster.Name
+	clusterSpec.Namespace = cluster.Namespace
 	clusterSpec.Region = *region
 	clusterSpec.VPCID = *vpcId
+	clusterSpec.CIDR = kcp.Spec.KopsClusterSpec.NetworkCIDR
+	clusterSpec.RouteTableIDs = routeTableIDs
 
 	return clusterSpec, nil
 }
@@ -301,5 +377,40 @@ func isClusterMeshEnabled(cluster clusterv1beta1.Cluster) bool {
 func (r *ClusterMeshReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&clusterv1beta1.Cluster{}).
+		Watches(
+			&source.Kind{Type: &clusterv1beta1.Cluster{}},
+			handler.EnqueueRequestsFromMapFunc(r.clusterToClustersMapFunc),
+		).
 		Complete(r)
+}
+
+func (r *ClusterMeshReconciler) clusterToClustersMapFunc(o client.Object) []ctrl.Request {
+	c, ok := o.(*clusterv1beta1.Cluster)
+	if !ok {
+		panic(fmt.Sprintf("Expected a Cluster but got a %T", o))
+	}
+
+	var result []ctrl.Request
+
+	clustermesh := &clustermeshv1beta1.ClusterMesh{}
+
+	key := client.ObjectKey{
+		Name: c.Labels["clusterGroup"],
+	}
+
+	err := r.Get(context.TODO(), key, clustermesh)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			name := client.ObjectKey{Namespace: c.Namespace, Name: c.Name}
+			result = append(result, ctrl.Request{NamespacedName: name})
+			return result
+		}
+	}
+
+	for _, clSpec := range clustermesh.Spec.Clusters {
+		name := client.ObjectKey{Namespace: clSpec.Namespace, Name: clSpec.Name}
+		result = append(result, ctrl.Request{NamespacedName: name})
+	}
+	return result
+
 }
