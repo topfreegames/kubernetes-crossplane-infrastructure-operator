@@ -2,9 +2,12 @@ package clustermesh
 
 import (
 	"context"
+	"testing"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsec2 "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	v1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	crossec2v1alpha1 "github.com/crossplane/provider-aws/apis/ec2/v1alpha1"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
@@ -12,7 +15,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	kopsapi "k8s.io/kops/pkg/apis/kops"
-	"testing"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -23,6 +25,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 func TestClusterMeshReconciler(t *testing.T) {
@@ -256,16 +259,22 @@ func TestPopulateClusterSpec(t *testing.T) {
 		error
 	}
 
+	type mockDescribeRouteTableOutput struct {
+		*awsec2.DescribeRouteTablesOutput
+		error
+	}
+
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
 
 	testCases := []struct {
-		description           string
-		k8sObjects            []client.Object
-		cluster               *clusterv1beta1.Cluster
-		mockDescribeVPCOutput *mockDescribeVPCOutput
-		errorValidation       func(error) bool
-		expectedOutput        *clustermeshv1beta1.ClusterSpec
+		description                  string
+		k8sObjects                   []client.Object
+		cluster                      *clusterv1beta1.Cluster
+		mockDescribeVPCOutput        *mockDescribeVPCOutput
+		mockDescribeRouteTableOutput *mockDescribeRouteTableOutput
+		errorValidation              func(error) bool
+		expectedOutput               *clustermeshv1beta1.ClusterSpec
 	}{
 		{
 			description: "should return the clSpec as expected",
@@ -308,6 +317,15 @@ func TestPopulateClusterSpec(t *testing.T) {
 					},
 				}, nil,
 			},
+			mockDescribeRouteTableOutput: &mockDescribeRouteTableOutput{
+				&awsec2.DescribeRouteTablesOutput{
+					RouteTables: []ec2types.RouteTable{
+						{
+							RouteTableId: aws.String("rt-xxxxx"),
+						},
+					},
+				}, nil,
+			},
 			expectedOutput: &clustermeshv1beta1.ClusterSpec{
 				Name:   "cluster-test",
 				Region: "us-east-1",
@@ -333,6 +351,15 @@ func TestPopulateClusterSpec(t *testing.T) {
 					Vpcs: []ec2types.Vpc{
 						{
 							VpcId: aws.String("xxx"),
+						},
+					},
+				}, nil,
+			},
+			mockDescribeRouteTableOutput: &mockDescribeRouteTableOutput{
+				&awsec2.DescribeRouteTablesOutput{
+					RouteTables: []ec2types.RouteTable{
+						{
+							RouteTableId: aws.String("rt-xxxxx"),
 						},
 					},
 				}, nil,
@@ -376,6 +403,9 @@ func TestPopulateClusterSpec(t *testing.T) {
 			mockDescribeVPCOutput: &mockDescribeVPCOutput{
 				&awsec2.DescribeVpcsOutput{}, nil,
 			},
+			mockDescribeRouteTableOutput: &mockDescribeRouteTableOutput{
+				&awsec2.DescribeRouteTablesOutput{}, nil,
+			},
 			errorValidation: func(err error) bool {
 				return g.Expect(err.Error()).Should(ContainSubstring("VPC Not Found"))
 			},
@@ -393,6 +423,9 @@ func TestPopulateClusterSpec(t *testing.T) {
 			fakeEC2Client := &fakeec2.MockEC2Client{
 				MockDescribeVpcs: func(ctx context.Context, input *awsec2.DescribeVpcsInput, opts []func(*awsec2.Options)) (*awsec2.DescribeVpcsOutput, error) {
 					return tc.mockDescribeVPCOutput.DescribeVpcsOutput, tc.mockDescribeVPCOutput.error
+				},
+				MockDescribeRouteTables: func(ctx context.Context, params *awsec2.DescribeRouteTablesInput, opts []func(*awsec2.Options)) (*awsec2.DescribeRouteTablesOutput, error) {
+					return tc.mockDescribeRouteTableOutput.DescribeRouteTablesOutput, tc.mockDescribeRouteTableOutput.error
 				},
 			}
 
@@ -694,7 +727,10 @@ func TestReconcileNormal(t *testing.T) {
 						Name: cluster.Name,
 					}, nil
 				},
-				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
+				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+					return nil
+				},
+				ReconcileRoutesFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec) (ctrl.Result, error) {
 					return ctrl.Result{}, nil
 				},
 			}
@@ -907,8 +943,8 @@ func TestReconcileDelete(t *testing.T) {
 			reconciler := &ClusterMeshReconciler{
 				Client: fakeClient,
 				log:    ctrl.LoggerFrom(ctx),
-				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
-					return ctrl.Result{}, nil
+				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+					return nil
 				},
 			}
 
@@ -1241,12 +1277,12 @@ func TestReconcilePeerings(t *testing.T) {
 			reconciler := &ClusterMeshReconciler{
 				Client: fakeClient,
 				log:    ctrl.LoggerFrom(ctx),
-				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
-					return ctrl.Result{}, nil
+				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+					return nil
 				},
 			}
 
-			_, _ = ReconcilePeerings(reconciler, ctx, tc.clustermesh)
+			_ = ReconcilePeerings(reconciler, ctx, tc.clustermesh)
 			for _, vpcPeeringConnectionName := range tc.expectedVpcPeeringConnections {
 				vpcPeeringConnection := &crossec2v1alpha1.VPCPeeringConnection{}
 				key := client.ObjectKey{
@@ -1265,6 +1301,345 @@ func TestReconcilePeerings(t *testing.T) {
 				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 			}
 
+		})
+	}
+}
+
+func TestReconcileRoutes(t *testing.T) {
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	vpcPeeringConnection := crossec2v1alpha1.VPCPeeringConnection{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+			Kind:       "VPCPeeringConnection",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "a-b",
+			Annotations: map[string]string{
+				"crossplane.io/external-name": "pcx-xxxx",
+			},
+		},
+		Status: crossec2v1alpha1.VPCPeeringConnectionStatus{
+			ResourceStatus: v1.ResourceStatus{
+				ConditionedStatus: *v1.NewConditionedStatus(v1.Available()),
+			},
+			AtProvider: crossec2v1alpha1.VPCPeeringConnectionObservation{
+				AccepterVPCInfo: &crossec2v1alpha1.VPCPeeringConnectionVPCInfo{
+					CIDRBlock: aws.String("aaaaa"),
+				},
+				RequesterVPCInfo: &crossec2v1alpha1.VPCPeeringConnectionVPCInfo{
+					CIDRBlock: aws.String("bbbbb"),
+				},
+			},
+		},
+	}
+
+	testCases := []struct {
+		description       string
+		k8sObjects        []client.Object
+		clSpec            *clustermeshv1beta1.ClusterSpec
+		shouldCreateRoute bool
+	}{
+		{
+			description: "should create route if does not exits and vpcPeering is ready. also the current cluster is the accepter on vpc peering",
+			k8sObjects: []client.Object{
+				&vpcPeeringConnection,
+			},
+			clSpec: &clustermeshv1beta1.ClusterSpec{
+				VPCID:  "vpc-xxxxx",
+				Name:   "cluster-a",
+				Region: "us-east-1",
+				CIDR:   "aaaaa",
+				RouteTableIDs: []string{
+					"rt-xxxx",
+					"rt-zzzz",
+				},
+			},
+			shouldCreateRoute: true,
+		},
+		{
+			description: "should create route if does not exits and vpcPeering is ready. also the current cluster is the requester on vpc peering",
+			k8sObjects: []client.Object{
+				&vpcPeeringConnection,
+			},
+			clSpec: &clustermeshv1beta1.ClusterSpec{
+				VPCID:  "vpc-xxxxx",
+				Name:   "cluster-a",
+				Region: "us-east-1",
+				CIDR:   "bbbbb",
+				RouteTableIDs: []string{
+					"rt-xxxx",
+					"rt-zzzz",
+				},
+			},
+			shouldCreateRoute: true,
+		},
+		{
+			description: "should not create routes and return without error if vpcPeering is not ready",
+			k8sObjects: []client.Object{
+				&crossec2v1alpha1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						Kind:       "VPCPeeringConnection",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "a-b",
+					},
+					Status: crossec2v1alpha1.VPCPeeringConnectionStatus{
+						ResourceStatus: v1.ResourceStatus{
+							ConditionedStatus: *v1.NewConditionedStatus(v1.Unavailable()),
+						},
+					},
+				},
+			},
+			clSpec: &clustermeshv1beta1.ClusterSpec{
+				VPCID:  "vpc-xxxxx",
+				Name:   "cluster-a",
+				Region: "us-east-1",
+				CIDR:   "bbbbb",
+				RouteTableIDs: []string{
+					"rt-xxxx",
+					"rt-zzzz",
+				},
+			},
+			shouldCreateRoute: false,
+		},
+		{
+			description: "should not create routes if cluster don't belong to any vpcPeering",
+			k8sObjects: []client.Object{
+				&crossec2v1alpha1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						Kind:       "VPCPeeringConnection",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "a-b",
+						Annotations: map[string]string{
+							"crossplane.io/external-name": "pcx-xxxx",
+						},
+					},
+					Status: crossec2v1alpha1.VPCPeeringConnectionStatus{
+						ResourceStatus: v1.ResourceStatus{
+							ConditionedStatus: *v1.NewConditionedStatus(v1.Available()),
+						},
+						AtProvider: crossec2v1alpha1.VPCPeeringConnectionObservation{
+							AccepterVPCInfo: &crossec2v1alpha1.VPCPeeringConnectionVPCInfo{
+								CIDRBlock: aws.String("ccccc"),
+							},
+							RequesterVPCInfo: &crossec2v1alpha1.VPCPeeringConnectionVPCInfo{
+								CIDRBlock: aws.String("bbbbb"),
+							},
+						},
+					},
+				},
+			},
+			clSpec: &clustermeshv1beta1.ClusterSpec{
+				VPCID:  "vpc-xxxxx",
+				Name:   "cluster-a",
+				Region: "us-east-1",
+				CIDR:   "aaaaa",
+				RouteTableIDs: []string{
+					"rt-xxxx",
+					"rt-zzzz",
+				},
+			},
+			shouldCreateRoute: false,
+		},
+		{
+			description: "should create routes even if not all routes are created",
+			k8sObjects: []client.Object{
+				&vpcPeeringConnection,
+				&crossec2v1alpha1.Route{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						Kind:       "Route",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "rt-xxxx-pcx-xxxx",
+						UID:  "xxx",
+					},
+					Spec: crossec2v1alpha1.RouteSpec{
+						ForProvider: crossec2v1alpha1.RouteParameters{
+							DestinationCIDRBlock: aws.String("bbbbb"),
+							Region:               "us-east-1",
+							CustomRouteParameters: crossec2v1alpha1.CustomRouteParameters{
+								VPCPeeringConnectionID: aws.String("pcx-xxxx"),
+								RouteTableID:           aws.String("rt-xxxx"),
+							},
+						},
+					},
+				},
+			},
+			clSpec: &clustermeshv1beta1.ClusterSpec{
+				VPCID:  "vpc-xxxxx",
+				Name:   "cluster-a",
+				Region: "us-east-1",
+				CIDR:   "aaaaa",
+				RouteTableIDs: []string{
+					"rt-xxxx",
+					"rt-zzzz",
+				},
+			},
+			shouldCreateRoute: true,
+		},
+	}
+
+	err := crossec2v1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+
+			ctx := context.TODO()
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
+
+			reconciler := &ClusterMeshReconciler{
+				Client: fakeClient,
+				log:    ctrl.LoggerFrom(ctx),
+			}
+
+			_, err = ReconcileRoutes(reconciler, ctx, tc.clSpec)
+			g.Expect(err).To(BeNil())
+
+			routes := &crossec2v1alpha1.RouteList{}
+			err = fakeClient.List(ctx, routes)
+			g.Expect(err).To(BeNil())
+			if !tc.shouldCreateRoute {
+				g.Expect(routes.Items).To(BeEmpty())
+			} else {
+				g.Expect(routes.Items).To(Not(BeEmpty()))
+			}
+
+			for _, route := range routes.Items {
+				g.Expect(aws.ToString(route.Spec.ForProvider.RouteTableID)).To(BeElementOf(tc.clSpec.RouteTableIDs))
+				g.Expect(route.Spec.ForProvider.VPCPeeringConnectionID).To(BeEquivalentTo(aws.String(vpcPeeringConnection.Annotations["crossplane.io/external-name"])))
+				g.Expect(route.Spec.ForProvider.DestinationCIDRBlock).To(Or(BeEquivalentTo(vpcPeeringConnection.Status.AtProvider.RequesterVPCInfo.CIDRBlock), BeEquivalentTo(vpcPeeringConnection.Status.AtProvider.AccepterVPCInfo.CIDRBlock)))
+				g.Expect(route.Spec.ForProvider.Region).To(BeEquivalentTo(tc.clSpec.Region))
+			}
+		})
+	}
+}
+
+func TestClusterToClustersMapFunc(t *testing.T) {
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	clusterA := &clusterv1beta1.Cluster{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Cluster",
+			APIVersion: "cluster.x-k8s.io/v1beta1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				"clustermesh.infrastructure.wildlife.io": "true",
+			},
+			Name:      "A",
+			Namespace: "A",
+			Labels: map[string]string{
+				"clusterGroup": "test",
+			},
+		},
+	}
+
+	clustermesh := &clustermeshv1beta1.ClusterMesh{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ClusterMesh",
+			APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test",
+		},
+		Spec: clustermeshv1beta1.ClusterMeshSpec{
+			Clusters: []*clustermeshv1beta1.ClusterSpec{
+				{
+					Name:      "A",
+					Namespace: "A",
+				},
+				{
+					Name:      "B",
+					Namespace: "B",
+				},
+			},
+		},
+	}
+
+	testCases := []struct {
+		description string
+		k8sObjects  []client.Object
+		meshCreated bool
+		wantPanic   bool
+	}{
+		{
+			description: "if cluster A belongs to a mesh sould return cluster A and cluster B",
+			k8sObjects: []client.Object{
+				clusterA,
+				clustermesh,
+			},
+			meshCreated: true,
+		},
+
+		{
+			description: "if cluster A does not belongs to any mesh sould only return cluster A",
+			k8sObjects: []client.Object{
+				clusterA,
+			},
+		},
+
+		{
+			description: "should panic if object is not a cluster",
+			wantPanic:   true,
+		},
+	}
+
+	err := clusterv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+
+			ctx := context.TODO()
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
+
+			reconciler := &ClusterMeshReconciler{
+				Client: fakeClient,
+				log:    ctrl.LoggerFrom(ctx),
+			}
+
+			defer func() {
+				r := recover()
+				if tc.wantPanic {
+					g.Expect(r).To(ContainSubstring("Expected a Cluster but got a"))
+				}
+			}()
+
+			var results []reconcile.Request
+			if tc.wantPanic {
+				results = reconciler.clusterToClustersMapFunc(clustermesh)
+			} else {
+				results = reconciler.clusterToClustersMapFunc(clusterA)
+			}
+
+			if tc.meshCreated {
+				clusterNames := []string{}
+				for _, clusterSpec := range clustermesh.Spec.Clusters {
+					clusterNames = append(clusterNames, clusterSpec.Name)
+				}
+
+				g.Expect(len(results)).To(BeEquivalentTo(len(clusterNames)))
+
+				for _, result := range results {
+					g.Expect(result.Name).To(BeElementOf(clusterNames))
+				}
+			} else {
+				g.Expect(results[0].Name).To(BeEquivalentTo(clusterA.Name))
+			}
 		})
 	}
 }
