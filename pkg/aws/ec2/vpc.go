@@ -18,6 +18,7 @@ type EC2Client interface {
 	CreateLaunchTemplateVersion(ctx context.Context, params *ec2.CreateLaunchTemplateVersionInput, optFns ...func(*ec2.Options)) (*ec2.CreateLaunchTemplateVersionOutput, error)
 	ModifyLaunchTemplate(ctx context.Context, params *ec2.ModifyLaunchTemplateInput, optFns ...func(*ec2.Options)) (*ec2.ModifyLaunchTemplateOutput, error)
 	DescribeSecurityGroups(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error)
+	DescribeRouteTables(ctx context.Context, input *ec2.DescribeRouteTablesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeRouteTablesOutput, error)
 }
 
 func NewEC2Client(cfg aws.Config) EC2Client {
@@ -46,6 +47,33 @@ func GetVPCIdFromCIDR(ctx context.Context, ec2Client EC2Client, CIDR string) (*s
 	}
 
 	return result.Vpcs[0].VpcId, nil
+}
+
+func GetRouteTableIDsFromVPCId(ctx context.Context, ec2Client EC2Client, VPCId string) ([]string, error) {
+
+	filter := "vpc-id"
+	result, err := ec2Client.DescribeRouteTables(ctx, &ec2.DescribeRouteTablesInput{
+		Filters: []ec2types.Filter{
+			{
+				Name: &filter,
+				Values: []string{
+					VPCId,
+				},
+			},
+		},
+	})
+
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to describe route tables")
+	}
+
+	var routeTablesIDs []string
+
+	for _, routeTable := range result.RouteTables {
+		routeTablesIDs = append(routeTablesIDs, *routeTable.RouteTableId)
+	}
+
+	return routeTablesIDs, nil
 }
 
 func GetLastLaunchTemplateVersion(ctx context.Context, ec2Client EC2Client, launchTemplateID string) (*ec2types.LaunchTemplateVersion, error) {

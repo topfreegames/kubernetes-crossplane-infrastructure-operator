@@ -404,3 +404,53 @@ func TestAttachSecurityGroupToLaunchTemplate(t *testing.T) {
 		})
 	}
 }
+
+func TestRouteTableIDsFromVPCId(t *testing.T) {
+	testCases := []map[string]interface{}{
+		{
+			"description": "should return a list of route table ids",
+			"mockDescribeRouteTables": func(ctx context.Context, input *ec2.DescribeRouteTablesInput, opts []func(*ec2.Options)) (*ec2.DescribeRouteTablesOutput, error) {
+				return &ec2.DescribeRouteTablesOutput{
+					RouteTables: []ec2types.RouteTable{
+						{
+							RouteTableId: aws.String("rt-xxxxx"),
+						},
+						{
+							RouteTableId: aws.String("rt-zzzzz"),
+						},
+					},
+				}, nil
+			},
+			"expectedError": false,
+		},
+		{
+			"description": "should fail to describe route tables",
+			"mockDescribeRouteTables": func(ctx context.Context, input *ec2.DescribeRouteTablesInput, opts []func(*ec2.Options)) (*ec2.DescribeRouteTablesOutput, error) {
+				return nil, errors.New("some error")
+			},
+			"expectedError":        true,
+			"expectedErrorMessage": "failed to describe route tables",
+		},
+	}
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	for _, tc := range testCases {
+		t.Run(tc["description"].(string), func(t *testing.T) {
+			ctx := context.TODO()
+			fakeEC2Client := &fake.MockEC2Client{}
+			fakeEC2Client.MockDescribeRouteTables = tc["mockDescribeRouteTables"].(func(ctx context.Context, input *ec2.DescribeRouteTablesInput, opts []func(*ec2.Options)) (*ec2.DescribeRouteTablesOutput, error))
+			routeTablesIDs, err := GetRouteTableIDsFromVPCId(ctx, fakeEC2Client, "vpc-aaaaa")
+
+			if !tc["expectedError"].(bool) {
+				g.Expect(err).To(BeNil())
+				for _, routeTableID := range routeTablesIDs {
+					g.Expect(routeTableID).ToNot(BeNil())
+				}
+			} else {
+				g.Expect(err).ToNot(BeNil())
+				g.Expect(err.Error()).To(ContainSubstring(tc["expectedErrorMessage"].(string)))
+			}
+		})
+	}
+}

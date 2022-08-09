@@ -12,6 +12,7 @@ type MockEC2Client struct {
 	MockCreateLaunchTemplateVersion    func(ctx context.Context, params *ec2.CreateLaunchTemplateVersionInput, optFns []func(*ec2.Options)) (*ec2.CreateLaunchTemplateVersionOutput, error)
 	MockModifyLaunchTemplate           func(ctx context.Context, params *ec2.ModifyLaunchTemplateInput, optFns []func(*ec2.Options)) (*ec2.ModifyLaunchTemplateOutput, error)
 	MockDescribeSecurityGroups         func(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns []func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error)
+	MockDescribeRouteTables            func(ctx context.Context, params *ec2.DescribeRouteTablesInput, optFns []func(*ec2.Options)) (*ec2.DescribeRouteTablesOutput, error)
 }
 
 func (m *MockEC2Client) DescribeVpcs(ctx context.Context, input *ec2.DescribeVpcsInput, opts ...func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error) {
@@ -32,4 +33,8 @@ func (m *MockEC2Client) ModifyLaunchTemplate(ctx context.Context, params *ec2.Mo
 
 func (m *MockEC2Client) DescribeSecurityGroups(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, opts ...func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error) {
 	return m.MockDescribeSecurityGroups(ctx, params, opts)
+}
+
+func (m *MockEC2Client) DescribeRouteTables(ctx context.Context, params *ec2.DescribeRouteTablesInput, opts ...func(*ec2.Options)) (*ec2.DescribeRouteTablesOutput, error) {
+	return m.MockDescribeRouteTables(ctx, params, opts)
 }
