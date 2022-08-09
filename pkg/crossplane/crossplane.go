@@ -192,7 +192,7 @@ func CreateCrossplaneRoute(ctx context.Context, kubeClient client.Client, region
 	crossplaneRoute := NewCrossplaneRoute(region, destinationCIDRBlock, routeTable, vpcPeeringConnection)
 
 	err := kubeClient.Create(ctx, crossplaneRoute)
-	if err != nil && !apierrors.IsAlreadyExists(err) {
+	if err != nil {
 		return err
 	}
 	log.Info(fmt.Sprintf("created route  %s", crossplaneRoute.ObjectMeta.GetName()))
