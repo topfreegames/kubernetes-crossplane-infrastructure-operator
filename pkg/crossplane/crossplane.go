@@ -12,7 +12,6 @@ import (
 	crossec2v1alphav1 "github.com/crossplane/provider-aws/apis/ec2/v1alpha1"
 	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
 	"github.com/google/go-cmp/cmp"
-  
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -21,19 +20,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
-
-func NewCrossPlaneClusterMesh(name string, clSpec *clustermeshv1beta1.ClusterSpec) *clustermeshv1beta1.ClusterMesh {
-	clusters := []*clustermeshv1beta1.ClusterSpec{clSpec}
-	ccm := &clustermeshv1beta1.ClusterMesh{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
-		Spec: clustermeshv1beta1.ClusterMeshSpec{
-			Clusters: clusters,
-		},
-	}
-	return ccm
-}
 
 func NewCrossPlaneVPCPeeringConnection(clustermesh *clustermeshv1beta1.ClusterMesh, peeringRequester, peeringAccepter *clustermeshv1beta1.ClusterSpec) *crossec2v1alphav1.VPCPeeringConnection {
 	crossplaneVPCPeeringConnection := &crossec2v1alphav1.VPCPeeringConnection{

@@ -135,7 +135,7 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 			return ctrl.Result{}, err
 		}
 
-		ccm := crossplane.NewCrossPlaneClusterMesh(cluster.Labels[clmesh.Label], clSpec)
+		ccm := clmesh.NewClusterMesh(cluster.Labels[clmesh.Label], clSpec)
 		r.log.Info(fmt.Sprintf("creating clustermesh %s", ccm.ObjectMeta.GetName()))
 		if err := r.Create(ctx, ccm); err != nil {
 			return ctrl.Result{}, err
