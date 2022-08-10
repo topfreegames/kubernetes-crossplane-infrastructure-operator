@@ -152,10 +152,10 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 			}
 		}
 	}
-	return r.reconcileExternalResources(ctx, cluster, clustermesh)
+	return r.reconcileExternalResources(ctx, clustermesh)
 }
 
-func (r *ClusterMeshReconciler) reconcileExternalResources(ctx context.Context, cluster *clusterv1beta1.Cluster, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
+func (r *ClusterMeshReconciler) reconcileExternalResources(ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
 
 	err := r.ReconcilePeeringsFactory(r, ctx, clustermesh)
 	if err != nil {
@@ -212,24 +212,35 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 	}
 	clustermesh.Status.CrossplaneSecurityGroupRef = ownedSecurityGroupsRefs
 
-	sgPrefix := "clustermesh-"
-	cidrResults := map[string][]string{}
+	var cidrResults []string
 	for _, cl := range clustermesh.Spec.Clusters {
-
-		// Get control plane ASG
-		kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
-		key := client.ObjectKey{
-			Namespace: cl.Namespace,
-			Name:      cl.Name,
-		}
-		if err := r.Client.Get(ctx, key, kcp); err != nil {
-			return err
-		}
-		cidrResults[cl.Name] = append(cidrResults[cl.Name], kcp.Spec.KopsClusterSpec.NetworkCIDR)
+		cidrResults = append(cidrResults, cl.CIDR)
 	}
+
+	err = createSecurityGroupForASG(r, ctx, clustermesh, "controlplane.cluster.x-k8s.io/v1alpha1", "KopsControlPlane", cidrResults)
+	if err != nil {
+		return err
+	}
+
+	err = createSecurityGroupForASG(r, ctx, clustermesh, "infrastructure.cluster.x-k8s.io/v1alpha1", "KopsMachinePool", cidrResults)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func createSecurityGroupForASG(
+	r *ClusterMeshReconciler,
+	ctx context.Context,
+	clustermesh *clustermeshv1beta1.ClusterMesh,
+	apiVersion, kind string,
+	allowedCIRDs []string) error {
+
 	const (
-		maxPort = 65535
-		minPort = 1
+		maxPort  = 65535
+		minPort  = 1
+		sgPrefix = "clustermesh-"
 	)
 
 	defaultRules := func(clusterName string) []sgv1beta1.IngressRule {
@@ -238,83 +249,52 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 				IPProtocol:        "tcp",
 				FromPort:          minPort,
 				ToPort:            maxPort,
-				AllowedCIDRBlocks: cidrResults[clusterName],
+				AllowedCIDRBlocks: allowedCIRDs,
 			},
 			{
 				IPProtocol:        "udp",
 				FromPort:          minPort,
 				ToPort:            maxPort,
-				AllowedCIDRBlocks: cidrResults[clusterName],
+				AllowedCIDRBlocks: allowedCIRDs,
 			},
 			{
 				IPProtocol:        "icmp",
 				FromPort:          minPort,
 				ToPort:            maxPort,
-				AllowedCIDRBlocks: cidrResults[clusterName],
+				AllowedCIDRBlocks: allowedCIRDs,
 			},
 		}
 	}
 
 	for _, cl := range clustermesh.Spec.Clusters {
-
 		key := client.ObjectKey{
 			Name: sgPrefix + cl.Name,
 		}
-		kopsControlPlaneSG := &sgv1beta1.SecurityGroup{}
-		if err := r.Get(ctx, key, kopsControlPlaneSG); err != nil {
+		sg := &sgv1beta1.SecurityGroup{}
+		if err := r.Get(ctx, key, sg); err != nil {
 			if !apierrors.IsNotFound(err) {
 				return err
 			}
 
-			kopsControlPlaneSG.Name = sgPrefix + cl.Name
-			kopsControlPlaneSG.Namespace = cl.Namespace
+			sg.Name = sgPrefix + cl.Name
+			sg.Namespace = cl.Namespace
 
 			// Get nodes asg
-			kopsControlPlaneSG.Spec.InfrastructureRef = &corev1.ObjectReference{
-				APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
-				Kind:       "KopsControlPlane",
-				Name:       kopsControlPlaneSG.Name,
-				Namespace:  kopsControlPlaneSG.Namespace,
+			sg.Spec.InfrastructureRef = &corev1.ObjectReference{
+				APIVersion: apiVersion,
+				Kind:       kind,
+				Name:       sg.Name,
+				Namespace:  sg.Namespace,
 			}
 
-			kopsControlPlaneSG.Spec.IngressRules = defaultRules(cl.Name)
+			sg.Spec.IngressRules = defaultRules(cl.Name)
 
-			if err := r.Create(ctx, kopsControlPlaneSG); err != nil {
+			r.log.Info(fmt.Sprintf("creating security group %s for %s", sg.ObjectMeta.GetName(), kind))
+			if err := r.Create(ctx, sg); err != nil {
 				return err
 			}
 		}
 	}
-
-	for _, cl := range clustermesh.Spec.Clusters {
-		key := client.ObjectKey{
-			Name: sgPrefix + cl.Name,
-		}
-		kopsMachinePoolSG := &sgv1beta1.SecurityGroup{}
-		if err := r.Get(ctx, key, kopsMachinePoolSG); err != nil {
-			if !apierrors.IsNotFound(err) {
-				return err
-			}
-
-			kopsMachinePoolSG.Name = sgPrefix + cl.Name
-			kopsMachinePoolSG.Namespace = "kubernetes-" + cl.Name
-
-			// Get nodes asg
-			kopsMachinePoolSG.Spec.InfrastructureRef = &corev1.ObjectReference{
-				APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
-				Kind:       "KopsMachinePool",
-				Name:       kopsMachinePoolSG.Name,
-				Namespace:  kopsMachinePoolSG.Namespace,
-			}
-
-			kopsMachinePoolSG.Spec.IngressRules = defaultRules(cl.Name)
-
-			r.log.Info(fmt.Sprintf("creating security group %s for machine pool", kopsMachinePoolSG.ObjectMeta.GetName()))
-			if err := r.Create(ctx, kopsMachinePoolSG); err != nil {
-				return err
-			}
-		}
-	}
-
 	return nil
 }
 
