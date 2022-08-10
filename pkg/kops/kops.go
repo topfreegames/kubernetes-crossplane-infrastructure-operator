@@ -1,9 +1,12 @@
 package kops
 
 import (
+	"context"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/labels"
 	kopsapi "k8s.io/kops/pkg/apis/kops"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/pkg/errors"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
@@ -30,6 +33,27 @@ func GetRegionFromKopsSubnet(subnet kopsapi.ClusterSubnetSpec) (*string, error) 
 	}
 
 	return nil, errors.Wrap(errors.Errorf("RegionNotFound"), "couldn't get region from KopsControlPlane")
+}
+
+// GetKopsMachinePoolsWithLabel retrieve all KopsMachinePool with the label in format 'key: value'
+func GetKopsMachinePoolsWithLabel(ctx context.Context, c client.Client, key, value string) ([]kinfrastructurev1alpha1.KopsMachinePool, error) {
+	var kmps []kinfrastructurev1alpha1.KopsMachinePool
+
+	req, err := labels.NewRequirement(key, "Equal", []string{value})
+	if err != nil {
+		return kmps, err
+	}
+
+	selector := labels.NewSelector()
+	selector = selector.Add(*req)
+
+	kmpsList := &kinfrastructurev1alpha1.KopsMachinePoolList{}
+
+	err = c.List(ctx, kmpsList, &client.ListOptions{LabelSelector: selector})
+	if err != nil {
+		return kmps, err
+	}
+	return kmpsList.Items, nil
 }
 
 func GetAutoScalingGroupNameFromKopsMachinePool(kmp kinfrastructurev1alpha1.KopsMachinePool) (*string, error) {

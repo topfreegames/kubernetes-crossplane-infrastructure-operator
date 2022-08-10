@@ -152,10 +152,10 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 			}
 		}
 	}
-	return r.reconcileExternalResources(ctx, clustermesh)
+	return r.reconcileExternalResources(ctx, clSpec, clustermesh)
 }
 
-func (r *ClusterMeshReconciler) reconcileExternalResources(ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
+func (r *ClusterMeshReconciler) reconcileExternalResources(ctx context.Context, clSpec *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
 
 	err := r.ReconcilePeeringsFactory(r, ctx, clustermesh)
 	if err != nil {
@@ -167,7 +167,12 @@ func (r *ClusterMeshReconciler) reconcileExternalResources(ctx context.Context, 
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{RequeueAfter: time.Minute * 5}, nil
+	res, err := r.ReconcileRoutesFactory(r, ctx, clSpec)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	return res, nil
 }
 
 func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *clusterv1beta1.Cluster, clustermesh *clustermeshv1beta1.ClusterMesh) error {
@@ -246,19 +251,7 @@ func createSecurityGroupForASG(
 	defaultRules := func(clusterName string) []sgv1beta1.IngressRule {
 		return []sgv1beta1.IngressRule{
 			{
-				IPProtocol:        "tcp",
-				FromPort:          minPort,
-				ToPort:            maxPort,
-				AllowedCIDRBlocks: allowedCIRDs,
-			},
-			{
-				IPProtocol:        "udp",
-				FromPort:          minPort,
-				ToPort:            maxPort,
-				AllowedCIDRBlocks: allowedCIRDs,
-			},
-			{
-				IPProtocol:        "icmp",
+				IPProtocol:        "-1",
 				FromPort:          minPort,
 				ToPort:            maxPort,
 				AllowedCIDRBlocks: allowedCIRDs,
