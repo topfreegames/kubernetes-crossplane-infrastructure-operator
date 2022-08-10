@@ -436,14 +436,6 @@ func TestPopulateClusterSpec(t *testing.T) {
 				},
 			}
 
-			kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
-			key := client.ObjectKey{
-				Namespace: tc.cluster.Spec.ControlPlaneRef.Namespace,
-				Name:      tc.cluster.Spec.ControlPlaneRef.Name,
-			}
-			err := fakeClient.Get(context.Background(), key, kcp)
-			g.Expect(err).NotTo(HaveOccurred())
-
 			clSpec, err := PopulateClusterSpec(reconciler, context.TODO(), tc.cluster)
 			if tc.errorValidation != nil {
 				g.Expect(tc.errorValidation(err)).To(BeTrue())

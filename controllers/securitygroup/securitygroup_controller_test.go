@@ -336,7 +336,17 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 					return crossplane.ManageCrossplaneSecurityGroupResource(ctx, kubeClient, csg)
 				},
 			}
-			err := reconciler.ReconcileKopsMachinePool(ctx, sg, aws.String("x.x.x.x"), aws.String("us-east-1"), aws.Config{}, fakeEC2Client, kcp)
+
+			kcp = &kcontrolplanev1alpha1.KopsControlPlane{}
+			key := client.ObjectKey{
+				Namespace: metav1.NamespaceDefault,
+				Name:      "test-kops-control-plane",
+			}
+			err = fakeClient.Get(context.Background(), key, kcp)
+			g.Expect(err).NotTo(HaveOccurred())
+
+			err = reconciler.ReconcileKopsMachinePool(ctx, sg, aws.String("x.x.x.x"), aws.String("us-east-1"), aws.Config{}, fakeEC2Client, kcp)
+			g.Expect(err).NotTo(HaveOccurred())
 
 			if !tc.expectedError {
 				if !errors.Is(err, ErrSecurityGroupNotAvailable) {
