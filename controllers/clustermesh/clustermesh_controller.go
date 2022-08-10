@@ -120,21 +120,13 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *clusterv1beta1.Cluster, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
 	r.log.Info(fmt.Sprintf("starting reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
-	kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
-	key := client.ObjectKey{
-		Namespace: cluster.Spec.ControlPlaneRef.Namespace,
-		Name:      cluster.Spec.ControlPlaneRef.Name,
-	}
-	if err := r.Client.Get(ctx, key, kcp); err != nil {
-		return ctrl.Result{}, err
-	}
 
 	clSpec, err := r.PopulateClusterSpecFactory(r, ctx, cluster)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	key = client.ObjectKey{
+	key := client.ObjectKey{
 		Name: cluster.Labels[clmesh.Label],
 	}
 
@@ -452,8 +444,16 @@ func (r *ClusterMeshReconciler) isClusterBelongToMesh(clusterName string, cluste
 	return false
 }
 
-func PopulateClusterSpec(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster, kcp *kcontrolplanev1alpha1.KopsControlPlane) (*clustermeshv1beta1.ClusterSpec, error) {
+func PopulateClusterSpec(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error) {
 	clusterSpec := &clustermeshv1beta1.ClusterSpec{}
+	kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+	key := client.ObjectKey{
+		Namespace: cluster.Spec.ControlPlaneRef.Namespace,
+		Name:      cluster.Spec.ControlPlaneRef.Name,
+	}
+	if err := r.Client.Get(ctx, key, kcp); err != nil {
+		return clusterSpec, err
+	}
 
 	subnet, err := kops.GetSubnetFromKopsControlPlane(kcp)
 	if err != nil {

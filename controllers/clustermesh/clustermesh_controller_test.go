@@ -444,7 +444,7 @@ func TestPopulateClusterSpec(t *testing.T) {
 			err := fakeClient.Get(context.Background(), key, kcp)
 			g.Expect(err).NotTo(HaveOccurred())
 
-			clSpec, err := PopulateClusterSpec(reconciler, context.TODO(), tc.cluster, kcp)
+			clSpec, err := PopulateClusterSpec(reconciler, context.TODO(), tc.cluster)
 			if tc.errorValidation != nil {
 				g.Expect(tc.errorValidation(err)).To(BeTrue())
 			} else {
