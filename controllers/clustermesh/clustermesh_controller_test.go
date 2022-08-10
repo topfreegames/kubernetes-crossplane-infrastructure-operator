@@ -733,6 +733,9 @@ func TestReconcileNormal(t *testing.T) {
 				ReconcileRoutesFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec) (ctrl.Result, error) {
 					return ctrl.Result{}, nil
 				},
+				ReconcileSecurityGroupsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+					return nil
+				},
 			}
 
 			_, _ = reconciler.reconcileNormal(ctx, tc.cluster, tc.clustermesh)

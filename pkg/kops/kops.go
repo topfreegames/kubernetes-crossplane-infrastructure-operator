@@ -39,7 +39,7 @@ func GetRegionFromKopsSubnet(subnet kopsapi.ClusterSubnetSpec) (*string, error) 
 func GetKopsMachinePoolsWithLabel(ctx context.Context, c client.Client, key, value string) ([]kinfrastructurev1alpha1.KopsMachinePool, error) {
 	var kmps []kinfrastructurev1alpha1.KopsMachinePool
 
-	req, err := labels.NewRequirement(key, "Equal", []string{value})
+	req, err := labels.NewRequirement(key, "==", []string{value})
 	if err != nil {
 		return kmps, err
 	}

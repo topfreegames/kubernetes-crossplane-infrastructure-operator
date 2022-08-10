@@ -2,7 +2,7 @@ package clustermesh
 
 import (
 	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
-	
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
