@@ -238,7 +238,7 @@ func (r *SecurityGroupReconciler) ReconcileKopsMachinePool(
 		}
 	}
 
-	kmps, err := kops.GetKopsMachinePoolsWithLabel(r.Client, "cluster.x-k8s.io/cluster-name", kcp.Name)
+	kmps, err := kops.GetKopsMachinePoolsWithLabel(ctx, r.Client, "cluster.x-k8s.io/cluster-name", kcp.Name)
 	if err != nil {
 		return err
 	}
