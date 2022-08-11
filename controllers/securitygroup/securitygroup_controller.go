@@ -69,19 +69,19 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	start := time.Now()
 	r.log = ctrl.LoggerFrom(ctx)
 
-	securityGroup := &securitygroupv1alpha1.SecurityGroup{}
-	if err := r.Get(ctx, req.NamespacedName, securityGroup); err != nil {
+	sg := &securitygroupv1alpha1.SecurityGroup{}
+	if err := r.Get(ctx, req.NamespacedName, sg); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	if securityGroup.Spec.InfrastructureRef == nil {
+	if sg.Spec.InfrastructureRef == nil {
 		return ctrl.Result{}, fmt.Errorf("infrastructureRef isn't defined")
 	}
 
-	r.log.Info(fmt.Sprintf("starting reconcile loop for %s", securityGroup.ObjectMeta.GetName()))
+	r.log.Info(fmt.Sprintf("starting reconcile loop for %s", sg.ObjectMeta.GetName()))
 
 	// Initialize the patch helper.
-	patchHelper, err := patch.NewHelper(securityGroup, r.Client)
+	patchHelper, err := patch.NewHelper(sg, r.Client)
 	if err != nil {
 		r.log.Error(err, "failed to initialize patch helper")
 		return ctrl.Result{}, err
@@ -89,18 +89,18 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	defer func() {
 
-		err = patchHelper.Patch(ctx, securityGroup)
+		err = patchHelper.Patch(ctx, sg)
 		if err != nil {
 			r.log.Error(rerr, "Failed to patch kopsControlPlane")
 			if rerr == nil {
 				rerr = err
 			}
 		}
-		r.log.Info(fmt.Sprintf("finished reconcile loop for %s", securityGroup.ObjectMeta.GetName()))
+		r.log.Info(fmt.Sprintf("finished reconcile loop for %s", sg.ObjectMeta.GetName()))
 	}()
 
-	result, err := r.reconcileNormal(ctx, securityGroup)
-	durationMsg := fmt.Sprintf("finished reconcile security groups loop for %s finished in %s ", securityGroup.ObjectMeta.Name, time.Since(start).String())
+	result, err := r.reconcileNormal(ctx, sg)
+	durationMsg := fmt.Sprintf("finished reconcile security groups loop for %s finished in %s ", sg.ObjectMeta.Name, time.Since(start).String())
 	if result.RequeueAfter > 0 {
 		durationMsg = fmt.Sprintf("%s, next run in %s", durationMsg, result.RequeueAfter.String())
 	}
@@ -108,13 +108,13 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return result, err
 }
 
-func (r *SecurityGroupReconciler) reconcileNormal(ctx context.Context, securityGroup *securitygroupv1alpha1.SecurityGroup) (ctrl.Result, error) {
+func (r *SecurityGroupReconciler) reconcileNormal(ctx context.Context, sg *securitygroupv1alpha1.SecurityGroup) (ctrl.Result, error) {
 
 	// Fetch KopsMachinePool
 	kmp := &kinfrastructurev1alpha1.KopsMachinePool{}
 	key := client.ObjectKey{
-		Name:      securityGroup.Spec.InfrastructureRef.Name,
-		Namespace: securityGroup.Spec.InfrastructureRef.Namespace,
+		Name:      sg.Spec.InfrastructureRef.Name,
+		Namespace: sg.Spec.InfrastructureRef.Namespace,
 	}
 	if err := r.Client.Get(ctx, key, kmp); err != nil {
 		return ctrl.Result{}, err
@@ -172,9 +172,9 @@ func (r *SecurityGroupReconciler) reconcileNormal(ctx context.Context, securityG
 		return ctrl.Result{}, fmt.Errorf("vpcId not defined")
 	}
 
-	switch securityGroup.Spec.InfrastructureRef.Kind {
+	switch sg.Spec.InfrastructureRef.Kind {
 	case "KopsMachinePool", "KopsControlPlane":
-		err := r.ReconcileKopsMachinePool(ctx, securityGroup, vpcId, region, cfg, ec2Client, kcp)
+		err := r.ReconcileKopsMachinePool(ctx, sg, vpcId, region, cfg, ec2Client, kcp)
 		if err != nil {
 			if errors.Is(err, ErrSecurityGroupNotAvailable) {
 				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
@@ -185,7 +185,7 @@ func (r *SecurityGroupReconciler) reconcileNormal(ctx context.Context, securityG
 		return ctrl.Result{}, fmt.Errorf("infrastructureRef not supported")
 	}
 
-	securityGroup.Status.Ready = true
+	sg.Status.Ready = true
 	return ctrl.Result{}, nil
 }
 
