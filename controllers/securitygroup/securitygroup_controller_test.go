@@ -84,6 +84,9 @@ var (
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: metav1.NamespaceDefault,
 			Name:      "test-kops-machine-pool",
+			Labels: map[string]string{
+				"cluster.x-k8s.io/cluster-name": "test-cluster",
+			},
 		},
 		Spec: kinfrastructurev1alpha1.KopsMachinePoolSpec{
 			ClusterName: "test-cluster",
@@ -658,12 +661,31 @@ func TestSecurityGroupStatus(t *testing.T) {
 				reconciler.ManageCrossplaneSGFactory = tc.mockManageCrossplaneSG
 			}
 
-			_, err := reconciler.Reconcile(ctx, ctrl.Request{
+			_, err = reconciler.Reconcile(ctx, ctrl.Request{
 				NamespacedName: client.ObjectKey{
 					Namespace: metav1.NamespaceDefault,
 					Name:      "test-security-group",
 				},
 			})
+
+			//{
+			//description: "should mark attach condition as false when failed to attach",
+			//	k8sObjects: []client.Object{
+			//	kmp, cluster, kcp, sg, csg,
+			//},
+			//	mockDescribeAutoScalingGroups: func(ctx context.Context, params *awsautoscaling.DescribeAutoScalingGroupsInput, optFns []func(*awsautoscaling.Options)) (*awsautoscaling.DescribeAutoScalingGroupsOutput, error) {
+			//	return nil, errors.New("some error when attaching asg")
+			//},
+			//	conditionsToAssert: []*clusterv1beta1.Condition{
+			//	conditions.TrueCondition(securitygroupv1alpha1.SecurityGroupReadyCondition),
+			//	conditions.TrueCondition(securitygroupv1alpha1.CrossplaneResourceReadyCondition),
+			//	conditions.FalseCondition(securitygroupv1alpha1.SecurityGroupAttachedCondition,
+			//		securitygroupv1alpha1.SecurityGroupAttachmentFailedReason,
+			//		clusterv1beta1.ConditionSeverityError,
+			//		"some error when attaching asg"),
+			//},
+			//	expectedError: true,
+			//},
 
 			if tc.expectedError {
 				g.Expect(err).NotTo(BeNil())
@@ -671,7 +693,7 @@ func TestSecurityGroupStatus(t *testing.T) {
 				g.Expect(err).To(BeNil())
 			}
 
-			sg := &securitygroupv1alpha1.SecurityGroup{}
+			sg = &securitygroupv1alpha1.SecurityGroup{}
 			key := client.ObjectKey{
 				Namespace: metav1.NamespaceDefault,
 				Name:      "test-security-group",

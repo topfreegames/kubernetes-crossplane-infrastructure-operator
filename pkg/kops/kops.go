@@ -53,6 +53,7 @@ func GetKopsMachinePoolsWithLabel(ctx context.Context, c client.Client, key, val
 	if err != nil {
 		return kmps, err
 	}
+	
 	return kmpsList.Items, nil
 }
 

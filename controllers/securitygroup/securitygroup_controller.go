@@ -91,7 +91,7 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 		err = patchHelper.Patch(ctx, sg)
 		if err != nil {
-			r.log.Error(rerr, "Failed to patch kopsControlPlane")
+			r.log.Error(rerr, "Failed to patch security group", "sgName", sg.Name)
 			if rerr == nil {
 				rerr = err
 			}
@@ -174,7 +174,7 @@ func (r *SecurityGroupReconciler) reconcileNormal(ctx context.Context, sg *secur
 
 	switch sg.Spec.InfrastructureRef.Kind {
 	case "KopsMachinePool", "KopsControlPlane":
-		err := r.ReconcileKopsMachinePool(ctx, sg, vpcId, region, cfg, ec2Client, kcp)
+		err = r.ReconcileKopsMachinePool(ctx, sg, vpcId, region, cfg, ec2Client, kcp)
 		if err != nil {
 			if errors.Is(err, ErrSecurityGroupNotAvailable) {
 				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
