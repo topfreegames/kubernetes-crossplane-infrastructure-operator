@@ -184,8 +184,9 @@ func (r *SecurityGroupReconciler) reconcileNormal(ctx context.Context, securityG
 	default:
 		return ctrl.Result{}, fmt.Errorf("infrastructureRef not supported")
 	}
+
 	securityGroup.Status.Ready = true
-	return ctrl.Result{RequeueAfter: time.Minute * 5}, nil
+	return ctrl.Result{}, nil
 }
 
 func (r *SecurityGroupReconciler) ReconcileKopsMachinePool(
@@ -260,8 +261,9 @@ func (r *SecurityGroupReconciler) ReconcileKopsMachinePool(
 			)
 			return err
 		}
-		conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupAttachedCondition)
 	}
+	conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupAttachedCondition)
+	conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupReadyCondition)
 
 	return nil
 }

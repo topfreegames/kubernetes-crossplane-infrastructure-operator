@@ -337,16 +337,7 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 				},
 			}
 
-			kcp = &kcontrolplanev1alpha1.KopsControlPlane{}
-			key := client.ObjectKey{
-				Namespace: metav1.NamespaceDefault,
-				Name:      "test-kops-control-plane",
-			}
-			err = fakeClient.Get(context.Background(), key, kcp)
-			g.Expect(err).NotTo(HaveOccurred())
-
 			err = reconciler.ReconcileKopsMachinePool(ctx, sg, aws.String("x.x.x.x"), aws.String("us-east-1"), aws.Config{}, fakeEC2Client, kcp)
-			g.Expect(err).NotTo(HaveOccurred())
 
 			if !tc.expectedError {
 				if !errors.Is(err, ErrSecurityGroupNotAvailable) {
@@ -673,10 +664,11 @@ func TestSecurityGroupStatus(t *testing.T) {
 					Name:      "test-security-group",
 				},
 			})
-			if !tc.expectedError {
-				g.Expect(err).To(BeNil())
+
+			if tc.expectedError {
+				g.Expect(err).NotTo(BeNil())
 			} else {
-				g.Expect(err).ToNot(BeNil())
+				g.Expect(err).To(BeNil())
 			}
 
 			sg := &securitygroupv1alpha1.SecurityGroup{}
