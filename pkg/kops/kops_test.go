@@ -192,15 +192,14 @@ func TestGetKopsMachinePoolsWithLabel(t *testing.T) {
 		{
 			"description":   "should return the correct machinepool set",
 			"input":         []string{"cluster.x-k8s.io/cluster-name", "test-cluster"},
-			"expected":      kmp,
+			"expected":      []kinfrastructurev1alpha1.KopsMachinePool{kmp},
 			"expectedError": false,
 		},
 		{
-			"description":          "should fail when missing cluster name label",
-			"input":                []string{"cluster.x-k8s.io/cluster-name", "test-cluster"},
-			"expected":             "nodes-a.test-cluster",
-			"expectedError":        true,
-			"expectedErrorMessage": "failed to retrieve igName",
+			"description":   "should fail when missing cluster name label",
+			"input":         []string{"cluster.x-k8s.io/cluster-name", ""},
+			"expected":      []kinfrastructurev1alpha1.KopsMachinePool{kmp},
+			"expectedError": true,
 		},
 	}
 	RegisterFailHandler(Fail)
@@ -235,10 +234,9 @@ func TestGetKopsMachinePoolsWithLabel(t *testing.T) {
 			if !tc["expectedError"].(bool) {
 				g.Expect(len(kmps)).ToNot(Equal(0))
 				g.Expect(err).To(BeNil())
-				g.Expect(kmps).To(Equal(tc["expected"].(string)))
+				g.Expect(len(kmps)).To(Equal(len(tc["expected"].([]kinfrastructurev1alpha1.KopsMachinePool))))
 			} else {
 				g.Expect(err).ToNot(BeNil())
-				g.Expect(err.Error()).To(ContainSubstring(tc["expectedErrorMessage"].(string)))
 			}
 		})
 	}

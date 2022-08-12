@@ -553,7 +553,7 @@ func TestSecurityGroupStatus(t *testing.T) {
 					clusterv1beta1.ConditionSeverityError,
 					"some error when attaching asg"),
 			},
-			expectedError: true,
+			expectedError: false,
 		},
 	}
 

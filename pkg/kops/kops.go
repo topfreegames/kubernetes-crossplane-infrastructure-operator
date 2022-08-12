@@ -35,9 +35,16 @@ func GetRegionFromKopsSubnet(subnet kopsapi.ClusterSubnetSpec) (*string, error) 
 	return nil, errors.Wrap(errors.Errorf("RegionNotFound"), "couldn't get region from KopsControlPlane")
 }
 
-// GetKopsMachinePoolsWithLabel retrieve all KopsMachinePool with the label in format 'key: value'
+// GetKopsMachinePoolsWithLabel retrieve all KopsMachinePool with the label'
 func GetKopsMachinePoolsWithLabel(ctx context.Context, c client.Client, key, value string) ([]kinfrastructurev1alpha1.KopsMachinePool, error) {
 	var kmps []kinfrastructurev1alpha1.KopsMachinePool
+
+	if key != "cluster.x-k8s.io/cluster-name" {
+		return kmps, errors.New("only cluster.x-k8s.io/cluster-name label are allowed")
+	}
+	if value == "" {
+		return kmps, errors.New("cluster name are required")
+	}
 
 	req, err := labels.NewRequirement(key, "==", []string{value})
 	if err != nil {
@@ -48,12 +55,12 @@ func GetKopsMachinePoolsWithLabel(ctx context.Context, c client.Client, key, val
 	selector = selector.Add(*req)
 
 	kmpsList := &kinfrastructurev1alpha1.KopsMachinePoolList{}
-
+	//&client.ListOptions{LabelSelector: selector}
 	err = c.List(ctx, kmpsList, &client.ListOptions{LabelSelector: selector})
 	if err != nil {
 		return kmps, err
 	}
-	
+
 	return kmpsList.Items, nil
 }
 
