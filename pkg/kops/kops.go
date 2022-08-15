@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/labels"
 	kopsapi "k8s.io/kops/pkg/apis/kops"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -46,22 +45,20 @@ func GetKopsMachinePoolsWithLabel(ctx context.Context, c client.Client, key, val
 		return kmps, errors.New("cluster name are required")
 	}
 
-	req, err := labels.NewRequirement(key, "==", []string{value})
-	if err != nil {
-		return kmps, err
-	}
-
-	selector := labels.NewSelector()
-	selector = selector.Add(*req)
-
 	kmpsList := &kinfrastructurev1alpha1.KopsMachinePoolList{}
-	//&client.ListOptions{LabelSelector: selector}
-	err = c.List(ctx, kmpsList, &client.ListOptions{LabelSelector: selector})
+	err := c.List(ctx, kmpsList)
 	if err != nil {
 		return kmps, err
 	}
+	// Todo: use label selector to avoid iterate over the items
+	for _, kmp := range kmpsList.Items {
+		if _, ok := kmp.Labels["cluster.x-k8s.io/cluster-name"]; !ok {
+			continue
+		}
+		kmps = append(kmps, kmp)
+	}
 
-	return kmpsList.Items, nil
+	return kmps, nil
 }
 
 func GetAutoScalingGroupNameFromKopsMachinePool(kmp kinfrastructurev1alpha1.KopsMachinePool) (*string, error) {
