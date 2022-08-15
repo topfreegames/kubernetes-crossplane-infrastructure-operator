@@ -284,7 +284,9 @@ func createSecurityGroupForASG(
 
 			r.log.Info(fmt.Sprintf("creating security group %s for %s", sg.ObjectMeta.GetName(), kind))
 			if err := r.Create(ctx, sg); err != nil {
-				return err
+				if !apierrors.IsAlreadyExists(err) {
+					return err
+				}
 			}
 		}
 	}
