@@ -109,7 +109,6 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 }
 
 func (r *SecurityGroupReconciler) reconcileNormal(ctx context.Context, sg *securitygroupv1alpha1.SecurityGroup) (ctrl.Result, error) {
-
 	// Fetch KopsMachinePool
 	kmp := &kinfrastructurev1alpha1.KopsMachinePool{}
 	key := client.ObjectKey{

@@ -158,7 +158,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					},
 				},
 			},
-			"expectedError": true,
+			"isErrorExpected": true,
 		},
 		{
 			"description": "should fail with InfrastructureRef Kind different from KopsMachinePool",
@@ -189,7 +189,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					},
 				},
 			},
-			"expectedError": true,
+			"isErrorExpected": true,
 		},
 	}
 	RegisterFailHandler(Fail)
@@ -240,7 +240,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 				},
 			})
 
-			if !tc["expectedError"].(bool) {
+			if !tc["isErrorExpected"].(bool) {
 				crosssg := &crossec2v1beta1.SecurityGroup{}
 				key := client.ObjectKey{
 					Namespace: metav1.NamespaceDefault,
@@ -260,37 +260,37 @@ func TestSecurityGroupReconciler(t *testing.T) {
 func TestReconcileKopsMachinePool(t *testing.T) {
 
 	testCases := []struct {
-		description   string
-		k8sObjects    []client.Object
-		expectedError bool
+		description     string
+		k8sObjects      []client.Object
+		isErrorExpected bool
 	}{
 		{
 			description: "should create a Crossplane SecurityGroup",
 			k8sObjects: []client.Object{
 				kmp, cluster, kcp, sg,
 			},
-			expectedError: false,
+			isErrorExpected: false,
 		},
 		{
 			description: "should fail when not finding KopsMachinePool",
 			k8sObjects: []client.Object{
 				cluster, kcp, sg,
 			},
-			expectedError: true,
+			isErrorExpected: true,
 		},
 		{
 			description: "should fail when not finding Cluster",
 			k8sObjects: []client.Object{
 				kmp, kcp, sg,
 			},
-			expectedError: true,
+			isErrorExpected: true,
 		},
 		{
 			description: "should fail when not finding KopsControlPlane",
 			k8sObjects: []client.Object{
 				kmp, cluster, sg,
 			},
-			expectedError: true,
+			isErrorExpected: true,
 		},
 	}
 	RegisterFailHandler(Fail)
@@ -342,7 +342,7 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 
 			err = reconciler.ReconcileKopsMachinePool(ctx, sg, aws.String("x.x.x.x"), aws.String("us-east-1"), aws.Config{}, fakeEC2Client, kcp)
 
-			if !tc.expectedError {
+			if !tc.isErrorExpected {
 				if !errors.Is(err, ErrSecurityGroupNotAvailable) {
 					g.Expect(err).To(BeNil())
 				}
@@ -370,7 +370,7 @@ func TestAttachSGToASG(t *testing.T) {
 			"k8sObjects": []client.Object{
 				kmp, cluster, kcp, sg,
 			},
-			"expectedError": false,
+			"isErrorExpected": false,
 		},
 	}
 	RegisterFailHandler(Fail)
@@ -454,7 +454,7 @@ func TestAttachSGToASG(t *testing.T) {
 			}
 
 			err = reconciler.attachSGToASG(ctx, fakeEC2Client, fakeASGClient, "asgName", "sg-yyyy")
-			if !tc["expectedError"].(bool) {
+			if !tc["isErrorExpected"].(bool) {
 				g.Expect(err).To(BeNil())
 
 			} else {
@@ -471,7 +471,7 @@ func TestSecurityGroupStatus(t *testing.T) {
 		mockDescribeAutoScalingGroups func(ctx context.Context, params *awsautoscaling.DescribeAutoScalingGroupsInput, optFns []func(*awsautoscaling.Options)) (*awsautoscaling.DescribeAutoScalingGroupsOutput, error)
 		mockManageCrossplaneSG        func(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error
 		conditionsToAssert            []*clusterv1beta1.Condition
-		expectedError                 bool
+		isErrorExpected               bool
 		expectedReadiness             bool
 	}{
 		{
@@ -484,7 +484,7 @@ func TestSecurityGroupStatus(t *testing.T) {
 				conditions.TrueCondition(securitygroupv1alpha1.CrossplaneResourceReadyCondition),
 				conditions.TrueCondition(securitygroupv1alpha1.SecurityGroupAttachedCondition),
 			},
-			expectedError:     false,
+			isErrorExpected:   false,
 			expectedReadiness: true,
 		},
 		{
@@ -501,7 +501,7 @@ func TestSecurityGroupStatus(t *testing.T) {
 					clusterv1beta1.ConditionSeverityError,
 					"some error creating CSG"),
 			},
-			expectedError: true,
+			isErrorExpected: true,
 		},
 		{
 			description: "should mark SG ready condition as false when not available yet",
@@ -535,7 +535,7 @@ func TestSecurityGroupStatus(t *testing.T) {
 					"error message",
 				),
 			},
-			expectedError: false,
+			isErrorExpected: false,
 		},
 		{
 			description: "should mark attach condition as false when failed to attach",
@@ -553,7 +553,7 @@ func TestSecurityGroupStatus(t *testing.T) {
 					clusterv1beta1.ConditionSeverityError,
 					"some error when attaching asg"),
 			},
-			expectedError: true,
+			isErrorExpected: true,
 		},
 	}
 
@@ -668,26 +668,7 @@ func TestSecurityGroupStatus(t *testing.T) {
 				},
 			})
 
-			//{
-			//description: "should mark attach condition as false when failed to attach",
-			//	k8sObjects: []client.Object{
-			//	kmp, cluster, kcp, sg, csg,
-			//},
-			//	mockDescribeAutoScalingGroups: func(ctx context.Context, params *awsautoscaling.DescribeAutoScalingGroupsInput, optFns []func(*awsautoscaling.Options)) (*awsautoscaling.DescribeAutoScalingGroupsOutput, error) {
-			//	return nil, errors.New("some error when attaching asg")
-			//},
-			//	conditionsToAssert: []*clusterv1beta1.Condition{
-			//	conditions.TrueCondition(securitygroupv1alpha1.SecurityGroupReadyCondition),
-			//	conditions.TrueCondition(securitygroupv1alpha1.CrossplaneResourceReadyCondition),
-			//	conditions.FalseCondition(securitygroupv1alpha1.SecurityGroupAttachedCondition,
-			//		securitygroupv1alpha1.SecurityGroupAttachmentFailedReason,
-			//		clusterv1beta1.ConditionSeverityError,
-			//		"some error when attaching asg"),
-			//},
-			//	expectedError: true,
-			//},
-
-			if tc.expectedError {
+			if tc.isErrorExpected {
 				g.Expect(err).NotTo(BeNil())
 			} else {
 				g.Expect(err).To(BeNil())

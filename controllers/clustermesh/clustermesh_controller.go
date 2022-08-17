@@ -67,6 +67,7 @@ type ClusterMeshReconciler struct {
 func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
 	start := time.Now()
 	r.log = ctrl.LoggerFrom(ctx)
+
 	cluster := &clusterv1beta1.Cluster{}
 	if err := r.Get(ctx, req.NamespacedName, cluster); err != nil {
 		return ctrl.Result{}, err
@@ -97,7 +98,7 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// TODO: Improve how to determine that a cluster was marked for removal from a cluster group
 		clusterBelongsToMesh, err := r.isClusterBelongToAnyMesh(cluster.Name)
 		if err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, fmt.Errorf("error to determine if the cluster belongs to a mesh: %w", err)
 		}
 		if clusterBelongsToMesh {
 			r.log.Info(fmt.Sprintf("starting reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
@@ -123,7 +124,7 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 
 	clSpec, err := r.PopulateClusterSpecFactory(r, ctx, cluster)
 	if err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("error populating cluster spec: %w", err)
 	}
 
 	key := client.ObjectKey{
@@ -222,12 +223,7 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 		cidrResults = append(cidrResults, cl.CIDR)
 	}
 
-	err = createSecurityGroupForASG(r, ctx, clustermesh, "controlplane.cluster.x-k8s.io/v1alpha1", "KopsControlPlane", cidrResults)
-	if err != nil {
-		return err
-	}
-
-	err = createSecurityGroupForASG(r, ctx, clustermesh, "infrastructure.cluster.x-k8s.io/v1alpha1", "KopsMachinePool", cidrResults)
+	err = createSecurityGroupForASG(r, ctx, clustermesh, cidrResults)
 	if err != nil {
 		return err
 	}
@@ -239,29 +235,13 @@ func createSecurityGroupForASG(
 	r *ClusterMeshReconciler,
 	ctx context.Context,
 	clustermesh *clustermeshv1beta1.ClusterMesh,
-	apiVersion, kind string,
 	allowedCIRDs []string) error {
 
-	const (
-		maxPort  = 65535
-		minPort  = 1
-		sgPrefix = "clustermesh-"
-	)
-
-	defaultRules := func(clusterName string) []sgv1beta1.IngressRule {
-		return []sgv1beta1.IngressRule{
-			{
-				IPProtocol:        "-1",
-				FromPort:          minPort,
-				ToPort:            maxPort,
-				AllowedCIDRBlocks: allowedCIRDs,
-			},
-		}
-	}
-
 	for _, cl := range clustermesh.Spec.Clusters {
+		sgName := "clustermesh-" + cl.Name
 		key := client.ObjectKey{
-			Name: sgPrefix + cl.Name,
+			Name:      sgName,
+			Namespace: cl.Namespace,
 		}
 		sg := &sgv1beta1.SecurityGroup{}
 		if err := r.Get(ctx, key, sg); err != nil {
@@ -269,20 +249,26 @@ func createSecurityGroupForASG(
 				return err
 			}
 
-			sg.Name = sgPrefix + cl.Name
-			sg.Namespace = cl.Namespace
-
-			// Get nodes asg
-			sg.Spec.InfrastructureRef = &corev1.ObjectReference{
-				APIVersion: apiVersion,
-				Kind:       kind,
-				Name:       sg.Name,
-				Namespace:  sg.Namespace,
+			infraRef := corev1.ObjectReference{
+				Kind:       "KopsMachinePool",
+				Namespace:  cl.Namespace,
+				Name:       cl.Name + "-clustermesh",
+				APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
 			}
 
-			sg.Spec.IngressRules = defaultRules(cl.Name)
+			sg.Name = sgName
+			sg.Namespace = cl.Namespace
+			sg.Spec.InfrastructureRef = &infraRef
+			sg.Spec.IngressRules = []sgv1beta1.IngressRule{
+				{
+					IPProtocol:        "-1", // meaning that we will support icmp, udp and tcp
+					FromPort:          1,
+					ToPort:            65535,
+					AllowedCIDRBlocks: allowedCIRDs,
+				},
+			}
 
-			r.log.Info(fmt.Sprintf("creating security group %s for %s", sg.ObjectMeta.GetName(), kind))
+			r.log.Info(fmt.Sprintf("creating security group %s for cluster %s", sg.ObjectMeta.GetName(), cl.Name))
 			if err := r.Create(ctx, sg); err != nil {
 				if !apierrors.IsAlreadyExists(err) {
 					return err
