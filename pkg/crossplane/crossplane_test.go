@@ -31,7 +31,7 @@ var (
 	testRegion = "us-east-1"
 )
 
-func TestGetOwnedVPCPeeringConnections(t *testing.T) {
+func TestGetOwnedVPCPeeringConnectionsRef(t *testing.T) {
 
 	owner := &clustermeshv1beta1.ClusterMesh{
 		TypeMeta: metav1.TypeMeta{
