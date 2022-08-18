@@ -3,20 +3,8 @@ package sgcontroller
 import (
 	"context"
 	"errors"
-	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
-	"k8s.io/client-go/tools/record"
-	"sigs.k8s.io/cluster-api/util/conditions"
 	"testing"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	awsautoscaling "github.com/aws/aws-sdk-go-v2/service/autoscaling"
-	autoscalingtypes "github.com/aws/aws-sdk-go-v2/service/autoscaling/types"
-	awsec2 "github.com/aws/aws-sdk-go-v2/service/ec2"
-
-	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
@@ -25,11 +13,23 @@ import (
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
 	fakeec2 "github.com/topfreegames/provider-crossplane/pkg/aws/ec2/fake"
 	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsautoscaling "github.com/aws/aws-sdk-go-v2/service/autoscaling"
+	autoscalingtypes "github.com/aws/aws-sdk-go-v2/service/autoscaling/types"
+	awsec2 "github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
+	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 	kopsapi "k8s.io/kops/pkg/apis/kops"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -340,7 +340,7 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 				},
 			}
 
-			err = reconciler.ReconcileKopsMachinePool(ctx, sg, aws.String("x.x.x.x"), aws.String("us-east-1"), aws.Config{}, fakeEC2Client, kcp)
+			err = reconciler.ReconcileKopsControlPlane(ctx, sg, kcp)
 
 			if !tc.isErrorExpected {
 				if !errors.Is(err, ErrSecurityGroupNotAvailable) {

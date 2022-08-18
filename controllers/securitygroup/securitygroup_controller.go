@@ -109,77 +109,45 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 }
 
 func (r *SecurityGroupReconciler) reconcileNormal(ctx context.Context, sg *securitygroupv1alpha1.SecurityGroup) (ctrl.Result, error) {
-	// Fetch KopsMachinePool
-	kmp := &kinfrastructurev1alpha1.KopsMachinePool{}
-	key := client.ObjectKey{
-		Name:      sg.Spec.InfrastructureRef.Name,
-		Namespace: sg.Spec.InfrastructureRef.Namespace,
-	}
-	if err := r.Client.Get(ctx, key, kmp); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	// Fetch Cluster
-	cluster := &clusterv1beta1.Cluster{}
-	key = client.ObjectKey{
-		Namespace: kmp.ObjectMeta.Namespace,
-		Name:      kmp.Spec.ClusterName,
-	}
-	if err := r.Client.Get(ctx, key, cluster); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	// Fetch KopsControlPlane
-	kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
-	key = client.ObjectKey{
-		Namespace: cluster.Spec.ControlPlaneRef.Namespace,
-		Name:      cluster.Spec.ControlPlaneRef.Name,
-	}
-	if err := r.Client.Get(ctx, key, kcp); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	subnet, err := kops.GetSubnetFromKopsControlPlane(kcp)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	region, err := kops.GetRegionFromKopsSubnet(*subnet)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if region == nil {
-		return ctrl.Result{}, fmt.Errorf("region not defined")
-	}
-
-	cfg, err := config.LoadDefaultConfig(ctx,
-		config.WithRegion(*region),
-	)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	ec2Client := r.NewEC2ClientFactory(cfg)
-
-	vpcId, err := ec2.GetVPCIdFromCIDR(ctx, ec2Client, kcp.Spec.KopsClusterSpec.NetworkCIDR)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if vpcId == nil {
-		return ctrl.Result{}, fmt.Errorf("vpcId not defined")
-	}
 
 	switch sg.Spec.InfrastructureRef.Kind {
-	case "KopsMachinePool", "KopsControlPlane":
-		err = r.ReconcileKopsMachinePool(ctx, sg, vpcId, region, cfg, ec2Client, kcp)
+	case "KopsMachinePool":
+		// Fetch KopsMachinePool
+		kmp := &kinfrastructurev1alpha1.KopsMachinePool{}
+		key := client.ObjectKey{
+			Name:      sg.Spec.InfrastructureRef.Name,
+			Namespace: sg.Spec.InfrastructureRef.Namespace,
+		}
+		if err := r.Client.Get(ctx, key, kmp); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		err := r.ReconcileKopsMachinePool(ctx, sg, kmp)
 		if err != nil {
 			if errors.Is(err, ErrSecurityGroupNotAvailable) {
 				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 			}
 			return ctrl.Result{}, err
 		}
+
+	case "KopsControlPlane":
+		kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+		key := client.ObjectKey{
+			Namespace: sg.Spec.InfrastructureRef.Namespace,
+			Name:      sg.Spec.InfrastructureRef.Name,
+		}
+		if err := r.Client.Get(ctx, key, kcp); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		err := r.ReconcileKopsControlPlane(ctx, sg, kcp)
+		if err != nil {
+			if errors.Is(err, ErrSecurityGroupNotAvailable) {
+				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+			}
+			return ctrl.Result{}, err
+		}
+
 	default:
 		return ctrl.Result{}, fmt.Errorf("infrastructureRef not supported")
 	}
@@ -191,14 +159,135 @@ func (r *SecurityGroupReconciler) reconcileNormal(ctx context.Context, sg *secur
 func (r *SecurityGroupReconciler) ReconcileKopsMachinePool(
 	ctx context.Context,
 	sg *securitygroupv1alpha1.SecurityGroup,
-	vpcId, region *string,
-	cfg aws.Config,
-	ec2Client ec2.EC2Client,
-	kcp *kcontrolplanev1alpha1.KopsControlPlane,
+	kmp *kinfrastructurev1alpha1.KopsMachinePool,
 ) error {
 
+	kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+	key := client.ObjectKey{
+		Namespace: sg.Spec.InfrastructureRef.Namespace,
+		Name:      kmp.Spec.ClusterName,
+	}
+	if err := r.Client.Get(ctx, key, kcp); err != nil {
+		return err
+	}
+
+	vpcId, region, cfg, ec2Client, err := getAwsAccountInfo(r, ctx, kcp)
+	if err != nil {
+		return err
+	}
+
 	csg := crossplane.NewCrossplaneSecurityGroup(sg, vpcId, region)
-	err := r.ManageCrossplaneSGFactory(ctx, r.Client, csg)
+	err = r.ManageCrossplaneSGFactory(ctx, r.Client, csg)
+	if err != nil {
+		conditions.MarkFalse(sg,
+			securitygroupv1alpha1.CrossplaneResourceReadyCondition,
+			securitygroupv1alpha1.CrossplaneResourceReconciliationFailedReason,
+			clusterv1beta1.ConditionSeverityError,
+			err.Error(),
+		)
+		return err
+	}
+
+	err = r.Client.Get(ctx, client.ObjectKeyFromObject(csg), csg)
+	if err != nil {
+		conditions.MarkFalse(sg,
+			securitygroupv1alpha1.CrossplaneResourceReadyCondition,
+			securitygroupv1alpha1.CrossplaneResourceReconciliationFailedReason,
+			clusterv1beta1.ConditionSeverityError,
+			err.Error(),
+		)
+		return err
+	}
+	conditions.MarkTrue(sg, securitygroupv1alpha1.CrossplaneResourceReadyCondition)
+
+	availableCondition := crossplane.GetSecurityGroupReadyCondition(csg)
+	if availableCondition == nil {
+		return ErrSecurityGroupNotAvailable
+	} else {
+		if availableCondition.Status == corev1.ConditionTrue {
+			conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupReadyCondition)
+		} else {
+			conditions.MarkFalse(sg,
+				securitygroupv1alpha1.SecurityGroupReadyCondition,
+				string(availableCondition.Reason),
+				clusterv1beta1.ConditionSeverityError,
+				availableCondition.Message,
+			)
+			return ErrSecurityGroupNotAvailable
+		}
+	}
+
+	asgName, err := kops.GetAutoScalingGroupNameFromKopsMachinePool(*kmp)
+	if err != nil {
+		return err
+	}
+
+	asgClient := r.NewAutoScalingClientFactory(cfg)
+	err = r.attachSGToASG(ctx, ec2Client, asgClient, *asgName, csg.Status.AtProvider.SecurityGroupID)
+	if err != nil {
+		conditions.MarkFalse(sg,
+			securitygroupv1alpha1.SecurityGroupAttachedCondition,
+			securitygroupv1alpha1.SecurityGroupAttachmentFailedReason,
+			clusterv1beta1.ConditionSeverityError,
+			err.Error(),
+		)
+		return err
+	}
+
+	conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupAttachedCondition)
+	conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupReadyCondition)
+
+	return nil
+}
+
+func getAwsAccountInfo(r *SecurityGroupReconciler, ctx context.Context, kcp *kcontrolplanev1alpha1.KopsControlPlane) (*string, *string, aws.Config, ec2.EC2Client, error) {
+	subnet, err := kops.GetSubnetFromKopsControlPlane(kcp)
+	if err != nil {
+		return aws.String(""), aws.String(""), aws.Config{}, nil, err
+	}
+
+	region, err := kops.GetRegionFromKopsSubnet(*subnet)
+	if err != nil {
+		return aws.String(""), aws.String(""), aws.Config{}, nil, err
+	}
+
+	if region == nil {
+		return aws.String(""), aws.String(""), aws.Config{}, nil, fmt.Errorf("region not defined")
+	}
+
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion(*region),
+	)
+	if err != nil {
+		return aws.String(""), aws.String(""), aws.Config{}, nil, err
+	}
+
+	ec2Client := r.NewEC2ClientFactory(cfg)
+
+	vpcId, err := ec2.GetVPCIdFromCIDR(ctx, ec2Client, kcp.Spec.KopsClusterSpec.NetworkCIDR)
+	if err != nil {
+		return aws.String(""), aws.String(""), aws.Config{}, nil, err
+	}
+
+	if vpcId == nil {
+		return aws.String(""), aws.String(""), aws.Config{}, nil, fmt.Errorf("vpcId not defined")
+	}
+
+	return vpcId, region, cfg, ec2Client, nil
+}
+
+func (r *SecurityGroupReconciler) ReconcileKopsControlPlane(
+	ctx context.Context,
+	sg *securitygroupv1alpha1.SecurityGroup,
+	kcp *kcontrolplanev1alpha1.KopsControlPlane,
+) error {
+	vpcId, region, cfg, ec2Client, err := getAwsAccountInfo(r, ctx, kcp)
+	if err != nil {
+		return err
+	}
+
+	csg := crossplane.NewCrossplaneSecurityGroup(sg, vpcId, region)
+	err = r.ManageCrossplaneSGFactory(ctx, r.Client, csg)
 	if err != nil {
 		conditions.MarkFalse(sg,
 			securitygroupv1alpha1.CrossplaneResourceReadyCondition,
