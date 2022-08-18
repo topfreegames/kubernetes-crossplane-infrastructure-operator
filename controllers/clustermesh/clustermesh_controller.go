@@ -19,11 +19,11 @@ package clustermesh
 import (
 	"context"
 	"fmt"
+	sgv1beta1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
 	"time"
 
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
-	sgv1beta1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
 	clmesh "github.com/topfreegames/provider-crossplane/pkg/clustermesh"
 	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
@@ -223,20 +223,6 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 		cidrResults = append(cidrResults, cl.CIDR)
 	}
 
-	err = createSecurityGroupForASG(r, ctx, clustermesh, cidrResults)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func createSecurityGroupForASG(
-	r *ClusterMeshReconciler,
-	ctx context.Context,
-	clustermesh *clustermeshv1beta1.ClusterMesh,
-	allowedCIRDs []string) error {
-
 	for _, cl := range clustermesh.Spec.Clusters {
 		sgName := "clustermesh-" + cl.Name
 		key := client.ObjectKey{
@@ -264,7 +250,7 @@ func createSecurityGroupForASG(
 					IPProtocol:        "-1", // meaning that we will support icmp, udp and tcp
 					FromPort:          1,
 					ToPort:            65535,
-					AllowedCIDRBlocks: allowedCIRDs,
+					AllowedCIDRBlocks: cidrResults,
 				},
 			}
 
@@ -276,6 +262,7 @@ func createSecurityGroupForASG(
 			}
 		}
 	}
+
 	return nil
 }
 
