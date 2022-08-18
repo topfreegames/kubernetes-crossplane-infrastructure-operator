@@ -244,14 +244,14 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 			},
 		}
 
-		res, err := controllerutil.CreateOrUpdate(ctx, r.Client, sg, func() error {
-			infraRef := corev1.ObjectReference{
-				Kind:       "KopsControlPlane",
-				APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
-				Name:       cl.Name,
-				Namespace:  cl.Namespace,
-			}
+		infraRef := corev1.ObjectReference{
+			Kind:       "KopsControlPlane",
+			APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+			Name:       cl.Name,
+			Namespace:  cl.Namespace,
+		}
 
+		res, err := controllerutil.CreateOrUpdate(ctx, r.Client, sg, func() error {
 			sg.Spec.InfrastructureRef = &infraRef
 			sg.Spec.IngressRules = rules
 			return nil
