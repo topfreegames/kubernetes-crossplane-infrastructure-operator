@@ -19,11 +19,13 @@ package clustermesh
 import (
 	"context"
 	"fmt"
-	sgv1beta1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"time"
 
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
+	sgv1beta1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
 	clmesh "github.com/topfreegames/provider-crossplane/pkg/clustermesh"
 	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
@@ -235,16 +237,14 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 
 	for _, cl := range clustermesh.Spec.Clusters {
 		sgName := "clustermesh-" + cl.Name
-		key := client.ObjectKey{
-			Name:      sgName,
-			Namespace: cl.Namespace,
+		sg := &sgv1beta1.SecurityGroup{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      sgName,
+				Namespace: cl.Namespace,
+			},
 		}
-		sg := &sgv1beta1.SecurityGroup{}
-		if err := r.Get(ctx, key, sg); err != nil {
-			if !apierrors.IsNotFound(err) {
-				return err
-			}
 
+		res, err := controllerutil.CreateOrUpdate(ctx, r.Client, sg, func() error {
 			infraRef := corev1.ObjectReference{
 				Kind:       "KopsControlPlane",
 				APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
@@ -252,23 +252,14 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 				Namespace:  cl.Namespace,
 			}
 
-			sg.Name = sgName
-			sg.Namespace = cl.Namespace
 			sg.Spec.InfrastructureRef = &infraRef
+			sg.Spec.IngressRules = rules
+			return nil
+		})
+		if err != nil {
+			return err
 		}
-		sg.Spec.IngressRules = rules
-		r.log.Info(fmt.Sprintf("creating security group %s for cluster %s\n", sg.ObjectMeta.GetName(), cl.Name))
-		if err := r.Create(ctx, sg); err != nil {
-			if apierrors.IsAlreadyExists(err) {
-				err = r.Update(ctx, sg)
-				if err != nil {
-					return err
-				}
-				r.log.Info(fmt.Sprintf("security group %s for cluster %s updated\n", sg.ObjectMeta.GetName(), cl.Name))
-			} else {
-				return err
-			}
-		}
+		r.log.Info(fmt.Sprintf("security group %s for cluster %s\n", string(res), cl.Name))
 	}
 	return nil
 }
