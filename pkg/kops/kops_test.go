@@ -201,6 +201,12 @@ func TestGetKopsMachinePoolsWithLabel(t *testing.T) {
 			"expected":      []kinfrastructurev1alpha1.KopsMachinePool{kmp},
 			"expectedError": true,
 		},
+		{
+			"description":   "should fail when using another label than cluster name label",
+			"input":         []string{"cluster.x-k8s.io/cluster", "infra"},
+			"expected":      []kinfrastructurev1alpha1.KopsMachinePool{kmp},
+			"expectedError": true,
+		},
 	}
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
