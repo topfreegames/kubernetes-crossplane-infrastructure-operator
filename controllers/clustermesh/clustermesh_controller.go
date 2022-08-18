@@ -223,6 +223,15 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 		cidrResults = append(cidrResults, cl.CIDR)
 	}
 
+	rules := []sgv1beta1.IngressRule{
+		{
+			IPProtocol:        "-1", // meaning that we will support icmp, udp and tcp
+			FromPort:          1,
+			ToPort:            65535,
+			AllowedCIDRBlocks: cidrResults,
+		},
+	}
+
 	for _, cl := range clustermesh.Spec.Clusters {
 		sgName := "clustermesh-" + cl.Name
 		key := client.ObjectKey{
@@ -245,14 +254,7 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 			sg.Name = sgName
 			sg.Namespace = cl.Namespace
 			sg.Spec.InfrastructureRef = &infraRef
-			sg.Spec.IngressRules = []sgv1beta1.IngressRule{
-				{
-					IPProtocol:        "-1", // meaning that we will support icmp, udp and tcp
-					FromPort:          1,
-					ToPort:            65535,
-					AllowedCIDRBlocks: cidrResults,
-				},
-			}
+			sg.Spec.IngressRules = rules
 
 			r.log.Info(fmt.Sprintf("creating security group %s for cluster %s", sg.ObjectMeta.GetName(), cl.Name))
 			if err := r.Create(ctx, sg); err != nil {
@@ -261,8 +263,13 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 				}
 			}
 		}
+		sg.Spec.IngressRules = rules
+		err = r.Update(ctx, sg)
+		if err != nil {
+			return err
+		}
+		r.log.Info(fmt.Sprintf("security group %s for cluster %s updated", sg.ObjectMeta.GetName(), cl.Name))
 	}
-
 	return nil
 }
 

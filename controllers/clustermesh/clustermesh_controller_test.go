@@ -1538,7 +1538,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 		description            string
 		k8sObjects             []client.Object
 		clustermesh            *clustermeshv1beta1.ClusterMesh
-		expectedSecurityGroups []crossec2v1beta1.SecurityGroup
+		expectedSecurityGroups []sgv1alpha1.SecurityGroup
 	}{
 		{
 			description: "should create a securitygroups with only one cluster",
@@ -1553,7 +1553,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 					},
 				},
 			},
-			expectedSecurityGroups: []crossec2v1beta1.SecurityGroup{
+			expectedSecurityGroups: []sgv1alpha1.SecurityGroup{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "clustermesh-A",
@@ -1592,7 +1592,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 					},
 				},
 			},
-			expectedSecurityGroups: []crossec2v1beta1.SecurityGroup{
+			expectedSecurityGroups: []sgv1alpha1.SecurityGroup{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "clustermesh-A",
@@ -1610,7 +1610,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 		{
 			description: "should not create a securitygroup when it already exists",
 			k8sObjects: []client.Object{
-				&crossec2v1beta1.SecurityGroup{
+				&sgv1alpha1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "clustermesh-A",
 						OwnerReferences: []metav1.OwnerReference{
@@ -1651,7 +1651,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 					},
 				},
 			},
-			expectedSecurityGroups: []crossec2v1beta1.SecurityGroup{
+			expectedSecurityGroups: []sgv1alpha1.SecurityGroup{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "clustermesh-A",
@@ -1702,8 +1702,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 			err = ReconcileSecurityGroups(reconciler, ctx, tc.clustermesh)
 			g.Expect(err).ToNot(HaveOccurred())
 			for _, esg := range tc.expectedSecurityGroups {
-				// check if the crossplane objects sg was created
-				sg := &crossec2v1beta1.SecurityGroup{}
+				sg := &sgv1alpha1.SecurityGroup{}
 				key := client.ObjectKey{
 					Name:      esg.Name,
 					Namespace: esg.Namespace,
