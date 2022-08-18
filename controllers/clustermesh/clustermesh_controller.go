@@ -101,9 +101,9 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, fmt.Errorf("error to determine if the cluster belongs to a mesh: %w", err)
 		}
 		if clusterBelongsToMesh {
-			r.log.Info(fmt.Sprintf("starting reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
+			r.log.Info(fmt.Sprintf("starting reconcile clustermesh deletion for %s", cluster.ObjectMeta.Name))
 			err = r.reconcileDelete(ctx, cluster, clustermesh)
-			r.log.Info(fmt.Sprintf("finished reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
+			r.log.Info(fmt.Sprintf("finished reconcile clustermesh deletion for %s", cluster.ObjectMeta.Name))
 			return ctrl.Result{}, err
 		} else {
 			return ctrl.Result{}, nil
@@ -120,7 +120,7 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 }
 
 func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *clusterv1beta1.Cluster, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
-	r.log.Info(fmt.Sprintf("starting reconcile clustermesh loop for %s", cluster.ObjectMeta.Name))
+	r.log.Info(fmt.Sprintf("starting reconcile clustermesh loop for %s\n", cluster.ObjectMeta.Name))
 
 	clSpec, err := r.PopulateClusterSpecFactory(r, ctx, cluster)
 	if err != nil {
@@ -137,7 +137,7 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 		}
 
 		ccm := clmesh.NewClusterMesh(cluster.Labels[clmesh.Label], clSpec)
-		r.log.Info(fmt.Sprintf("creating clustermesh %s", ccm.ObjectMeta.GetName()))
+		r.log.Info(fmt.Sprintf("creating clustermesh %s\n", ccm.ObjectMeta.GetName()))
 		if err := r.Create(ctx, ccm); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -146,9 +146,9 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 
 		if !r.isClusterBelongToMesh(cluster.Name, *clustermesh) {
 			clustermesh.Spec.Clusters = append(clustermesh.Spec.Clusters, clSpec)
-			r.log.Info(fmt.Sprintf("adding %s to clustermesh %s", cluster.ObjectMeta.Name, clustermesh.Name))
+			r.log.Info(fmt.Sprintf("adding %s to clustermesh %s\n", cluster.ObjectMeta.Name, clustermesh.Name))
 			// TODO: Verify if we need this with Patch
-			if err := r.Client.Update(ctx, clustermesh); err != nil {
+			if err := r.Update(ctx, clustermesh); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -211,13 +211,15 @@ func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *cl
 }
 
 func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
-	// Update status
+	r.log.Info(fmt.Sprintf("reconciling security groups for clustermesh %s\n", clustermesh.Name))
+
 	ownedSecurityGroupsRefs, err := crossplane.GetOwnedSecurityGroups(ctx, clustermesh, r.Client)
 	if err != nil {
 		return err
 	}
 	clustermesh.Status.CrossplaneSecurityGroupRef = ownedSecurityGroupsRefs
 
+	// check if a mesh has new clusters cidr for rules
 	var cidrResults []string
 	for _, cl := range clustermesh.Spec.Clusters {
 		cidrResults = append(cidrResults, cl.CIDR)
@@ -225,7 +227,7 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 
 	rules := []sgv1beta1.IngressRule{
 		{
-			IPProtocol:        "-1", // meaning that we will support icmp, udp and tcp
+			IPProtocol:        "-1", // we support icmp, udp and tcp
 			FromPort:          1,
 			ToPort:            65535,
 			AllowedCIDRBlocks: cidrResults,
@@ -245,10 +247,10 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 			}
 
 			infraRef := corev1.ObjectReference{
-				Kind:       "KopsMachinePool",
+				Kind:       "KopsControlPlane",
+				APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+				Name:       cl.Name,
 				Namespace:  cl.Namespace,
-				Name:       cl.Name + "-clustermesh",
-				APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
 			}
 
 			sg.Name = sgName
@@ -256,7 +258,7 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 			sg.Spec.InfrastructureRef = &infraRef
 			sg.Spec.IngressRules = rules
 
-			r.log.Info(fmt.Sprintf("creating security group %s for cluster %s", sg.ObjectMeta.GetName(), cl.Name))
+			r.log.Info(fmt.Sprintf("creating security group %s for cluster %s\n", sg.ObjectMeta.GetName(), cl.Name))
 			if err := r.Create(ctx, sg); err != nil {
 				if !apierrors.IsAlreadyExists(err) {
 					return err
@@ -268,7 +270,7 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 		if err != nil {
 			return err
 		}
-		r.log.Info(fmt.Sprintf("security group %s for cluster %s updated", sg.ObjectMeta.GetName(), cl.Name))
+		r.log.Info(fmt.Sprintf("security group %s for cluster %s updated\n", sg.ObjectMeta.GetName(), cl.Name))
 	}
 	return nil
 }
