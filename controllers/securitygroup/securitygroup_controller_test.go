@@ -116,7 +116,7 @@ var (
 	kcp = &kcontrolplanev1alpha1.KopsControlPlane{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: metav1.NamespaceDefault,
-			Name:      "test-kops-control-plane",
+			Name:      "test-cluster",
 		},
 		Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
 			KopsClusterSpec: kopsapi.ClusterSpec{
