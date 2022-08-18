@@ -19,6 +19,29 @@ package v1alpha1
 import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
+)
+
+const (
+	// ClusterMeshVPCPeeringReadyCondition reports on the successful reconcile of the clustermesh vpcpeering.
+	ClusterMeshVPCPeeringReadyCondition clusterv1beta1.ConditionType = "ClusterMeshVPCPeeringReady"
+
+	// ClusterMeshRoutesReadyCondition reports on the successful reconcile of clustermesh routes.
+	ClusterMeshRoutesReadyCondition clusterv1beta1.ConditionType = "ClusterMeshRoutesReady"
+
+	// KopsterraformGenerationReadyCondition reports on the successful reconcile of clustermesh security groups.
+	ClusterMeshSecurityGroupsReadyCondition clusterv1beta1.ConditionType = "ClusterMeshSecurityGroupsReady"
+)
+
+const (
+	// ClusterMeshVPCPeeringFailedReason (Severity=Error) indicates that not all clustermesh vpcpeerings are ready.
+	ClusterMeshVPCPeeringFailedReason = "ClusterMeshVPCPeeringFailedFailed"
+
+	// ClusterMeshRoutesFailedReason (Severity=Error) indicates that not all clustermesh necessary routes are ready.
+	ClusterMeshRoutesFailedReason = "ClusterMeshRoutesFailed"
+
+	// ClusterMeshSecurityGroupFailedReason (Severity=Error) indicates that not all clustermesh securitygroups are ready.
+	ClusterMeshSecurityGroupFailedReason = "ClusterMeshSecurityGroupFailed"
 )
 
 type ClusterSpec struct {
@@ -39,6 +62,8 @@ type ClusterMeshSpec struct {
 // ClusterMeshStatus defines the observed state of ClusterMesh
 type ClusterMeshStatus struct {
 	CrossplanePeeringRef []*v1.ObjectReference `json:"crossplanePeeringRef,omitempty"`
+
+	Conditions clusterv1beta1.Conditions `json:"conditions,omitempty"`
 }
 
 //+kubebuilder:object:root=true
@@ -65,4 +90,14 @@ type ClusterMeshList struct {
 
 func init() {
 	SchemeBuilder.Register(&ClusterMesh{}, &ClusterMeshList{})
+}
+
+// GetConditions returns the set of conditions for this object.
+func (cm *ClusterMesh) GetConditions() clusterv1beta1.Conditions {
+	return cm.Status.Conditions
+}
+
+// SetConditions sets the conditions on this object.
+func (cm *ClusterMesh) SetConditions(conditions clusterv1beta1.Conditions) {
+	cm.Status.Conditions = conditions
 }
