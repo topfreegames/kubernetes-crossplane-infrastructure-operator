@@ -336,7 +336,7 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 				},
 				Recorder: recorder,
 				ManageCrossplaneSGFactory: func(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error {
-					rgiteturn crossplane.ManageCrossplaneSecurityGroupResource(ctx, kubeClient, csg)
+					return crossplane.ManageCrossplaneSecurityGroupResource(ctx, kubeClient, csg)
 				},
 			}
 
