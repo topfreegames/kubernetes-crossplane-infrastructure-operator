@@ -168,7 +168,7 @@ func TestGetOwnedVPCPeeringConnections(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.vpcPeeringConnections...).Build()
-			ownedVPCPeerings, _ := GetOwnedVPCPeeringConnections(context.TODO(), owner, fakeClient)
+			ownedVPCPeerings, _ := GetOwnedVPCPeeringConnectionsRef(context.TODO(), owner, fakeClient)
 			g.Expect(cmp.Equal(ownedVPCPeerings, tc.expectedOwnedVPCPeeringConnections)).To(BeTrue())
 		})
 	}
