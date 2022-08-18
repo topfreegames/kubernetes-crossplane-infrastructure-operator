@@ -219,7 +219,6 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 	}
 	clustermesh.Status.CrossplaneSecurityGroupRef = ownedSecurityGroupsRefs
 
-	// check if a mesh has new clusters cidr for rules
 	var cidrResults []string
 	for _, cl := range clustermesh.Spec.Clusters {
 		cidrResults = append(cidrResults, cl.CIDR)
@@ -256,21 +255,20 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 			sg.Name = sgName
 			sg.Namespace = cl.Namespace
 			sg.Spec.InfrastructureRef = &infraRef
-			sg.Spec.IngressRules = rules
-
-			r.log.Info(fmt.Sprintf("creating security group %s for cluster %s\n", sg.ObjectMeta.GetName(), cl.Name))
-			if err := r.Create(ctx, sg); err != nil {
-				if !apierrors.IsAlreadyExists(err) {
-					return err
-				}
-			}
 		}
 		sg.Spec.IngressRules = rules
-		err = r.Update(ctx, sg)
-		if err != nil {
-			return err
+		r.log.Info(fmt.Sprintf("creating security group %s for cluster %s\n", sg.ObjectMeta.GetName(), cl.Name))
+		if err := r.Create(ctx, sg); err != nil {
+			if apierrors.IsAlreadyExists(err) {
+				err = r.Update(ctx, sg)
+				if err != nil {
+					return err
+				}
+				r.log.Info(fmt.Sprintf("security group %s for cluster %s updated\n", sg.ObjectMeta.GetName(), cl.Name))
+			} else {
+				return err
+			}
 		}
-		r.log.Info(fmt.Sprintf("security group %s for cluster %s updated\n", sg.ObjectMeta.GetName(), cl.Name))
 	}
 	return nil
 }
