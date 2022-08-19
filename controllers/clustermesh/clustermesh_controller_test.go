@@ -1789,6 +1789,7 @@ func TestValidateClusterMesh(t *testing.T) {
 		vpcNotReady           bool
 		routeNotReady         bool
 		securityGroupNotReady bool
+		vpcAndRouteNotReady   bool
 	}{
 		{
 			description: "should validate all objects sucessfull",
@@ -1840,6 +1841,32 @@ func TestValidateClusterMesh(t *testing.T) {
 			},
 			routeNotReady: true,
 		},
+		{
+			description: "should not validate sg if there is not a sg created",
+			k8sObjects: []client.Object{
+				clustermeshBase,
+				vpcPeeringConnection,
+				route,
+			},
+			securityGroupNotReady: true,
+		},
+		{
+			description: "should not validate route if there is not a route created",
+			k8sObjects: []client.Object{
+				clustermeshBase,
+				vpcPeeringConnection,
+				securityGroup,
+			},
+			routeNotReady: true,
+		},
+		{
+			description: "should not validate vpc and route if both are not created",
+			k8sObjects: []client.Object{
+				clustermeshBase,
+				securityGroup,
+			},
+			vpcAndRouteNotReady: true,
+		},
 	}
 
 	err := crossec2v1alpha1.AddToScheme(scheme.Scheme)
@@ -1880,6 +1907,10 @@ func TestValidateClusterMesh(t *testing.T) {
 				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshVPCPeeringReadyCondition)).To(BeTrue())
 				g.Expect(conditions.IsFalse(clustermesh, clustermeshv1beta1.ClusterMeshSecurityGroupsReadyCondition)).To(BeTrue())
 				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshRoutesReadyCondition)).To(BeTrue())
+			} else if tc.vpcAndRouteNotReady {
+				g.Expect(conditions.IsFalse(clustermesh, clustermeshv1beta1.ClusterMeshVPCPeeringReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshSecurityGroupsReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsFalse(clustermesh, clustermeshv1beta1.ClusterMeshRoutesReadyCondition)).To(BeTrue())
 			} else {
 				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshVPCPeeringReadyCondition)).To(BeTrue())
 				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshSecurityGroupsReadyCondition)).To(BeTrue())
