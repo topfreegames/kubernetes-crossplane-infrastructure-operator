@@ -2,6 +2,8 @@ package kops
 
 import (
 	"context"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"testing"
 
 	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
@@ -189,62 +191,87 @@ func TestGetKopsMachinePoolsWithLabel(t *testing.T) {
 		},
 	}
 
-	testCases := []map[string]interface{}{
+	defaultRegisterFn := func(sc *runtime.Scheme) {
+		err := clusterv1beta1.AddToScheme(sc)
+		Expect(err).NotTo(HaveOccurred())
+
+		err = crossec2v1beta1.SchemeBuilder.AddToScheme(sc)
+		Expect(err).NotTo(HaveOccurred())
+
+		err = securitygroupv1alpha1.AddToScheme(sc)
+		Expect(err).NotTo(HaveOccurred())
+
+		err = kinfrastructurev1alpha1.AddToScheme(sc)
+		Expect(err).NotTo(HaveOccurred())
+
+		err = kcontrolplanev1alpha1.AddToScheme(sc)
+		Expect(err).NotTo(HaveOccurred())
+	}
+
+	type testCase struct {
+		description     string
+		k8sObjects      []client.Object
+		input           []string
+		expected        []kinfrastructurev1alpha1.KopsMachinePool
+		isErrorExpected bool
+		expectedError   error
+		registerFn      func(sc *runtime.Scheme)
+	}
+
+	testCases := []testCase{
 		{
-			"description":     "should return the correct machinepool set",
-			"input":           []string{"cluster.x-k8s.io/cluster-name", "test-cluster"},
-			"expected":        []kinfrastructurev1alpha1.KopsMachinePool{kmp},
-			"isErrorExpected": false,
+			description:     "should return the correct machinepool set",
+			k8sObjects:      []client.Object{&kmp},
+			input:           []string{"cluster.x-k8s.io/cluster-name", "test-cluster"},
+			expected:        []kinfrastructurev1alpha1.KopsMachinePool{kmp},
+			isErrorExpected: false,
+			registerFn:      defaultRegisterFn,
 		},
 		{
-			"description":     "should fail when missing label value",
-			"input":           []string{"cluster.x-k8s.io/cluster-name", ""},
-			"expected":        []kinfrastructurev1alpha1.KopsMachinePool{kmp},
-			"isErrorExpected": true,
-			"expectedError":   ErrLabelValueEmpty,
+			description:     "should fail when missing label value",
+			input:           []string{"cluster.x-k8s.io/cluster-name", ""},
+			expected:        []kinfrastructurev1alpha1.KopsMachinePool{kmp},
+			isErrorExpected: true,
+			expectedError:   ErrLabelValueEmpty,
+			registerFn:      defaultRegisterFn,
 		},
 		{
-			"description":     "should fail when missing label key",
-			"input":           []string{"", "cluster-test"},
-			"expected":        []kinfrastructurev1alpha1.KopsMachinePool{kmp},
-			"isErrorExpected": true,
-			"expectedError":   ErrLabelKeyEmpty,
+			description:     "should fail when missing label key",
+			input:           []string{"", "cluster-test"},
+			expected:        []kinfrastructurev1alpha1.KopsMachinePool{kmp},
+			isErrorExpected: true,
+			expectedError:   ErrLabelKeyEmpty,
+			registerFn:      defaultRegisterFn,
+		},
+		{
+			description:     "should fail when some error on retrieving machinepools",
+			input:           []string{"cluster.x-k8s.io/cluster-name", "some-random-name"},
+			expected:        []kinfrastructurev1alpha1.KopsMachinePool{},
+			isErrorExpected: true,
+			registerFn: func(sc *runtime.Scheme) {
+				sc = scheme.Scheme
+			},
 		},
 	}
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
 
-	err := clusterv1beta1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = kcontrolplanev1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
-
-	ctx := context.Background()
-	err = fakeClient.Create(ctx, &kmp)
-	Expect(err).ToNot(HaveOccurred())
-
 	for _, tc := range testCases {
-		input := tc["input"].([]string)
+		tc.registerFn(scheme.Scheme)
+		fakeClient := fake.NewClientBuilder().WithObjects(tc.k8sObjects...).WithScheme(scheme.Scheme).Build()
+		ctx := context.TODO()
+		input := tc.input
 
-		t.Run(tc["description"].(string), func(t *testing.T) {
+		t.Run(tc.description, func(t *testing.T) {
 			kmps, err := GetKopsMachinePoolsWithLabel(ctx, fakeClient, input[0], input[1])
-			if !tc["isErrorExpected"].(bool) {
+			if !tc.isErrorExpected { // no error expected
 				g.Expect(err).To(BeNil())
-				g.Expect(len(kmps)).To(Equal(len(tc["expected"].([]kinfrastructurev1alpha1.KopsMachinePool))))
+				g.Expect(len(kmps)).To(Equal(len(tc.expected)))
 			} else {
 				g.Expect(err).ToNot(BeNil())
+				if tc.expectedError != nil {
+					g.Expect(err).To(Equal(tc.expectedError))
+				}
 			}
 		})
 	}
