@@ -1696,6 +1696,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 				ReconcileSecurityGroupsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
 					return nil
 				},
+				Scheme: scheme.Scheme,
 			}
 
 			err = ReconcileSecurityGroups(reconciler, ctx, tc.clustermesh)
