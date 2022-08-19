@@ -25,11 +25,11 @@ import (
 
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
+	"github.com/topfreegames/kubernetes-kops-operator/pkg/kops"
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/autoscaling"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
 	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
-	"github.com/topfreegames/provider-crossplane/pkg/kops"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"

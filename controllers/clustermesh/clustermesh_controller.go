@@ -24,12 +24,12 @@ import (
 	"time"
 
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
+	"github.com/topfreegames/kubernetes-kops-operator/pkg/kops"
 	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
 	sgv1beta1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
 	clmesh "github.com/topfreegames/provider-crossplane/pkg/clustermesh"
 	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
-	"github.com/topfreegames/provider-crossplane/pkg/kops"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
