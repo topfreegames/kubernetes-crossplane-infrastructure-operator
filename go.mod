@@ -7,12 +7,12 @@ replace k8s.io/code-generator => k8s.io/code-generator v0.21.0
 require (
 	github.com/aws/aws-sdk-go v1.44.5
 	github.com/aws/aws-sdk-go-v2 v1.16.7
-	github.com/aws/aws-sdk-go-v2/config v1.10.0
+	github.com/aws/aws-sdk-go-v2/config v1.11.1
 	github.com/aws/aws-sdk-go-v2/service/autoscaling v1.22.1
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.26.0
 	github.com/barkimedes/go-deepcopy v0.0.0-20220514131651-17c30cfc62df
+	github.com/crossplane-contrib/provider-aws v0.30.1
 	github.com/crossplane/crossplane-runtime v0.17.0-rc.0.0.20220616115400-a520b60f1661
-	github.com/crossplane/provider-aws v0.24.1
 	github.com/go-logr/logr v1.2.3
 	github.com/google/go-cmp v0.5.8
 	github.com/onsi/ginkgo v1.16.5
@@ -43,14 +43,15 @@ require (
 	github.com/apparentlymart/go-cidr v1.1.0 // indirect
 	github.com/armon/go-metrics v0.3.9 // indirect
 	github.com/armon/go-radix v1.0.0 // indirect
-	github.com/aws/aws-sdk-go-v2/credentials v1.6.0 // indirect
-	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.8.0 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.1.6 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.4.0 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/ini v1.3.0 // indirect
+	github.com/aws/aws-sdk-go-v2/credentials v1.6.5 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.8.2 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.1.14 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.4.8 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/ini v1.3.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/acmpca v1.12.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.5.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.6.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sts v1.9.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.7.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.12.0 // indirect
 	github.com/aws/smithy-go v1.12.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver v3.5.1+incompatible // indirect

@@ -30,8 +30,8 @@ import (
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
 	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
 
-	crossec2v1alpha1 "github.com/crossplane/provider-aws/apis/ec2/v1alpha1"
-	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
+	crossec2v1alpha1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
+	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"

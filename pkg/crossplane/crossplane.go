@@ -8,9 +8,9 @@ import (
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	crossec2v1alphav1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
+	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
-	crossec2v1alphav1 "github.com/crossplane/provider-aws/apis/ec2/v1alpha1"
-	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
