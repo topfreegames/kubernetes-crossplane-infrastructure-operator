@@ -35,7 +35,7 @@ const (
 
 const (
 	// ClusterMeshVPCPeeringFailedReason (Severity=Error) indicates that not all clustermesh vpcpeerings are ready.
-	ClusterMeshVPCPeeringFailedReason = "ClusterMeshVPCPeeringFailedFailed"
+	ClusterMeshVPCPeeringFailedReason = "ClusterMeshVPCPeeringFailed"
 
 	// ClusterMeshRoutesFailedReason (Severity=Error) indicates that not all clustermesh necessary routes are ready.
 	ClusterMeshRoutesFailedReason = "ClusterMeshRoutesFailed"

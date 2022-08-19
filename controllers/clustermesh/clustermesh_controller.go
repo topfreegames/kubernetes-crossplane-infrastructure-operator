@@ -24,6 +24,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/barkimedes/go-deepcopy"
+	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	crossec2v1alphav1 "github.com/crossplane/provider-aws/apis/ec2/v1alpha1"
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
@@ -36,6 +37,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -181,7 +183,74 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 		return ctrl.Result{}, err
 	}
 
-	return r.ReconcileRoutesFactory(r, ctx, clSpec)
+	result, err := r.ReconcileRoutesFactory(r, ctx, clSpec)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	err = r.validateClusterMesh(ctx, clustermesh)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	return result, nil
+}
+
+func (r *ClusterMeshReconciler) validateClusterMesh(ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+	vpcReady, routesReady, sgReady := true, true, true
+
+	vpcPeeringConnections, err := crossplane.GetOwnedVPCPeeringConnections(ctx, clustermesh, r.Client)
+	if err != nil {
+		return err
+	}
+
+	for _, vpcPeeringConnection := range vpcPeeringConnections.Items {
+		if !checkConditionsReadyAndSynced(vpcPeeringConnection.Status.Conditions) {
+			vpcReady = false
+		}
+
+		routes, err := crossplane.GetOwnedRoutes(ctx, &vpcPeeringConnection, r.Client)
+		if err != nil {
+			return err
+		}
+
+		for _, route := range routes.Items {
+			if !checkConditionsReadyAndSynced(route.Status.Conditions) {
+				routesReady = false
+			}
+		}
+
+	}
+	securityGroups, err := crossplane.GetOwnedSecurityGroups(ctx, clustermesh, r.Client)
+	if err != nil {
+		return err
+	}
+
+	for _, securityGroup := range securityGroups.Items {
+		if !checkConditionsReadyAndSynced(securityGroup.Status.Conditions) {
+			sgReady = false
+		}
+	}
+
+	if vpcReady {
+		conditions.MarkTrue(clustermesh, clustermeshv1beta1.ClusterMeshVPCPeeringReadyCondition)
+	} else {
+		conditions.MarkFalse(clustermesh, clustermeshv1beta1.ClusterMeshVPCPeeringReadyCondition, clustermeshv1beta1.ClusterMeshVPCPeeringFailedReason, clusterv1beta1.ConditionSeverityError, "VpcPeeringConnection not ready")
+	}
+
+	if routesReady {
+		conditions.MarkTrue(clustermesh, clustermeshv1beta1.ClusterMeshRoutesReadyCondition)
+	} else {
+		conditions.MarkFalse(clustermesh, clustermeshv1beta1.ClusterMeshRoutesReadyCondition, clustermeshv1beta1.ClusterMeshRoutesFailedReason, clusterv1beta1.ConditionSeverityError, "Routes not ready")
+	}
+
+	if sgReady {
+		conditions.MarkTrue(clustermesh, clustermeshv1beta1.ClusterMeshSecurityGroupsReadyCondition)
+	} else {
+		conditions.MarkFalse(clustermesh, clustermeshv1beta1.ClusterMeshSecurityGroupsReadyCondition, clustermeshv1beta1.ClusterMeshSecurityGroupFailedReason, clusterv1beta1.ConditionSeverityError, "SecurityGroups not ready")
+	}
+
+	return nil
 }
 
 func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
@@ -239,13 +308,9 @@ func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clus
 	}
 
 	for _, vpcPeeringConnection := range vpcPeeringConnections.Items {
-		ready := false
-		for _, condition := range vpcPeeringConnection.Status.Conditions {
-			if condition.Reason == "Available" && condition.Status == "True" {
-				ready = true
-			}
-		}
-		if !ready {
+		statusReady := checkConditionsReadyAndSynced(vpcPeeringConnection.Status.Conditions)
+
+		if !statusReady {
 			r.log.Info("can't create routes yet, vpc " + vpcPeeringConnection.Name + " not ready, requeuing cluster " + clSpec.Name)
 			return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 		}
@@ -283,6 +348,23 @@ func manageCrossplaneRoutes(r *ClusterMeshReconciler, ctx context.Context, clust
 		}
 	}
 	return nil
+}
+
+func checkConditionsReadyAndSynced(listConditions []crossplanev1.Condition) bool {
+	resultReady, resultSynced := false, false
+	for _, condition := range listConditions {
+		if condition.Type == "Ready" && condition.Reason == "Available" && condition.Status == "True" {
+			resultReady = true
+		}
+		if condition.Type == "Synced" && condition.Reason == "ReconcileSuccess" && condition.Status == "True" {
+			resultSynced = true
+		}
+	}
+	if resultReady && resultSynced {
+		return true
+	} else {
+		return false
+	}
 }
 
 func (r *ClusterMeshReconciler) isClusterBelongToAnyMesh(clusterName string) (bool, error) {
