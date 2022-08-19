@@ -191,7 +191,7 @@ func TestGetKopsMachinePoolsWithLabel(t *testing.T) {
 		},
 	}
 
-	defaultRegisterFn := func(sc *runtime.Scheme) {
+	defaultRegisterFn := func(sc *runtime.Scheme, clientBuilder *fake.ClientBuilder) *fake.ClientBuilder {
 		err := clusterv1beta1.AddToScheme(sc)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -206,6 +206,9 @@ func TestGetKopsMachinePoolsWithLabel(t *testing.T) {
 
 		err = kcontrolplanev1alpha1.AddToScheme(sc)
 		Expect(err).NotTo(HaveOccurred())
+
+		clientBuilder.WithScheme(sc)
+		return clientBuilder
 	}
 
 	type testCase struct {
@@ -215,7 +218,7 @@ func TestGetKopsMachinePoolsWithLabel(t *testing.T) {
 		expected        []kinfrastructurev1alpha1.KopsMachinePool
 		isErrorExpected bool
 		expectedError   error
-		registerFn      func(sc *runtime.Scheme)
+		registerFn      func(sc *runtime.Scheme, clientBuilder *fake.ClientBuilder) *fake.ClientBuilder
 	}
 
 	testCases := []testCase{
@@ -248,8 +251,10 @@ func TestGetKopsMachinePoolsWithLabel(t *testing.T) {
 			input:           []string{"cluster.x-k8s.io/cluster-name", "some-random-name"},
 			expected:        []kinfrastructurev1alpha1.KopsMachinePool{},
 			isErrorExpected: true,
-			registerFn: func(sc *runtime.Scheme) {
-				sc = scheme.Scheme
+			registerFn: func(sc *runtime.Scheme, clientBuilder *fake.ClientBuilder) *fake.ClientBuilder {
+				sc = runtime.NewScheme()
+				clientBuilder.WithScheme(sc)
+				return clientBuilder
 			},
 		},
 	}
@@ -257,8 +262,9 @@ func TestGetKopsMachinePoolsWithLabel(t *testing.T) {
 	g := NewWithT(t)
 
 	for _, tc := range testCases {
-		tc.registerFn(scheme.Scheme)
-		fakeClient := fake.NewClientBuilder().WithObjects(tc.k8sObjects...).WithScheme(scheme.Scheme).Build()
+
+		clientBuilder := fake.NewClientBuilder().WithObjects(tc.k8sObjects...)
+		fakeClient := tc.registerFn(scheme.Scheme, clientBuilder).Build()
 		ctx := context.TODO()
 		input := tc.input
 
@@ -269,6 +275,7 @@ func TestGetKopsMachinePoolsWithLabel(t *testing.T) {
 				g.Expect(len(kmps)).To(Equal(len(tc.expected)))
 			} else {
 				g.Expect(err).ToNot(BeNil())
+				g.Expect(len(kmps)).To(Equal(0))
 				if tc.expectedError != nil {
 					g.Expect(err).To(Equal(tc.expectedError))
 				}
