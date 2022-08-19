@@ -2,12 +2,13 @@ package kops
 
 import (
 	"context"
+	"testing"
+
 	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
 	"k8s.io/client-go/kubernetes/scheme"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"testing"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -38,7 +39,7 @@ func TestGetSubnetFromKopsControlPlane(t *testing.T) {
 					},
 				},
 			},
-			"expectedError": false,
+			"isErrorExpected": false,
 		},
 		{
 			"description": "should fail when missing subnets",
@@ -51,7 +52,7 @@ func TestGetSubnetFromKopsControlPlane(t *testing.T) {
 					KopsClusterSpec: kopsapi.ClusterSpec{},
 				},
 			},
-			"expectedError": true,
+			"isErrorExpected": true,
 		},
 	}
 	RegisterFailHandler(Fail)
@@ -59,7 +60,7 @@ func TestGetSubnetFromKopsControlPlane(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc["description"].(string), func(t *testing.T) {
 			subnet, err := GetSubnetFromKopsControlPlane(tc["input"].(*kcontrolplanev1alpha1.KopsControlPlane))
-			if !tc["expectedError"].(bool) {
+			if !tc["isErrorExpected"].(bool) {
 				g.Expect(err).To(BeNil())
 				g.Expect(subnet).ToNot(BeNil())
 			} else {
@@ -76,21 +77,21 @@ func TestGetRegionFromKopsSubnet(t *testing.T) {
 			"input": kopsapi.ClusterSubnetSpec{
 				Zone: "us-east-1d",
 			},
-			"expected":      "us-east-1",
-			"expectedError": false,
+			"expected":        "us-east-1",
+			"isErrorExpected": false,
 		},
 		{
 			"description": "should succeed using subnet with region",
 			"input": kopsapi.ClusterSubnetSpec{
 				Region: "us-east-1",
 			},
-			"expected":      "us-east-1",
-			"expectedError": false,
+			"expected":        "us-east-1",
+			"isErrorExpected": false,
 		},
 		{
-			"description":   "should fail using subnet empty",
-			"input":         kopsapi.ClusterSubnetSpec{},
-			"expectedError": true,
+			"description":     "should fail using subnet empty",
+			"input":           kopsapi.ClusterSubnetSpec{},
+			"isErrorExpected": true,
 		},
 	}
 	RegisterFailHandler(Fail)
@@ -98,7 +99,7 @@ func TestGetRegionFromKopsSubnet(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc["description"].(string), func(t *testing.T) {
 			region, err := GetRegionFromKopsSubnet(tc["input"].(kopsapi.ClusterSubnetSpec))
-			if !tc["expectedError"].(bool) {
+			if !tc["isErrorExpected"].(bool) {
 				g.Expect(region).ToNot(BeNil())
 				g.Expect(err).To(BeNil())
 				g.Expect(*region).To(Equal(tc["expected"].(string)))
@@ -123,8 +124,8 @@ func TestGetAutoScalingGroupNameFromKopsMachinePool(t *testing.T) {
 					},
 				},
 			},
-			"expected":      "nodes-a.test-cluster",
-			"expectedError": false,
+			"expected":        "nodes-a.test-cluster",
+			"isErrorExpected": false,
 		},
 		{
 			"description": "should fail when missing nodeLabel annotation",
@@ -137,7 +138,7 @@ func TestGetAutoScalingGroupNameFromKopsMachinePool(t *testing.T) {
 				},
 			},
 			"expected":             "nodes-a.test-cluster",
-			"expectedError":        true,
+			"isErrorExpected":      true,
 			"expectedErrorMessage": "failed to retrieve igName",
 		},
 		{
@@ -152,7 +153,7 @@ func TestGetAutoScalingGroupNameFromKopsMachinePool(t *testing.T) {
 				},
 			},
 			"expected":             "nodes-a.test-cluster",
-			"expectedError":        true,
+			"isErrorExpected":      true,
 			"expectedErrorMessage": "failed to retrieve clusterName",
 		},
 	}
@@ -162,7 +163,7 @@ func TestGetAutoScalingGroupNameFromKopsMachinePool(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc["description"].(string), func(t *testing.T) {
 			asgName, err := GetAutoScalingGroupNameFromKopsMachinePool(tc["input"].(kinfrastructurev1alpha1.KopsMachinePool))
-			if !tc["expectedError"].(bool) {
+			if !tc["isErrorExpected"].(bool) {
 				g.Expect(asgName).ToNot(BeNil())
 				g.Expect(err).To(BeNil())
 				g.Expect(*asgName).To(Equal(tc["expected"].(string)))
@@ -190,22 +191,24 @@ func TestGetKopsMachinePoolsWithLabel(t *testing.T) {
 
 	testCases := []map[string]interface{}{
 		{
-			"description":   "should return the correct machinepool set",
-			"input":         []string{"cluster.x-k8s.io/cluster-name", "test-cluster"},
-			"expected":      []kinfrastructurev1alpha1.KopsMachinePool{kmp},
-			"expectedError": false,
+			"description":     "should return the correct machinepool set",
+			"input":           []string{"cluster.x-k8s.io/cluster-name", "test-cluster"},
+			"expected":        []kinfrastructurev1alpha1.KopsMachinePool{kmp},
+			"isErrorExpected": false,
 		},
 		{
-			"description":   "should fail when missing cluster name label",
-			"input":         []string{"cluster.x-k8s.io/cluster-name", ""},
-			"expected":      []kinfrastructurev1alpha1.KopsMachinePool{kmp},
-			"expectedError": true,
+			"description":     "should fail when missing label value",
+			"input":           []string{"cluster.x-k8s.io/cluster-name", ""},
+			"expected":        []kinfrastructurev1alpha1.KopsMachinePool{kmp},
+			"isErrorExpected": true,
+			"expectedError":   ErrLabelValueEmpty,
 		},
 		{
-			"description":   "should fail when using another label than cluster name label",
-			"input":         []string{"cluster.x-k8s.io/cluster", "infra"},
-			"expected":      []kinfrastructurev1alpha1.KopsMachinePool{kmp},
-			"expectedError": true,
+			"description":     "should fail when missing label key",
+			"input":           []string{"", "cluster-test"},
+			"expected":        []kinfrastructurev1alpha1.KopsMachinePool{kmp},
+			"isErrorExpected": true,
+			"expectedError":   ErrLabelKeyEmpty,
 		},
 	}
 	RegisterFailHandler(Fail)
@@ -237,8 +240,7 @@ func TestGetKopsMachinePoolsWithLabel(t *testing.T) {
 
 		t.Run(tc["description"].(string), func(t *testing.T) {
 			kmps, err := GetKopsMachinePoolsWithLabel(ctx, fakeClient, input[0], input[1])
-			if !tc["expectedError"].(bool) {
-				g.Expect(len(kmps)).ToNot(Equal(0))
+			if !tc["isErrorExpected"].(bool) {
 				g.Expect(err).To(BeNil())
 				g.Expect(len(kmps)).To(Equal(len(tc["expected"].([]kinfrastructurev1alpha1.KopsMachinePool))))
 			} else {

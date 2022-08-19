@@ -12,6 +12,13 @@ import (
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
 )
 
+var (
+	// ErrLabelKeyEmpty is returned when the label key is empty
+	ErrLabelKeyEmpty = errors.New("label key is empty")
+	// ErrLabelValueEmpty is returned when the label value is empty
+	ErrLabelValueEmpty = errors.New("label value is empty")
+)
+
 func GetSubnetFromKopsControlPlane(kcp *kcontrolplanev1alpha1.KopsControlPlane) (*kopsapi.ClusterSubnetSpec, error) {
 	if kcp.Spec.KopsClusterSpec.Subnets == nil {
 		return nil, errors.Wrap(errors.Errorf("SubnetNotFound"), "subnet not found in KopsControlPlane")
@@ -34,28 +41,28 @@ func GetRegionFromKopsSubnet(subnet kopsapi.ClusterSubnetSpec) (*string, error) 
 	return nil, errors.Wrap(errors.Errorf("RegionNotFound"), "couldn't get region from KopsControlPlane")
 }
 
-// GetKopsMachinePoolsWithLabel retrieve all KopsMachinePool with the label'
+// GetKopsMachinePoolsWithLabel retrieve all KopsMachinePool with the given label
 func GetKopsMachinePoolsWithLabel(ctx context.Context, c client.Client, key, value string) ([]kinfrastructurev1alpha1.KopsMachinePool, error) {
 	var kmps []kinfrastructurev1alpha1.KopsMachinePool
 
-	if key != "cluster.x-k8s.io/cluster-name" {
-		return kmps, errors.New("only cluster.x-k8s.io/cluster-name label are allowed")
+	if key == "" {
+		return kmps, ErrLabelKeyEmpty
 	}
 	if value == "" {
-		return kmps, errors.New("cluster name are required")
+		return kmps, ErrLabelValueEmpty
 	}
 
 	kmpsList := &kinfrastructurev1alpha1.KopsMachinePoolList{}
 	err := c.List(ctx, kmpsList)
 	if err != nil {
-		return kmps, err
+		return kmps, fmt.Errorf("error while trying to retrieve KopsMachinePool list: %w", err)
 	}
+
 	// Todo: use label selector to avoid iterate over the items
 	for _, kmp := range kmpsList.Items {
-		if _, ok := kmp.Labels["cluster.x-k8s.io/cluster-name"]; !ok {
-			continue
+		if _, ok := kmp.Labels[key]; ok {
+			kmps = append(kmps, kmp)
 		}
-		kmps = append(kmps, kmp)
 	}
 
 	return kmps, nil
