@@ -260,6 +260,11 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 			return err
 		}
 		r.log.Info(fmt.Sprintf("security group %s for cluster %s\n", string(res), cl.Name))
+
+		err = controllerutil.SetOwnerReference(clustermesh, sg, r.Scheme)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
