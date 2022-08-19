@@ -307,7 +307,7 @@ func GetOwnedVPCPeeringConnections(ctx context.Context, owner client.Object, kub
 	if err != nil {
 		return nil, err
 	}
-	var ownedVPCPeeringConnections *crossec2v1alphav1.VPCPeeringConnectionList
+	var ownedVPCPeeringConnections crossec2v1alphav1.VPCPeeringConnectionList
 
 	for _, vpcPeeringConnection := range vpcPeeringConnections.Items {
 		if util.IsOwnedByObject(&vpcPeeringConnection, owner) {
@@ -315,7 +315,7 @@ func GetOwnedVPCPeeringConnections(ctx context.Context, owner client.Object, kub
 		}
 	}
 
-	return ownedVPCPeeringConnections, nil
+	return &ownedVPCPeeringConnections, nil
 }
 
 func GetOwnedSecurityGroups(ctx context.Context, owner client.Object, kubeclient client.Client) (*crossec2v1beta1.SecurityGroupList, error) {
@@ -324,7 +324,7 @@ func GetOwnedSecurityGroups(ctx context.Context, owner client.Object, kubeclient
 	if err != nil {
 		return nil, err
 	}
-	var ownedSecurityGroups *crossec2v1beta1.SecurityGroupList
+	var ownedSecurityGroups crossec2v1beta1.SecurityGroupList
 
 	for _, securityGroup := range securityGroups.Items {
 		if util.IsOwnedByObject(&securityGroup, owner) {
@@ -332,7 +332,7 @@ func GetOwnedSecurityGroups(ctx context.Context, owner client.Object, kubeclient
 		}
 	}
 
-	return ownedSecurityGroups, nil
+	return &ownedSecurityGroups, nil
 }
 
 func GetOwnedRoutes(ctx context.Context, owner client.Object, kubeclient client.Client) (*crossec2v1alphav1.RouteList, error) {
@@ -341,7 +341,7 @@ func GetOwnedRoutes(ctx context.Context, owner client.Object, kubeclient client.
 	if err != nil {
 		return nil, err
 	}
-	var ownedRoutes *crossec2v1alphav1.RouteList
+	var ownedRoutes crossec2v1alphav1.RouteList
 
 	for _, route := range routes.Items {
 		if util.IsOwnedByObject(&route, owner) {
@@ -349,5 +349,5 @@ func GetOwnedRoutes(ctx context.Context, owner client.Object, kubeclient client.
 		}
 	}
 
-	return ownedRoutes, nil
+	return &ownedRoutes, nil
 }
