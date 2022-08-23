@@ -161,7 +161,38 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			"isErrorExpected": true,
 		},
 		{
-			"description": "should fail with InfrastructureRef Kind different from KopsMachinePool",
+			"description": "should create a SecurityGroup with KopsControlPlane infrastructureRef",
+			"k8sObjects": []client.Object{
+				kmp, cluster, kcp,
+				&securitygroupv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-security-group",
+						Namespace: metav1.NamespaceDefault,
+					},
+					Spec: securitygroupv1alpha1.SecurityGroupSpec{
+						IngressRules: []securitygroupv1alpha1.IngressRule{
+							{
+								IPProtocol: "TCP",
+								FromPort:   40000,
+								ToPort:     60000,
+								AllowedCIDRBlocks: []string{
+									"0.0.0.0/0",
+								},
+							},
+						},
+						InfrastructureRef: &corev1.ObjectReference{
+							APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsControlPlane",
+							Name:       "test-cluster",
+							Namespace:  metav1.NamespaceDefault,
+						},
+					},
+				},
+			},
+			"isErrorExpected": false,
+		},
+		{
+			"description": "should fail with InfrastructureRef Kind different from KopsMachinePool and KopsControlPlane",
 			"k8sObjects": []client.Object{
 				kmp, cluster, kcp,
 				&securitygroupv1alpha1.SecurityGroup{
@@ -231,6 +262,9 @@ func TestSecurityGroupReconciler(t *testing.T) {
 				Client: fakeClient,
 				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
 					return fakeEC2Client
+				},
+				ManageCrossplaneSGFactory: func(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error {
+					return crossplane.ManageCrossplaneSecurityGroupResource(ctx, kubeClient, csg)
 				},
 			}
 			_, err := reconciler.Reconcile(ctx, ctrl.Request{
