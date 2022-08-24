@@ -550,11 +550,12 @@ func TestReconcileNormal(t *testing.T) {
 	g := NewWithT(t)
 
 	testCases := []struct {
-		description    string
-		k8sObjects     []client.Object
-		cluster        *clusterv1beta1.Cluster
-		clustermesh    *clustermeshv1beta1.ClusterMesh
-		expectedOutput *clustermeshv1beta1.ClusterMesh
+		description       string
+		k8sObjects        []client.Object
+		cluster           *clusterv1beta1.Cluster
+		clustermesh       *clustermeshv1beta1.ClusterMesh
+		expectedOutput    *clustermeshv1beta1.ClusterMesh
+		shouldNotValidate bool
 	}{
 		{
 			description: "should create a clustermesh with the cluster A in the spec",
@@ -588,6 +589,7 @@ func TestReconcileNormal(t *testing.T) {
 					},
 				},
 			},
+			shouldNotValidate: true,
 		},
 		{
 			description: "should add the cluster B in the spec of an already create clustermesh",
@@ -744,6 +746,9 @@ func TestReconcileNormal(t *testing.T) {
 			err = fakeClient.Get(ctx, client.ObjectKey{Name: "test-clustermesh"}, clustermesh)
 			g.Expect(clustermesh.GetName()).To(BeEquivalentTo(tc.expectedOutput.GetName()))
 			g.Expect(clustermesh.Spec).To(BeEquivalentTo(tc.expectedOutput.Spec))
+			if tc.shouldNotValidate {
+				g.Expect(clustermesh.Status.Conditions).To(BeEmpty())
+			}
 		})
 	}
 }
@@ -1840,32 +1845,6 @@ func TestValidateClusterMesh(t *testing.T) {
 				securityGroup,
 			},
 			routeNotReady: true,
-		},
-		{
-			description: "should not validate sg if there is not a sg created",
-			k8sObjects: []client.Object{
-				clustermeshBase,
-				vpcPeeringConnection,
-				route,
-			},
-			securityGroupNotReady: true,
-		},
-		{
-			description: "should not validate route if there is not a route created",
-			k8sObjects: []client.Object{
-				clustermeshBase,
-				vpcPeeringConnection,
-				securityGroup,
-			},
-			routeNotReady: true,
-		},
-		{
-			description: "should not validate vpc and route if both are not created",
-			k8sObjects: []client.Object{
-				clustermeshBase,
-				securityGroup,
-			},
-			vpcAndRouteNotReady: true,
 		},
 	}
 

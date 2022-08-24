@@ -188,9 +188,11 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 		return ctrl.Result{}, err
 	}
 
-	err = r.validateClusterMesh(ctx, clustermesh)
-	if err != nil {
-		return ctrl.Result{}, err
+	if len(clustermesh.Spec.Clusters) > 1 {
+		err = r.validateClusterMesh(ctx, clustermesh)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	return result, nil
@@ -204,10 +206,6 @@ func (r *ClusterMeshReconciler) validateClusterMesh(ctx context.Context, cluster
 		return err
 	}
 
-	if len(vpcPeeringConnections.Items) == 0 {
-		vpcReady, routesReady = false, false
-	}
-
 	for _, vpcPeeringConnection := range vpcPeeringConnections.Items {
 		if !checkConditionsReadyAndSynced(vpcPeeringConnection.Status.Conditions) {
 			vpcReady = false
@@ -216,10 +214,6 @@ func (r *ClusterMeshReconciler) validateClusterMesh(ctx context.Context, cluster
 		routes, err := crossplane.GetOwnedRoutes(ctx, &vpcPeeringConnection, r.Client)
 		if err != nil {
 			return err
-		}
-
-		if len(routes.Items) == 0 {
-			routesReady = false
 		}
 
 		for _, route := range routes.Items {
@@ -232,10 +226,6 @@ func (r *ClusterMeshReconciler) validateClusterMesh(ctx context.Context, cluster
 	securityGroups, err := crossplane.GetOwnedSecurityGroups(ctx, clustermesh, r.Client)
 	if err != nil {
 		return err
-	}
-
-	if len(securityGroups.Items) == 0 {
-		sgReady = false
 	}
 
 	for _, securityGroup := range securityGroups.Items {
