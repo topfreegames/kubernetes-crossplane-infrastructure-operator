@@ -23,3 +23,7 @@ func NewClusterMesh(name string, clSpec *clustermeshv1beta1.ClusterSpec) *cluste
 	}
 	return ccm
 }
+
+func GetClusterMeshSecurityGroupName(clusterName string) string {
+	return "clustermesh-" + clusterName + "-sg"
+}

@@ -24,7 +24,7 @@ import (
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	"github.com/topfreegames/kubernetes-kops-operator/pkg/kops"
 	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
-	sgv1beta1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
+	sgv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
 	clmesh "github.com/topfreegames/provider-crossplane/pkg/clustermesh"
 	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
@@ -194,6 +194,22 @@ func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *cl
 		}
 	}
 
+	// delete sg for cluster
+	sg := &sgv1alpha1.SecurityGroup{}
+	sgKey := client.ObjectKey{
+		Name:      clmesh.GetClusterMeshSecurityGroupName(cluster.Name),
+		Namespace: cluster.Namespace,
+	}
+	if err := r.Get(ctx, sgKey, sg); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+
+	err := r.Delete(ctx, sg)
+	if err != nil {
+		return err
+	}
+	r.log.Info("deleted security group for cluster %s\n", cluster.ObjectMeta.Name)
+
 	if len(clustermesh.Spec.Clusters) == 0 {
 		if err := r.Client.Delete(ctx, clustermesh); err != nil {
 			return err
@@ -226,7 +242,7 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 		cidrResults = append(cidrResults, cl.CIDR)
 	}
 
-	rules := []sgv1beta1.IngressRule{
+	rules := []sgv1alpha1.IngressRule{
 		{
 			IPProtocol:        "-1", // we support icmp, udp and tcp
 			FromPort:          1,
@@ -236,8 +252,9 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 	}
 
 	for _, cl := range clustermesh.Spec.Clusters {
-		sgName := "clustermesh-" + cl.Name
-		sg := &sgv1beta1.SecurityGroup{
+		sgName := clmesh.GetClusterMeshSecurityGroupName(cl.Name)
+		r.log.Info(fmt.Sprintf("creating security group %s for cluster %s\n", sgName, cl.Name))
+		sg := &sgv1alpha1.SecurityGroup{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      sgName,
 				Namespace: cl.Namespace,

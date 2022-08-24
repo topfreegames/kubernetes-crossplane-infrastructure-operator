@@ -151,6 +151,9 @@ func TestClusterMeshReconciler(t *testing.T) {
 	err = clustermeshv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = sgv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
 			ctx := context.TODO()
@@ -174,7 +177,8 @@ func TestClusterMeshReconciler(t *testing.T) {
 					Name:      "test-cluster",
 				},
 			})
-			g.Expect(err).To(BeNil())
+			g.Expect(err).NotTo(HaveOccurred())
+
 			for _, clustermesh := range tc.expectedClusterMesh {
 				ccm := &clustermeshv1beta1.ClusterMesh{}
 				key := client.ObjectKey{
@@ -934,6 +938,82 @@ func TestReconcileDelete(t *testing.T) {
 				},
 			},
 		},
+		{
+			description: "should remove the security group of the cluster when cluster is deleted",
+			k8sObjects: []client.Object{
+				&clustermeshv1beta1.ClusterMesh{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-clustermesh",
+					},
+					Spec: clustermeshv1beta1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1beta1.ClusterSpec{
+							{
+								Name:      "A",
+								Namespace: "kubernetes-A",
+							},
+							{
+								Name:      "B",
+								Namespace: "kubernetes-B",
+							},
+						},
+					},
+				},
+				&sgv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "clustermesh-A-sg",
+						Namespace: "kubernetes-A",
+					},
+					Spec: sgv1alpha1.SecurityGroupSpec{
+						InfrastructureRef: &corev1.ObjectReference{
+							Name:       "A",
+							Namespace:  "kubernetes-A",
+							Kind:       "KopsControlPlane",
+							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+						},
+					},
+				},
+				&sgv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "clustermesh-B-sg",
+						Namespace: "kubernetes-B",
+					},
+					Spec: sgv1alpha1.SecurityGroupSpec{
+						InfrastructureRef: &corev1.ObjectReference{
+							Name:       "B",
+							Namespace:  "kubernetes-B",
+							Kind:       "KopsControlPlane",
+							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+						},
+					},
+				},
+			},
+			cluster: &clusterv1beta1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "A",
+					Labels: map[string]string{
+						"clusterGroup": "test-clustermesh",
+					},
+				},
+			},
+			clustermesh: &clustermeshv1beta1.ClusterMesh{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-clustermesh",
+				},
+			},
+			expectedOutput: &clustermeshv1beta1.ClusterMesh{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-clustermesh",
+				},
+				Spec: clustermeshv1beta1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1beta1.ClusterSpec{
+						{
+							Name:      "B",
+							Namespace: "kubernetes-B",
+						},
+					},
+				},
+			},
+		},
 	}
 
 	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
@@ -1555,7 +1635,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 			expectedSecurityGroups: []sgv1alpha1.SecurityGroup{
 				{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "clustermesh-A",
+						Name:      "clustermesh-A-sg",
 						Namespace: "kubernetes-A",
 					},
 				},
@@ -1566,7 +1646,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 			k8sObjects: []client.Object{
 				&crossec2v1beta1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: "clustermesh-A",
+						Name: "clustermesh-A-sg",
 						OwnerReferences: []metav1.OwnerReference{
 							{
 								Name: "test-clustermesh",
@@ -1594,13 +1674,13 @@ func TestReconcileSecurityGroups(t *testing.T) {
 			expectedSecurityGroups: []sgv1alpha1.SecurityGroup{
 				{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "clustermesh-A",
+						Name:      "clustermesh-A-sg",
 						Namespace: "kubernetes-A",
 					},
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "clustermesh-B",
+						Name:      "clustermesh-B-sg",
 						Namespace: "kubernetes-B",
 					},
 				},
@@ -1611,7 +1691,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 			k8sObjects: []client.Object{
 				&sgv1alpha1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: "clustermesh-A",
+						Name: "clustermesh-A-sg",
 						OwnerReferences: []metav1.OwnerReference{
 							{
 								Name: "test-clustermesh",
@@ -1653,19 +1733,19 @@ func TestReconcileSecurityGroups(t *testing.T) {
 			expectedSecurityGroups: []sgv1alpha1.SecurityGroup{
 				{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "clustermesh-A",
+						Name:      "clustermesh-A-sg",
 						Namespace: "kubernetes-A",
 					},
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "clustermesh-B",
+						Name:      "clustermesh-B-sg",
 						Namespace: "kubernetes-B",
 					},
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "clustermesh-C",
+						Name:      "clustermesh-C-sg",
 						Namespace: "kubernetes-C",
 					},
 				},
