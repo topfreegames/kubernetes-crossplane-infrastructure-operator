@@ -40,6 +40,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -134,9 +135,8 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 	}
 
 	if err := r.Get(ctx, key, clustermesh); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return ctrl.Result{}, err
-		}
+		return ctrl.Result{}, err
+	}
 
 		ccm := clmesh.NewClusterMesh(cluster.Labels[clmesh.Label], clSpec)
 		r.log.Info(fmt.Sprintf("creating clustermesh %s\n", ccm.ObjectMeta.GetName()))
@@ -165,11 +165,16 @@ func (r *ClusterMeshReconciler) reconcileExternalResources(ctx context.Context, 
 		return ctrl.Result{}, err
 	}
 
+<<<<<<< HEAD
 	err = r.ReconcileSecurityGroupsFactory(r, ctx, clustermesh)
+=======
+	result, err := r.ReconcileRoutesFactory(r, ctx, clSpec)
+>>>>>>> main
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
+<<<<<<< HEAD
 	res, err := r.ReconcileRoutesFactory(r, ctx, clSpec)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -222,73 +227,55 @@ func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *cl
 	}
 
 	if err := r.ReconcilePeeringsFactory(r, ctx, clustermesh); err != nil {
-		return err
+		return ctrl.Result{}, err
 	}
 
-	return nil
+	return ctrl.Result{}, nil
 }
 
-func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
-	r.log.Info(fmt.Sprintf("reconciling security groups for clustermesh %s\n", clustermesh.Name))
-
-	ownedSecurityGroupsRefs, err := crossplane.GetOwnedSecurityGroups(ctx, clustermesh, r.Client)
+func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *clusterv1beta1.Cluster, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
+	clSpec, err := r.PopulateClusterSpecFactory(r, ctx, cluster)
 	if err != nil {
 		return err
 	}
-	clustermesh.Status.CrossplaneSecurityGroupRef = ownedSecurityGroupsRefs
 
-	var cidrResults []string
-	for _, cl := range clustermesh.Spec.Clusters {
-		cidrResults = append(cidrResults, cl.CIDR)
+	key := client.ObjectKey{
+		Name: cluster.Labels["clusterGroup"],
 	}
 
-	rules := []sgv1alpha1.IngressRule{
-		{
-			IPProtocol:        "-1", // we support icmp, udp and tcp
-			FromPort:          1,
-			ToPort:            65535,
-			AllowedCIDRBlocks: cidrResults,
-		},
-	}
-
-	for _, cl := range clustermesh.Spec.Clusters {
-		sgName := clmesh.GetClusterMeshSecurityGroupName(cl.Name)
-		r.log.Info(fmt.Sprintf("creating security group %s for cluster %s\n", sgName, cl.Name))
-		sg := &sgv1alpha1.SecurityGroup{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      sgName,
-				Namespace: cl.Namespace,
-			},
+	if err := r.Get(ctx, key, clustermesh); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return ctrl.Result{}, err
 		}
 
-		infraRef := corev1.ObjectReference{
-			Kind:       "KopsControlPlane",
-			APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
-			Name:       cl.Name,
-			Namespace:  cl.Namespace,
+		ccm := crossplane.NewCrossPlaneClusterMesh(cluster.Labels["clusterGroup"], clSpec)
+		r.log.Info(fmt.Sprintf("creating clustermesh %s", ccm.ObjectMeta.GetName()))
+		if err := r.Create(ctx, ccm); err != nil {
+			return ctrl.Result{}, err
 		}
+		return ctrl.Result{}, nil
+	} else {
 
-		res, err := controllerutil.CreateOrUpdate(ctx, r.Client, sg, func() error {
-			sg.Spec.InfrastructureRef = &infraRef
-			sg.Spec.IngressRules = rules
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-		r.log.Info(fmt.Sprintf("security group %s for cluster %s\n", string(res), cl.Name))
-
-		err = controllerutil.SetOwnerReference(clustermesh, sg, r.Scheme)
-		if err != nil {
-			return err
+		if !r.isClusterBelongToMesh(cluster.Name, *clustermesh) {
+			clustermesh.Spec.Clusters = append(clustermesh.Spec.Clusters, clSpec)
+			r.log.Info(fmt.Sprintf("adding %s to clustermesh %s", cluster.ObjectMeta.Name, clustermesh.Name))
+			// TODO: Verify if we need this with Patch
+			if err := r.Client.Update(ctx, clustermesh); err != nil {
+				return ctrl.Result{}, err
+			}
 		}
 	}
-	return nil
+
+	if err := r.ReconcilePeeringsFactory(r, ctx, clustermesh); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	return r.ReconcileRoutesFactory(r, ctx, clSpec)
 }
 
 func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
 
-	ownedVPCPeeringConnectionsRef, err := crossplane.GetOwnedVPCPeeringConnections(ctx, clustermesh, r.Client)
+	ownedVPCPeeringConnectionsRef, err := crossplane.GetOwnedVPCPeeringConnectionsRef(ctx, clustermesh, r.Client)
 	if err != nil {
 		return err
 	}
@@ -341,13 +328,9 @@ func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clus
 	}
 
 	for _, vpcPeeringConnection := range vpcPeeringConnections.Items {
-		ready := false
-		for _, condition := range vpcPeeringConnection.Status.Conditions {
-			if condition.Reason == "Available" && condition.Status == "True" {
-				ready = true
-			}
-		}
-		if !ready {
+		statusReady := checkConditionsReadyAndSynced(vpcPeeringConnection.Status.Conditions)
+
+		if !statusReady {
 			r.log.Info("can't create routes yet, vpc " + vpcPeeringConnection.Name + " not ready, requeuing cluster " + clSpec.Name)
 			return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 		}
@@ -385,6 +368,23 @@ func manageCrossplaneRoutes(r *ClusterMeshReconciler, ctx context.Context, clust
 		}
 	}
 	return nil
+}
+
+func checkConditionsReadyAndSynced(listConditions []crossplanev1.Condition) bool {
+	resultReady, resultSynced := false, false
+	for _, condition := range listConditions {
+		if condition.Type == "Ready" && condition.Reason == "Available" && condition.Status == "True" {
+			resultReady = true
+		}
+		if condition.Type == "Synced" && condition.Reason == "ReconcileSuccess" && condition.Status == "True" {
+			resultSynced = true
+		}
+	}
+	if resultReady && resultSynced {
+		return true
+	} else {
+		return false
+	}
 }
 
 func (r *ClusterMeshReconciler) isClusterBelongToAnyMesh(clusterName string) (bool, error) {

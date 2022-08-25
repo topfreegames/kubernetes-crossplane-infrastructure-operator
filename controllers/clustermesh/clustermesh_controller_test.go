@@ -2,6 +2,7 @@ package clustermesh
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
@@ -16,6 +17,18 @@ import (
 	crossec2v1alpha1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	v1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
+<<<<<<< HEAD
+=======
+	crossec2v1alpha1 "github.com/crossplane/provider-aws/apis/ec2/v1alpha1"
+	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
+	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
+	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
+	fakeec2 "github.com/topfreegames/provider-crossplane/pkg/aws/ec2/fake"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	kopsapi "k8s.io/kops/pkg/apis/kops"
+
+>>>>>>> main
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -24,6 +37,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	kopsapi "k8s.io/kops/pkg/apis/kops"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -169,6 +183,7 @@ func TestClusterMeshReconciler(t *testing.T) {
 					}, nil
 				},
 				ReconcilePeeringsFactory: ReconcilePeerings,
+				ReconcileRoutesFactory:   ReconcileRoutes,
 			}
 
 			_, err := reconciler.Reconcile(ctx, ctrl.Request{
@@ -552,11 +567,12 @@ func TestReconcileNormal(t *testing.T) {
 	g := NewWithT(t)
 
 	testCases := []struct {
-		description    string
-		k8sObjects     []client.Object
-		cluster        *clusterv1beta1.Cluster
-		clustermesh    *clustermeshv1beta1.ClusterMesh
-		expectedOutput *clustermeshv1beta1.ClusterMesh
+		description       string
+		k8sObjects        []client.Object
+		cluster           *clusterv1beta1.Cluster
+		clustermesh       *clustermeshv1beta1.ClusterMesh
+		expectedOutput    *clustermeshv1beta1.ClusterMesh
+		shouldNotValidate bool
 	}{
 		{
 			description: "should create a clustermesh with the cluster A in the spec",
@@ -590,6 +606,7 @@ func TestReconcileNormal(t *testing.T) {
 					},
 				},
 			},
+			shouldNotValidate: true,
 		},
 		{
 			description: "should add the cluster B in the spec of an already create clustermesh",
@@ -749,6 +766,9 @@ func TestReconcileNormal(t *testing.T) {
 			err = fakeClient.Get(ctx, client.ObjectKey{Name: "test-clustermesh"}, clustermesh)
 			g.Expect(clustermesh.GetName()).To(BeEquivalentTo(tc.expectedOutput.GetName()))
 			g.Expect(clustermesh.Spec).To(BeEquivalentTo(tc.expectedOutput.Spec))
+			if tc.shouldNotValidate {
+				g.Expect(clustermesh.Status.Conditions).To(BeEmpty())
+			}
 		})
 	}
 }
@@ -1407,7 +1427,7 @@ func TestReconcileRoutes(t *testing.T) {
 		},
 		Status: crossec2v1alpha1.VPCPeeringConnectionStatus{
 			ResourceStatus: v1.ResourceStatus{
-				ConditionedStatus: *v1.NewConditionedStatus(v1.Available()),
+				ConditionedStatus: *v1.NewConditionedStatus(v1.Available(), v1.ReconcileSuccess()),
 			},
 			AtProvider: crossec2v1alpha1.VPCPeeringConnectionObservation{
 				AccepterVPCInfo: &crossec2v1alpha1.VPCPeeringConnectionVPCInfo{
@@ -1910,6 +1930,253 @@ func TestClusterToClustersMapFunc(t *testing.T) {
 			} else {
 				g.Expect(results[0].Name).To(BeEquivalentTo(clusterA.Name))
 			}
+		})
+	}
+}
+
+func TestValidateClusterMesh(t *testing.T) {
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	clustermeshBase := &clustermeshv1beta1.ClusterMesh{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ClusterMesh",
+			APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "clustermesh-test",
+		},
+		Spec: clustermeshv1beta1.ClusterMeshSpec{
+			Clusters: []*clustermeshv1beta1.ClusterSpec{
+				{
+					Name:      "A",
+					Namespace: "A",
+				},
+				{
+					Name:      "B",
+					Namespace: "B",
+				},
+			},
+		},
+	}
+
+	vpcPeeringConnection := &crossec2v1alpha1.VPCPeeringConnection{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+			Kind:       "VPCPeeringConnection",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "vpc-a-b",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
+					Kind:       "ClusterMesh",
+					Name:       "clustermesh-test",
+				},
+			},
+		},
+		Status: crossec2v1alpha1.VPCPeeringConnectionStatus{
+			ResourceStatus: v1.ResourceStatus{
+				ConditionedStatus: *v1.NewConditionedStatus(v1.Available(), v1.ReconcileSuccess()),
+			},
+		},
+	}
+
+	vpcPeeringConnectionNotReady := vpcPeeringConnection.DeepCopy()
+	vpcPeeringConnectionNotReady.Status = crossec2v1alpha1.VPCPeeringConnectionStatus{
+		ResourceStatus: v1.ResourceStatus{
+			ConditionedStatus: *v1.NewConditionedStatus(v1.Unavailable(), v1.ReconcileError(fmt.Errorf("reconcile error"))),
+		},
+	}
+
+	route := &crossec2v1alpha1.Route{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+			Kind:       "Route",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "rt-xxxx-pcx-xxxx",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					Kind:       "VPCPeeringConnection",
+					Name:       "vpc-a-b",
+				},
+			},
+		},
+		Status: crossec2v1alpha1.RouteStatus{
+			ResourceStatus: v1.ResourceStatus{
+				ConditionedStatus: *v1.NewConditionedStatus(v1.Available(), v1.ReconcileSuccess()),
+			},
+		},
+	}
+
+	route2Unavaiable := &crossec2v1alpha1.Route{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+			Kind:       "Route",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "rt-xxxx-pcx-zzzzz",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					Kind:       "VPCPeeringConnection",
+					Name:       "vpc-a-b",
+				},
+			},
+		},
+		Status: crossec2v1alpha1.RouteStatus{
+			ResourceStatus: v1.ResourceStatus{
+				ConditionedStatus: *v1.NewConditionedStatus(v1.Unavailable(), v1.ReconcileSuccess()),
+			},
+		},
+	}
+
+	routeNotReady := route.DeepCopy()
+	routeNotReady.Status = crossec2v1alpha1.RouteStatus{
+		ResourceStatus: v1.ResourceStatus{
+			ConditionedStatus: *v1.NewConditionedStatus(v1.Unavailable(), v1.ReconcileError(fmt.Errorf("reconcile error"))),
+		},
+	}
+
+	securityGroup := &crossec2v1beta1.SecurityGroup{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "ec2.aws.crossplane.io/v1beta1",
+			Kind:       "SecurityGroup",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "sg-test",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
+					Kind:       "ClusterMesh",
+					Name:       "clustermesh-test",
+				},
+			},
+		},
+		Status: crossec2v1beta1.SecurityGroupStatus{
+			ResourceStatus: v1.ResourceStatus{
+				ConditionedStatus: *v1.NewConditionedStatus(v1.Available(), v1.ReconcileSuccess()),
+			},
+		},
+	}
+
+	securityGroupNotReady := securityGroup.DeepCopy()
+	securityGroupNotReady.Status = crossec2v1beta1.SecurityGroupStatus{
+		ResourceStatus: v1.ResourceStatus{
+			ConditionedStatus: *v1.NewConditionedStatus(v1.Unavailable(), v1.ReconcileError(fmt.Errorf("reconcile error"))),
+		},
+	}
+
+	testCases := []struct {
+		description           string
+		k8sObjects            []client.Object
+		vpcNotReady           bool
+		routeNotReady         bool
+		securityGroupNotReady bool
+		vpcAndRouteNotReady   bool
+	}{
+		{
+			description: "should validate all objects sucessfull",
+			k8sObjects: []client.Object{
+				clustermeshBase,
+				vpcPeeringConnection,
+				route,
+				securityGroup,
+			},
+		},
+		{
+			description: "should not validate vpcPeering, and should validate all other objects",
+			k8sObjects: []client.Object{
+				clustermeshBase,
+				vpcPeeringConnectionNotReady,
+				route,
+				securityGroup,
+			},
+			vpcNotReady: true,
+		},
+		{
+			description: "should not validate routes, and should validate all other objects",
+			k8sObjects: []client.Object{
+				clustermeshBase,
+				vpcPeeringConnection,
+				routeNotReady,
+				securityGroup,
+			},
+			routeNotReady: true,
+		},
+		{
+			description: "should not validate securityGroup, and should validate all other objects",
+			k8sObjects: []client.Object{
+				clustermeshBase,
+				vpcPeeringConnection,
+				route,
+				securityGroupNotReady,
+			},
+			securityGroupNotReady: true,
+		},
+		{
+			description: "should not validate route with one route working and the other unavailable",
+			k8sObjects: []client.Object{
+				clustermeshBase,
+				vpcPeeringConnection,
+				route,
+				route2Unavaiable,
+				securityGroup,
+			},
+			routeNotReady: true,
+		},
+	}
+
+	err := crossec2v1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+
+			ctx := context.TODO()
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
+
+			reconciler := &ClusterMeshReconciler{
+				Client: fakeClient,
+				log:    ctrl.LoggerFrom(ctx),
+			}
+			clustermesh := &clustermeshv1beta1.ClusterMesh{}
+			err := fakeClient.Get(ctx, client.ObjectKeyFromObject(clustermeshBase), clustermesh)
+			g.Expect(err).To(BeNil())
+
+			err = reconciler.validateClusterMesh(ctx, clustermesh)
+			g.Expect(err).To(BeNil())
+
+			if tc.vpcNotReady {
+				g.Expect(conditions.IsFalse(clustermesh, clustermeshv1beta1.ClusterMeshVPCPeeringReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshSecurityGroupsReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshRoutesReadyCondition)).To(BeTrue())
+			} else if tc.routeNotReady {
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshVPCPeeringReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshSecurityGroupsReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsFalse(clustermesh, clustermeshv1beta1.ClusterMeshRoutesReadyCondition)).To(BeTrue())
+			} else if tc.securityGroupNotReady {
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshVPCPeeringReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsFalse(clustermesh, clustermeshv1beta1.ClusterMeshSecurityGroupsReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshRoutesReadyCondition)).To(BeTrue())
+			} else if tc.vpcAndRouteNotReady {
+				g.Expect(conditions.IsFalse(clustermesh, clustermeshv1beta1.ClusterMeshVPCPeeringReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshSecurityGroupsReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsFalse(clustermesh, clustermeshv1beta1.ClusterMeshRoutesReadyCondition)).To(BeTrue())
+			} else {
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshVPCPeeringReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshSecurityGroupsReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshRoutesReadyCondition)).To(BeTrue())
+			}
+
 		})
 	}
 }

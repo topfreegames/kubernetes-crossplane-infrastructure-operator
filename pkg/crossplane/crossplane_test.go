@@ -32,7 +32,7 @@ var (
 	testRegion = "us-east-1"
 )
 
-func TestGetOwnedVPCPeeringConnections(t *testing.T) {
+func TestGetOwnedVPCPeeringConnectionsRef(t *testing.T) {
 
 	owner := &clustermeshv1beta1.ClusterMesh{
 		TypeMeta: metav1.TypeMeta{
@@ -169,8 +169,393 @@ func TestGetOwnedVPCPeeringConnections(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.vpcPeeringConnections...).Build()
-			ownedVPCPeerings, _ := GetOwnedVPCPeeringConnections(context.TODO(), owner, fakeClient)
+			ownedVPCPeerings, _ := GetOwnedVPCPeeringConnectionsRef(context.TODO(), owner, fakeClient)
 			g.Expect(cmp.Equal(ownedVPCPeerings, tc.expectedOwnedVPCPeeringConnections)).To(BeTrue())
+		})
+	}
+}
+
+func TestGetOwnedVPCPeeringConnections(t *testing.T) {
+
+	owner := &clustermeshv1beta1.ClusterMesh{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
+			Kind:       "ClusterMesh",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "clustermesh-test",
+			UID:  "xxx",
+		},
+	}
+
+	vpcWithOwner := &crossec2v1alphav1.VPCPeeringConnection{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "VPCPeeringConnection",
+			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "A-B",
+			ResourceVersion: "999",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					Name:       owner.ObjectMeta.Name,
+					APIVersion: owner.TypeMeta.APIVersion,
+					Kind:       owner.TypeMeta.Kind,
+					UID:        owner.ObjectMeta.UID,
+				},
+			},
+		},
+	}
+
+	vpc2WithOwner := &crossec2v1alphav1.VPCPeeringConnection{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "VPCPeeringConnection",
+			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "A-C",
+			ResourceVersion: "999",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					Name:       owner.ObjectMeta.Name,
+					APIVersion: owner.TypeMeta.APIVersion,
+					Kind:       owner.TypeMeta.Kind,
+					UID:        owner.ObjectMeta.UID,
+				},
+			},
+		},
+	}
+
+	testCases := []struct {
+		description                        string
+		objects                            []client.Object
+		expectedOwnedVPCPeeringConnections []crossec2v1alphav1.VPCPeeringConnection
+	}{
+		{
+			description: "should return vpcpeeringconnections A-B and A-C",
+			objects: []client.Object{
+				vpcWithOwner,
+				vpc2WithOwner,
+				&clusterv1beta1.Cluster{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-cluster",
+					},
+				},
+			},
+			expectedOwnedVPCPeeringConnections: []crossec2v1alphav1.VPCPeeringConnection{
+				*vpcWithOwner,
+				*vpc2WithOwner,
+			},
+		},
+		{
+			description: "should return only vpcpeeringconnections A-B",
+			objects: []client.Object{
+				vpcWithOwner,
+				&crossec2v1alphav1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "VPCPeeringConnection",
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "A-C",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name:       "another-clustermesh",
+								APIVersion: owner.TypeMeta.APIVersion,
+								Kind:       owner.TypeMeta.Kind,
+								UID:        owner.ObjectMeta.UID,
+							},
+						},
+					},
+				},
+			},
+			expectedOwnedVPCPeeringConnections: []crossec2v1alphav1.VPCPeeringConnection{
+				*vpcWithOwner,
+			},
+		},
+	}
+
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = crossec2v1alphav1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = clusterv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.objects...).Build()
+			ownedVPCPeerings, _ := GetOwnedVPCPeeringConnections(context.TODO(), owner, fakeClient)
+			g.Expect(cmp.Equal(ownedVPCPeerings.Items, tc.expectedOwnedVPCPeeringConnections)).To(BeTrue())
+		})
+	}
+}
+
+func TestGetOwnedSecurityGroups(t *testing.T) {
+
+	owner := &clustermeshv1beta1.ClusterMesh{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
+			Kind:       "ClusterMesh",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "clustermesh-test",
+			UID:  "xxx",
+		},
+	}
+
+	sgWithOwner := &crossec2v1beta1.SecurityGroup{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "SecurityGroup",
+			APIVersion: "ec2.aws.crossplane.io/v1beta1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "sg-A",
+			ResourceVersion: "999",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					Name:       owner.ObjectMeta.Name,
+					APIVersion: owner.TypeMeta.APIVersion,
+					Kind:       owner.TypeMeta.Kind,
+					UID:        owner.ObjectMeta.UID,
+				},
+			},
+		},
+	}
+
+	sg2WithOwner := &crossec2v1beta1.SecurityGroup{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "SecurityGroup",
+			APIVersion: "ec2.aws.crossplane.io/v1beta1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "sg-B",
+			ResourceVersion: "999",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					Name:       owner.ObjectMeta.Name,
+					APIVersion: owner.TypeMeta.APIVersion,
+					Kind:       owner.TypeMeta.Kind,
+					UID:        owner.ObjectMeta.UID,
+				},
+			},
+		},
+	}
+
+	testCases := []struct {
+		description                 string
+		objects                     []client.Object
+		expectedOwnedSecurityGroups []crossec2v1beta1.SecurityGroup
+	}{
+		{
+			description: "should return sg A and B",
+			objects: []client.Object{
+				sgWithOwner,
+				sg2WithOwner,
+				&clusterv1beta1.Cluster{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-cluster",
+					},
+				},
+			},
+			expectedOwnedSecurityGroups: []crossec2v1beta1.SecurityGroup{
+				*sgWithOwner,
+				*sg2WithOwner,
+			},
+		},
+		{
+			description: "should return only vpcpeeringconnections A-B",
+			objects: []client.Object{
+				sgWithOwner,
+				&crossec2v1beta1.SecurityGroup{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "SecurityGroup",
+						APIVersion: "ec2.aws.crossplane.io/v1beta1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "sg-C",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name:       "another-clustermesh",
+								APIVersion: owner.TypeMeta.APIVersion,
+								Kind:       owner.TypeMeta.Kind,
+								UID:        owner.ObjectMeta.UID,
+							},
+						},
+					},
+				},
+			},
+			expectedOwnedSecurityGroups: []crossec2v1beta1.SecurityGroup{
+				*sgWithOwner,
+			},
+		},
+	}
+
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = clusterv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.objects...).Build()
+			ownedSecurityGroups, _ := GetOwnedSecurityGroups(context.TODO(), owner, fakeClient)
+			g.Expect(cmp.Equal(ownedSecurityGroups.Items, tc.expectedOwnedSecurityGroups)).To(BeTrue())
+		})
+	}
+}
+
+func TestGetOwnedRoutes(t *testing.T) {
+
+	clustermesh := &clustermeshv1beta1.ClusterMesh{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
+			Kind:       "ClusterMesh",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "clustermesh-test",
+			UID:  "xxx",
+		},
+	}
+
+	owner := &crossec2v1alphav1.VPCPeeringConnection{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+			Kind:       "VPCPeeringConnection",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "vpc-a-b",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					Name:       clustermesh.ObjectMeta.Name,
+					APIVersion: clustermesh.TypeMeta.APIVersion,
+					Kind:       clustermesh.TypeMeta.Kind,
+					UID:        clustermesh.ObjectMeta.UID,
+				},
+			},
+		},
+	}
+
+	routeWithOwner := &crossec2v1alphav1.Route{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Route",
+			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "sg-A",
+			ResourceVersion: "999",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					Name:       owner.ObjectMeta.Name,
+					APIVersion: owner.TypeMeta.APIVersion,
+					Kind:       owner.TypeMeta.Kind,
+					UID:        owner.ObjectMeta.UID,
+				},
+			},
+		},
+	}
+
+	route2WithOwner := &crossec2v1alphav1.Route{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Route",
+			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "sg-B",
+			ResourceVersion: "999",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					Name:       owner.ObjectMeta.Name,
+					APIVersion: owner.TypeMeta.APIVersion,
+					Kind:       owner.TypeMeta.Kind,
+					UID:        owner.ObjectMeta.UID,
+				},
+			},
+		},
+	}
+
+	testCases := []struct {
+		description                 string
+		objects                     []client.Object
+		expectedOwnedSecurityGroups []crossec2v1alphav1.Route
+	}{
+		{
+			description: "should return sg A and B",
+			objects: []client.Object{
+				routeWithOwner,
+				route2WithOwner,
+				clustermesh,
+				owner,
+				&clusterv1beta1.Cluster{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-cluster",
+					},
+				},
+			},
+			expectedOwnedSecurityGroups: []crossec2v1alphav1.Route{
+				*routeWithOwner,
+				*route2WithOwner,
+			},
+		},
+		{
+			description: "should return only vpcpeeringconnections A-B",
+			objects: []client.Object{
+				routeWithOwner,
+				clustermesh,
+				owner,
+				&crossec2v1alphav1.Route{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "Route",
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "sg-C",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name:       "another-clustermesh",
+								APIVersion: owner.TypeMeta.APIVersion,
+								Kind:       owner.TypeMeta.Kind,
+								UID:        owner.ObjectMeta.UID,
+							},
+						},
+					},
+				},
+			},
+			expectedOwnedSecurityGroups: []crossec2v1alphav1.Route{
+				*routeWithOwner,
+			},
+		},
+	}
+
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = crossec2v1alphav1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = clusterv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.objects...).Build()
+			ownedSecurityGroups, _ := GetOwnedRoutes(context.TODO(), owner, fakeClient)
+			g.Expect(cmp.Equal(ownedSecurityGroups.Items, tc.expectedOwnedSecurityGroups)).To(BeTrue())
 		})
 	}
 }
