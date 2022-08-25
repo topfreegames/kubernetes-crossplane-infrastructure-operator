@@ -54,6 +54,7 @@ func NewCrossPlaneVPCPeeringConnection(clustermesh *clustermeshv1beta1.ClusterMe
 }
 
 func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha1.SecurityGroup, vpcId, region *string) *crossec2v1beta1.SecurityGroup {
+	// TODO: Add OwnerReference to the WSG
 	csg := &crossec2v1beta1.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      sg.GetName(),
@@ -261,6 +262,28 @@ func GetOwnedVPCPeeringConnectionsRef(ctx context.Context, owner client.Object, 
 				APIVersion: vpcPeeringConnection.TypeMeta.APIVersion,
 				Kind:       vpcPeeringConnection.TypeMeta.Kind,
 				Name:       vpcPeeringConnection.ObjectMeta.Name,
+			}
+			ss = append(ss, objectRef)
+		}
+	}
+	return ss, nil
+}
+
+// TODO: Add test coverage for this function
+func GetOwnedSecurityGroupsRef(ctx context.Context, owner client.Object, kubeclient client.Client) ([]*corev1.ObjectReference, error) {
+	securityGroups := &securitygroupv1alpha1.SecurityGroupList{}
+	err := kubeclient.List(ctx, securityGroups)
+	if err != nil {
+		return nil, err
+	}
+	var ss []*corev1.ObjectReference
+
+	for _, sg := range securityGroups.Items {
+		if util.IsOwnedByObject(&sg, owner) {
+			objectRef := &corev1.ObjectReference{
+				APIVersion: sg.TypeMeta.APIVersion,
+				Kind:       sg.TypeMeta.Kind,
+				Name:       sg.ObjectMeta.Name,
 			}
 			ss = append(ss, objectRef)
 		}
