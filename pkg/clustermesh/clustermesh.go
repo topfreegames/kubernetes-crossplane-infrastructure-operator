@@ -11,6 +11,7 @@ const (
 	Annotation = "clustermesh.infrastructure.wildlife.io"
 )
 
+// TODO: Coverage this constructor with tests
 func NewClusterMesh(name string, clSpec *clustermeshv1beta1.ClusterSpec) *clustermeshv1beta1.ClusterMesh {
 	clusters := []*clustermeshv1beta1.ClusterSpec{clSpec}
 	ccm := &clustermeshv1beta1.ClusterMesh{
