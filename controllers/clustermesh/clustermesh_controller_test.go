@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"testing"
 
+	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
+	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
+	sgv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
+	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsec2 "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	crossec2v1alpha1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
+	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	v1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
-	crossec2v1alpha1 "github.com/crossplane/provider-aws/apis/ec2/v1alpha1"
-	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
-	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
-	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
 	fakeec2 "github.com/topfreegames/provider-crossplane/pkg/aws/ec2/fake"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -20,7 +23,6 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -152,6 +154,9 @@ func TestClusterMeshReconciler(t *testing.T) {
 	err = clustermeshv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = sgv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
 			ctx := context.TODO()
@@ -176,7 +181,8 @@ func TestClusterMeshReconciler(t *testing.T) {
 					Name:      "test-cluster",
 				},
 			})
-			g.Expect(err).To(BeNil())
+			g.Expect(err).NotTo(HaveOccurred())
+
 			for _, clustermesh := range tc.expectedClusterMesh {
 				ccm := &clustermeshv1beta1.ClusterMesh{}
 				key := client.ObjectKey{
@@ -739,6 +745,9 @@ func TestReconcileNormal(t *testing.T) {
 				ReconcileRoutesFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec) (ctrl.Result, error) {
 					return ctrl.Result{}, nil
 				},
+				ReconcileSecurityGroupsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+					return nil
+				},
 			}
 
 			_, _ = reconciler.reconcileNormal(ctx, tc.cluster, tc.clustermesh)
@@ -938,6 +947,82 @@ func TestReconcileDelete(t *testing.T) {
 				},
 			},
 		},
+		{
+			description: "should remove the security group of the cluster when cluster is deleted",
+			k8sObjects: []client.Object{
+				&clustermeshv1beta1.ClusterMesh{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-clustermesh",
+					},
+					Spec: clustermeshv1beta1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1beta1.ClusterSpec{
+							{
+								Name:      "A",
+								Namespace: "kubernetes-A",
+							},
+							{
+								Name:      "B",
+								Namespace: "kubernetes-B",
+							},
+						},
+					},
+				},
+				&sgv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "clustermesh-A-sg",
+						Namespace: "kubernetes-A",
+					},
+					Spec: sgv1alpha1.SecurityGroupSpec{
+						InfrastructureRef: &corev1.ObjectReference{
+							Name:       "A",
+							Namespace:  "kubernetes-A",
+							Kind:       "KopsControlPlane",
+							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+						},
+					},
+				},
+				&sgv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "clustermesh-B-sg",
+						Namespace: "kubernetes-B",
+					},
+					Spec: sgv1alpha1.SecurityGroupSpec{
+						InfrastructureRef: &corev1.ObjectReference{
+							Name:       "B",
+							Namespace:  "kubernetes-B",
+							Kind:       "KopsControlPlane",
+							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+						},
+					},
+				},
+			},
+			cluster: &clusterv1beta1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "A",
+					Labels: map[string]string{
+						"clusterGroup": "test-clustermesh",
+					},
+				},
+			},
+			clustermesh: &clustermeshv1beta1.ClusterMesh{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-clustermesh",
+				},
+			},
+			expectedOutput: &clustermeshv1beta1.ClusterMesh{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-clustermesh",
+				},
+				Spec: clustermeshv1beta1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1beta1.ClusterSpec{
+						{
+							Name:      "B",
+							Namespace: "kubernetes-B",
+						},
+					},
+				},
+			},
+		},
 	}
 
 	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
@@ -957,7 +1042,7 @@ func TestReconcileDelete(t *testing.T) {
 				},
 			}
 
-			_, _ = reconciler.reconcileDelete(ctx, tc.cluster, tc.clustermesh)
+			_ = reconciler.reconcileDelete(ctx, tc.cluster, tc.clustermesh)
 			clustermesh := &clustermeshv1beta1.ClusterMesh{}
 			err = fakeClient.Get(ctx, client.ObjectKey{Name: "test-clustermesh"}, clustermesh)
 			if tc.expectedOutput != nil {
@@ -1528,6 +1613,191 @@ func TestReconcileRoutes(t *testing.T) {
 				g.Expect(route.Spec.ForProvider.VPCPeeringConnectionID).To(BeEquivalentTo(aws.String(vpcPeeringConnection.Annotations["crossplane.io/external-name"])))
 				g.Expect(route.Spec.ForProvider.DestinationCIDRBlock).To(Or(BeEquivalentTo(vpcPeeringConnection.Status.AtProvider.RequesterVPCInfo.CIDRBlock), BeEquivalentTo(vpcPeeringConnection.Status.AtProvider.AccepterVPCInfo.CIDRBlock)))
 				g.Expect(route.Spec.ForProvider.Region).To(BeEquivalentTo(tc.clSpec.Region))
+			}
+		})
+	}
+}
+
+func TestReconcileSecurityGroups(t *testing.T) {
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	var testCases = []struct {
+		description            string
+		k8sObjects             []client.Object
+		clustermesh            *clustermeshv1beta1.ClusterMesh
+		expectedSecurityGroups []sgv1alpha1.SecurityGroup
+	}{
+		{
+			description: "should create a securitygroups with only one cluster",
+			clustermesh: &clustermeshv1beta1.ClusterMesh{
+				Spec: clustermeshv1beta1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1beta1.ClusterSpec{
+						{
+							Name:      "A",
+							Namespace: "kubernetes-A",
+							CIDR:      "10.0.4.5/22",
+						},
+					},
+				},
+			},
+			expectedSecurityGroups: []sgv1alpha1.SecurityGroup{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "clustermesh-A-sg",
+						Namespace: "kubernetes-A",
+					},
+				},
+			},
+		},
+		{
+			description: "should create securitygroup for clusters A, B, and C",
+			k8sObjects: []client.Object{
+				&crossec2v1beta1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "clustermesh-A-sg",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name: "test-clustermesh",
+							},
+						},
+					},
+				},
+			},
+			clustermesh: &clustermeshv1beta1.ClusterMesh{
+				Spec: clustermeshv1beta1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1beta1.ClusterSpec{
+						{
+							Name:      "A",
+							Namespace: "kubernetes-A",
+							CIDR:      "10.0.4.5/22",
+						},
+						{
+							Name:      "B",
+							Namespace: "kubernetes-B",
+							CIDR:      "10.0.5.5/22",
+						},
+					},
+				},
+			},
+			expectedSecurityGroups: []sgv1alpha1.SecurityGroup{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "clustermesh-A-sg",
+						Namespace: "kubernetes-A",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "clustermesh-B-sg",
+						Namespace: "kubernetes-B",
+					},
+				},
+			},
+		},
+		{
+			description: "should not create a securitygroup when it already exists",
+			k8sObjects: []client.Object{
+				&sgv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "clustermesh-A-sg",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name: "test-clustermesh",
+							},
+						},
+					},
+				},
+			},
+			clustermesh: &clustermeshv1beta1.ClusterMesh{
+				Spec: clustermeshv1beta1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1beta1.ClusterSpec{
+						{
+							Name:      "A",
+							Namespace: "kubernetes-A",
+							CIDR:      "10.0.4.5/22",
+						},
+						{
+							Name:      "B",
+							Namespace: "kubernetes-B",
+							CIDR:      "10.0.5.5/22",
+						},
+						{
+							Name:      "C",
+							Namespace: "kubernetes-C",
+							CIDR:      "10.0.6.5/22",
+						},
+					},
+				},
+				Status: clustermeshv1beta1.ClusterMeshStatus{
+					CrossplaneSecurityGroupRef: []*corev1.ObjectReference{
+						{
+							Name:       "A",
+							APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+							Kind:       "SecurityGroup",
+						},
+					},
+				},
+			},
+			expectedSecurityGroups: []sgv1alpha1.SecurityGroup{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "clustermesh-A-sg",
+						Namespace: "kubernetes-A",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "clustermesh-B-sg",
+						Namespace: "kubernetes-B",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "clustermesh-C-sg",
+						Namespace: "kubernetes-C",
+					},
+				},
+			},
+		},
+	}
+	err := crossec2v1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = sgv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+
+			ctx := context.TODO()
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
+
+			reconciler := &ClusterMeshReconciler{
+				Client: fakeClient,
+				log:    ctrl.LoggerFrom(ctx),
+				ReconcileSecurityGroupsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+					return nil
+				},
+				Scheme: scheme.Scheme,
+			}
+
+			err = ReconcileSecurityGroups(reconciler, ctx, tc.clustermesh)
+			g.Expect(err).ToNot(HaveOccurred())
+			for _, esg := range tc.expectedSecurityGroups {
+				sg := &sgv1alpha1.SecurityGroup{}
+				key := client.ObjectKey{
+					Name:      esg.Name,
+					Namespace: esg.Namespace,
+				}
+				err = fakeClient.Get(ctx, key, sg)
+				g.Expect(err).To(BeNil())
 			}
 		})
 	}

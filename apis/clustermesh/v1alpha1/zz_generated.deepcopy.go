@@ -126,6 +126,17 @@ func (in *ClusterMeshStatus) DeepCopyInto(out *ClusterMeshStatus) {
 			}
 		}
 	}
+	if in.CrossplaneSecurityGroupRef != nil {
+		in, out := &in.CrossplaneSecurityGroupRef, &out.CrossplaneSecurityGroupRef
+		*out = make([]*v1.ObjectReference, len(*in))
+		for i := range *in {
+			if (*in)[i] != nil {
+				in, out := &(*in)[i], &(*out)[i]
+				*out = new(v1.ObjectReference)
+				**out = **in
+			}
+		}
+	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
 		*out = make(v1beta1.Conditions, len(*in))

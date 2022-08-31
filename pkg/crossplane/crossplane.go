@@ -4,13 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
-	crossec2v1alphav1 "github.com/crossplane/provider-aws/apis/ec2/v1alpha1"
-	crossec2v1beta1 "github.com/crossplane/provider-aws/apis/ec2/v1beta1"
-	"github.com/google/go-cmp/cmp"
 	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	crossec2v1alphav1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
+	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
+	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,19 +20,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
-
-func NewCrossPlaneClusterMesh(name string, clSpec *clustermeshv1beta1.ClusterSpec) *clustermeshv1beta1.ClusterMesh {
-	clusters := []*clustermeshv1beta1.ClusterSpec{clSpec}
-	ccm := &clustermeshv1beta1.ClusterMesh{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
-		Spec: clustermeshv1beta1.ClusterMeshSpec{
-			Clusters: clusters,
-		},
-	}
-	return ccm
-}
 
 func NewCrossPlaneVPCPeeringConnection(clustermesh *clustermeshv1beta1.ClusterMesh, peeringRequester, peeringAccepter *clustermeshv1beta1.ClusterSpec) *crossec2v1alphav1.VPCPeeringConnection {
 	crossplaneVPCPeeringConnection := &crossec2v1alphav1.VPCPeeringConnection{
@@ -66,6 +54,7 @@ func NewCrossPlaneVPCPeeringConnection(clustermesh *clustermeshv1beta1.ClusterMe
 }
 
 func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha1.SecurityGroup, vpcId, region *string) *crossec2v1beta1.SecurityGroup {
+	// TODO: Add OwnerReference to the WSG
 	csg := &crossec2v1beta1.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      sg.GetName(),
@@ -273,6 +262,28 @@ func GetOwnedVPCPeeringConnectionsRef(ctx context.Context, owner client.Object, 
 				APIVersion: vpcPeeringConnection.TypeMeta.APIVersion,
 				Kind:       vpcPeeringConnection.TypeMeta.Kind,
 				Name:       vpcPeeringConnection.ObjectMeta.Name,
+			}
+			ss = append(ss, objectRef)
+		}
+	}
+	return ss, nil
+}
+
+// TODO: Add test coverage for this function
+func GetOwnedSecurityGroupsRef(ctx context.Context, owner client.Object, kubeclient client.Client) ([]*corev1.ObjectReference, error) {
+	securityGroups := &securitygroupv1alpha1.SecurityGroupList{}
+	err := kubeclient.List(ctx, securityGroups)
+	if err != nil {
+		return nil, err
+	}
+	var ss []*corev1.ObjectReference
+
+	for _, sg := range securityGroups.Items {
+		if util.IsOwnedByObject(&sg, owner) {
+			objectRef := &corev1.ObjectReference{
+				APIVersion: sg.TypeMeta.APIVersion,
+				Kind:       sg.TypeMeta.Kind,
+				Name:       sg.ObjectMeta.Name,
 			}
 			ss = append(ss, objectRef)
 		}
