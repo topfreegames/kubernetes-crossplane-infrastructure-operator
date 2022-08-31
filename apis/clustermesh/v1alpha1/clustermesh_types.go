@@ -61,9 +61,9 @@ type ClusterMeshSpec struct {
 
 // ClusterMeshStatus defines the observed state of ClusterMesh
 type ClusterMeshStatus struct {
-	CrossplanePeeringRef []*v1.ObjectReference `json:"crossplanePeeringRef,omitempty"`
-
-	Conditions clusterv1beta1.Conditions `json:"conditions,omitempty"`
+	CrossplanePeeringRef       []*v1.ObjectReference     `json:"crossplanePeeringRef,omitempty"`
+	CrossplaneSecurityGroupRef []*v1.ObjectReference     `json:"crossplaneSecurityGroupRef,omitempty"`
+	Conditions                 clusterv1beta1.Conditions `json:"conditions,omitempty"`
 }
 
 //+kubebuilder:object:root=true
