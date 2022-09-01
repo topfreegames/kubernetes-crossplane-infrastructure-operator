@@ -21,7 +21,7 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -390,7 +390,7 @@ func TestReconcileKopsControlPlane(t *testing.T) {
 				},
 			}
 
-			err = reconciler.ReconcileKopsControlPlane(ctx, sg, kcp)
+			err = reconciler.reconcileKopsControlPlane(ctx, sg, kcp)
 
 			if !tc.isErrorExpected {
 				if !errors.Is(err, ErrSecurityGroupNotAvailable) {
@@ -496,7 +496,7 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 				},
 			}
 
-			err = reconciler.ReconcileKopsMachinePool(ctx, sg, kmp)
+			err = reconciler.reconcileKopsMachinePool(ctx, sg, kmp)
 
 			if !tc.isErrorExpected {
 				if !errors.Is(err, ErrSecurityGroupNotAvailable) {

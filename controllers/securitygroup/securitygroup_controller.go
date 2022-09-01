@@ -36,6 +36,7 @@ import (
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -43,9 +44,12 @@ import (
 	"sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 var ErrSecurityGroupNotAvailable = errors.New("security group not available")
+
+const securityGroupFinalizer = "securitygroup.wildlife.infrastructure.io"
 
 // SecurityGroupReconciler reconciles a SecurityGroup object
 type SecurityGroupReconciler struct {
@@ -74,6 +78,10 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
+	if !sg.ObjectMeta.DeletionTimestamp.IsZero() {
+		return r.reconcileDelete(ctx, sg)
+	}
+
 	if sg.Spec.InfrastructureRef == nil {
 		return ctrl.Result{}, fmt.Errorf("infrastructureRef isn't defined")
 	}
@@ -99,6 +107,10 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		r.log.Info(fmt.Sprintf("finished reconcile loop for %s", sg.ObjectMeta.GetName()))
 	}()
 
+	if !controllerutil.ContainsFinalizer(sg, securityGroupFinalizer) {
+		controllerutil.AddFinalizer(sg, securityGroupFinalizer)
+	}
+
 	result, err := r.reconcileNormal(ctx, sg)
 	durationMsg := fmt.Sprintf("finished reconcile security groups loop for %s finished in %s ", sg.ObjectMeta.Name, time.Since(start).String())
 	if result.RequeueAfter > 0 {
@@ -108,11 +120,32 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return result, err
 }
 
+func (r *SecurityGroupReconciler) reconcileDelete(ctx context.Context, sg *securitygroupv1alpha1.SecurityGroup) (ctrl.Result, error) {
+	r.log.Info(fmt.Sprintf("reconciling deletion for security group %s\n", sg.Name))
+
+	csg := &crossec2v1beta1.SecurityGroup{}
+	err := r.Get(ctx, client.ObjectKeyFromObject(sg), csg)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		} else {
+			return ctrl.Result{}, fmt.Errorf("could not retrieve security group: %w", err)
+		}
+	}
+
+	err = r.Delete(ctx, csg)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	controllerutil.RemoveFinalizer(sg, securityGroupFinalizer)
+	return ctrl.Result{}, nil
+}
+
 func (r *SecurityGroupReconciler) reconcileNormal(ctx context.Context, sg *securitygroupv1alpha1.SecurityGroup) (ctrl.Result, error) {
 
 	switch sg.Spec.InfrastructureRef.Kind {
 	case "KopsMachinePool":
-		// Fetch KopsMachinePool
 		kmp := &kinfrastructurev1alpha1.KopsMachinePool{}
 		key := client.ObjectKey{
 			Name:      sg.Spec.InfrastructureRef.Name,
@@ -122,7 +155,7 @@ func (r *SecurityGroupReconciler) reconcileNormal(ctx context.Context, sg *secur
 			return ctrl.Result{}, err
 		}
 
-		err := r.ReconcileKopsMachinePool(ctx, sg, kmp)
+		err := r.reconcileKopsMachinePool(ctx, sg, kmp)
 		if err != nil {
 			if errors.Is(err, ErrSecurityGroupNotAvailable) {
 				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
@@ -140,7 +173,7 @@ func (r *SecurityGroupReconciler) reconcileNormal(ctx context.Context, sg *secur
 			return ctrl.Result{}, err
 		}
 
-		err := r.ReconcileKopsControlPlane(ctx, sg, kcp)
+		err := r.reconcileKopsControlPlane(ctx, sg, kcp)
 		if err != nil {
 			if errors.Is(err, ErrSecurityGroupNotAvailable) {
 				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
@@ -156,7 +189,7 @@ func (r *SecurityGroupReconciler) reconcileNormal(ctx context.Context, sg *secur
 	return ctrl.Result{}, nil
 }
 
-func (r *SecurityGroupReconciler) ReconcileKopsControlPlane(
+func (r *SecurityGroupReconciler) reconcileKopsControlPlane(
 	ctx context.Context,
 	sg *securitygroupv1alpha1.SecurityGroup,
 	kcp *kcontrolplanev1alpha1.KopsControlPlane,
@@ -200,7 +233,7 @@ func (r *SecurityGroupReconciler) ReconcileKopsControlPlane(
 	return nil
 }
 
-func (r *SecurityGroupReconciler) ReconcileKopsMachinePool(
+func (r *SecurityGroupReconciler) reconcileKopsMachinePool(
 	ctx context.Context,
 	sg *securitygroupv1alpha1.SecurityGroup,
 	kmp *kinfrastructurev1alpha1.KopsMachinePool,
@@ -270,14 +303,14 @@ func (r *SecurityGroupReconciler) createCrossplaneSecurityGroup(ctx context.Cont
 		)
 		return &crossec2v1beta1.SecurityGroup{}, err
 	}
-	conditions.MarkTrue(sg, securitygroupv1alpha1.CrossplaneResourceReadyCondition)
+	conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupReadyCondition)
 
 	availableCondition := crossplane.GetSecurityGroupReadyCondition(csg)
 	if availableCondition == nil {
 		return &crossec2v1beta1.SecurityGroup{}, ErrSecurityGroupNotAvailable
 	} else {
 		if availableCondition.Status == corev1.ConditionTrue {
-			conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupReadyCondition)
+			conditions.MarkTrue(sg, securitygroupv1alpha1.CrossplaneResourceReadyCondition)
 		} else {
 			conditions.MarkFalse(sg,
 				securitygroupv1alpha1.SecurityGroupReadyCondition,

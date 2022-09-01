@@ -57,8 +57,7 @@ func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha1.SecurityGroup, vpcId, 
 	// TODO: Add OwnerReference to the WSG
 	csg := &crossec2v1beta1.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      sg.GetName(),
-			Namespace: sg.GetNamespace(),
+			Name: sg.GetName(),
 		},
 		Spec: crossec2v1beta1.SecurityGroupSpec{
 			ForProvider: crossec2v1beta1.SecurityGroupParameters{
