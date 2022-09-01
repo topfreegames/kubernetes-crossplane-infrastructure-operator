@@ -52,6 +52,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
+var (
+	requeue1min   = ctrl.Result{RequeueAfter: 1 * time.Minute}
+	resultDefault = ctrl.Result{RequeueAfter: 1 * time.Hour}
+	resultError   = ctrl.Result{RequeueAfter: 30 * time.Minute}
+)
+
 // ClusterMeshReconciler reconciles a ClusterMesh object
 type ClusterMeshReconciler struct {
 	client.Client
@@ -63,12 +69,6 @@ type ClusterMeshReconciler struct {
 	ReconcileSecurityGroupsFactory func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error
 	ReconcileRoutesFactory         func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec) (ctrl.Result, error)
 }
-
-var (
-	requeue1min   = ctrl.Result{RequeueAfter: 1 * time.Minute}
-	resultDefault = ctrl.Result{RequeueAfter: 1 * time.Hour}
-	resultError   = ctrl.Result{RequeueAfter: 30 * time.Minute}
-)
 
 //+kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 //+kubebuilder:rbac:groups=ec2.aws.crossplane.io,resources=vpcpeeringconnections,verbs=list;watch;create;delete
