@@ -3,8 +3,9 @@ package crossplane
 import (
 	"context"
 	"fmt"
-	clmesh "github.com/topfreegames/provider-crossplane/pkg/clustermesh"
 	"testing"
+
+	clmesh "github.com/topfreegames/provider-crossplane/pkg/clustermesh"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	crossec2v1alphav1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"

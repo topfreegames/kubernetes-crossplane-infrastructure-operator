@@ -142,19 +142,20 @@ func (r *SecurityGroupReconciler) reconcileDelete(ctx context.Context, sg *secur
 	return ctrl.Result{}, nil
 }
 
+
 func (r *SecurityGroupReconciler) reconcileNormal(ctx context.Context, sg *securitygroupv1alpha1.SecurityGroup) (ctrl.Result, error) {
 
 	switch sg.Spec.InfrastructureRef.Kind {
 	case "KopsMachinePool":
 		// Fetch KopsMachinePool
-		kmp := &kinfrastructurev1alpha1.KopsMachinePool{}
-		key := client.ObjectKey{
-			Name:      sg.Spec.InfrastructureRef.Name,
-			Namespace: sg.Spec.InfrastructureRef.Namespace,
-		}
-		if err := r.Client.Get(ctx, key, kmp); err != nil {
-			return ctrl.Result{}, err
-		}
+			kmp := &kinfrastructurev1alpha1.KopsMachinePool{}
+			key := client.ObjectKey{
+				Name:      sg.Spec.InfrastructureRef.Name,
+				Namespace: sg.Spec.InfrastructureRef.Namespace,
+			}
+			if err := r.Client.Get(ctx, key, kmp); err != nil {
+				return ctrl.Result{}, ctrl.Result{}, err
+			}
 
 		err := r.reconcileKopsMachinePool(ctx, sg, kmp)
 		if err != nil {
@@ -257,6 +258,9 @@ func (r *SecurityGroupReconciler) reconcileKopsMachinePool(
 	if err != nil {
 		return fmt.Errorf("error creating crossplane securitygroup: %w", err)
 	}
+	}
+	conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupAttachedCondition)
+	conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupReadyCondition)
 
 	asgName, err := kops.GetAutoScalingGroupNameFromKopsMachinePool(*kmp)
 	if err != nil {
