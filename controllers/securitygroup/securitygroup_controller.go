@@ -45,7 +45,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var ErrSecurityGroupNotAvailable = errors.New("security group not available")
+var (
+	requeue30seconds             = ctrl.Result{RequeueAfter: 30 * time.Second}
+	resultDefault                = ctrl.Result{RequeueAfter: 1 * time.Hour}
+	resultError                  = ctrl.Result{RequeueAfter: 30 * time.Minute}
+	ErrSecurityGroupNotAvailable = errors.New("security group not available")
+)
 
 // SecurityGroupReconciler reconciles a SecurityGroup object
 type SecurityGroupReconciler struct {
@@ -57,12 +62,6 @@ type SecurityGroupReconciler struct {
 	NewAutoScalingClientFactory func(cfg aws.Config) autoscaling.AutoScalingClient
 	ManageCrossplaneSGFactory   func(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error
 }
-
-var (
-	requeue30seconds = ctrl.Result{RequeueAfter: 30 * time.Second}
-	resultDefault    = ctrl.Result{RequeueAfter: 1 * time.Hour}
-	resultError      = ctrl.Result{RequeueAfter: 30 * time.Minute}
-)
 
 //+kubebuilder:rbac:groups=infrastructure.wildlife.io,resources=securitygroups,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=infrastructure.wildlife.io,resources=securitygroups/status,verbs=get;update;patch
