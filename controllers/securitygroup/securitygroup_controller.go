@@ -58,6 +58,12 @@ type SecurityGroupReconciler struct {
 	ManageCrossplaneSGFactory   func(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error
 }
 
+var (
+	requeue30seconds = ctrl.Result{RequeueAfter: 30 * time.Second}
+	resultDefault    = ctrl.Result{RequeueAfter: 1 * time.Hour}
+	resultError      = ctrl.Result{RequeueAfter: 30 * time.Minute}
+)
+
 //+kubebuilder:rbac:groups=infrastructure.wildlife.io,resources=securitygroups,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=infrastructure.wildlife.io,resources=securitygroups/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=infrastructure.wildlife.io,resources=securitygroups/finalizers,verbs=update
@@ -71,11 +77,11 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	sg := &securitygroupv1alpha1.SecurityGroup{}
 	if err := r.Get(ctx, req.NamespacedName, sg); err != nil {
-		return ctrl.Result{}, err
+		return resultError, err
 	}
 
 	if sg.Spec.InfrastructureRef == nil {
-		return ctrl.Result{}, fmt.Errorf("infrastructureRef isn't defined")
+		return resultError, fmt.Errorf("infrastructureRef isn't defined")
 	}
 
 	r.log.Info(fmt.Sprintf("starting reconcile loop for %s", sg.ObjectMeta.GetName()))
@@ -84,7 +90,7 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	patchHelper, err := patch.NewHelper(sg, r.Client)
 	if err != nil {
 		r.log.Error(err, "failed to initialize patch helper")
-		return ctrl.Result{}, err
+		return resultError, err
 	}
 
 	defer func() {
@@ -119,15 +125,15 @@ func (r *SecurityGroupReconciler) reconcileNormal(ctx context.Context, sg *secur
 			Namespace: sg.Spec.InfrastructureRef.Namespace,
 		}
 		if err := r.Client.Get(ctx, key, kmp); err != nil {
-			return ctrl.Result{}, err
+			return resultError, err
 		}
 
 		err := r.ReconcileKopsMachinePool(ctx, sg, kmp)
 		if err != nil {
 			if errors.Is(err, ErrSecurityGroupNotAvailable) {
-				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+				return requeue30seconds, nil
 			}
-			return ctrl.Result{}, err
+			return resultError, err
 		}
 
 	case "KopsControlPlane":
@@ -137,7 +143,7 @@ func (r *SecurityGroupReconciler) reconcileNormal(ctx context.Context, sg *secur
 			Name:      sg.Spec.InfrastructureRef.Name,
 		}
 		if err := r.Client.Get(ctx, key, kcp); err != nil {
-			return ctrl.Result{}, err
+			return resultError, err
 		}
 
 		err := r.ReconcileKopsControlPlane(ctx, sg, kcp)
@@ -145,15 +151,15 @@ func (r *SecurityGroupReconciler) reconcileNormal(ctx context.Context, sg *secur
 			if errors.Is(err, ErrSecurityGroupNotAvailable) {
 				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 			}
-			return ctrl.Result{}, err
+			return resultError, err
 		}
 
 	default:
-		return ctrl.Result{}, fmt.Errorf("infrastructureRef not supported")
+		return resultError, fmt.Errorf("infrastructureRef not supported")
 	}
 
 	sg.Status.Ready = true
-	return ctrl.Result{}, nil
+	return resultDefault, nil
 }
 
 func (r *SecurityGroupReconciler) ReconcileKopsControlPlane(
