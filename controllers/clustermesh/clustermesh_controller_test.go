@@ -21,7 +21,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	kopsapi "k8s.io/kops/pkg/apis/kops"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"

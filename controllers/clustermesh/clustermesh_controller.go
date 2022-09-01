@@ -142,8 +142,8 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 		if !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
-
-		ccm := clmesh.NewClusterMesh(cluster.Labels[clmesh.Label], clSpec)
+		meshName := cluster.Labels[clmesh.Label]
+		ccm := clmesh.New(meshName, clSpec)
 		r.log.Info(fmt.Sprintf("creating clustermesh %s\n", ccm.ObjectMeta.GetName()))
 		if err := r.Create(ctx, ccm); err != nil {
 			return ctrl.Result{}, err
@@ -261,21 +261,20 @@ func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *cl
 	}
 
 	// TODO: Implement this deletion
-	// delete sg for cluster
-	// sg := &sgv1alpha1.SecurityGroup{}
-	// sgKey := client.ObjectKey{
-	// 	Name:      clmesh.GetClusterMeshSecurityGroupName(cluster.Name),
-	// 	Namespace: cluster.Namespace,
-	// }
-	// if err := r.Get(ctx, sgKey, sg); err != nil && !apierrors.IsNotFound(err) {
-	// 	return err
-	// }
+	sg := &sgv1alpha1.SecurityGroup{}
+	sgKey := client.ObjectKey{
+		Name:      clmesh.GetClusterMeshSecurityGroupName(cluster.Name),
+		Namespace: cluster.Namespace,
+	}
+	if err := r.Get(ctx, sgKey, sg); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
 
-	// err := r.Delete(ctx, sg)
-	// if err != nil {
-	// 	return err
-	// }
-	// r.log.Info("deleted security group for cluster %s\n", cluster.ObjectMeta.Name)
+	err := r.Delete(ctx, sg)
+	if err != nil {
+		return err
+	}
+	r.log.Info("deleted security group for cluster %s\n", cluster.ObjectMeta.Name)
 
 	if len(clustermesh.Spec.Clusters) == 0 {
 		if err := r.Client.Delete(ctx, clustermesh); err != nil {

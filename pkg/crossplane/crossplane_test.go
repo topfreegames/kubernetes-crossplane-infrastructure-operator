@@ -13,7 +13,7 @@ import (
 
 	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 
@@ -1212,7 +1212,7 @@ func TestCrossPlaneClusterMeshResource(t *testing.T) {
 				Name:  "test-cluster",
 				VPCID: "vpc-asidjasidiasj",
 			}
-			sg := clmesh.NewClusterMesh(cluster.Labels["clusterGroup"], clSpec)
+			sg := clmesh.New(cluster.Labels["clusterGroup"], clSpec)
 			g.Expect(sg.ObjectMeta.Name).To(ContainSubstring("testmesh"))
 		})
 	}
