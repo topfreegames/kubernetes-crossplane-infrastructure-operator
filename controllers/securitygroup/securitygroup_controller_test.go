@@ -141,7 +141,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 				kmp, cluster, kcp,
 				&securitygroupv1alpha1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-security-group",
+						Name:      "",
 						Namespace: metav1.NamespaceDefault,
 					},
 					Spec: securitygroupv1alpha1.SecurityGroupSpec{
@@ -277,15 +277,14 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			if !tc["isErrorExpected"].(bool) {
 				crosssg := &crossec2v1beta1.SecurityGroup{}
 				key := client.ObjectKey{
-					Namespace: metav1.NamespaceDefault,
-					Name:      sg.ObjectMeta.Name,
+					Name: sg.ObjectMeta.Name,
 				}
 				err = fakeClient.Get(ctx, key, crosssg)
 				g.Expect(err).To(BeNil())
 				g.Expect(crosssg).NotTo(BeNil())
 
 			} else {
-				g.Expect(err).ToNot(BeNil())
+				g.Expect(err).To(HaveOccurred())
 			}
 		})
 	}
@@ -399,8 +398,7 @@ func TestReconcileKopsControlPlane(t *testing.T) {
 
 				crosssg := &crossec2v1beta1.SecurityGroup{}
 				key := client.ObjectKey{
-					Namespace: metav1.NamespaceDefault,
-					Name:      sg.ObjectMeta.Name,
+					Name: sg.ObjectMeta.Name,
 				}
 				err = fakeClient.Get(ctx, key, crosssg)
 				g.Expect(err).To(BeNil())
@@ -505,8 +503,7 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 
 				crosssg := &crossec2v1beta1.SecurityGroup{}
 				key := client.ObjectKey{
-					Namespace: metav1.NamespaceDefault,
-					Name:      sg.ObjectMeta.Name,
+					Name: sg.ObjectMeta.Name,
 				}
 				err = fakeClient.Get(ctx, key, crosssg)
 				g.Expect(err).To(BeNil())

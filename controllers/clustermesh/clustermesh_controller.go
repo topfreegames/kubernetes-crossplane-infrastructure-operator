@@ -260,7 +260,6 @@ func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *cl
 		}
 	}
 
-	// TODO: Implement this deletion
 	sg := &sgv1alpha1.SecurityGroup{}
 	sgKey := client.ObjectKey{
 		Name:      clmesh.GetClusterMeshSecurityGroupName(cluster.Name),

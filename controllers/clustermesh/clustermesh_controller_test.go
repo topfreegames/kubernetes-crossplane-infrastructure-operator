@@ -7,8 +7,9 @@ import (
 
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
-	sgv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
+	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
+	clmesh "github.com/topfreegames/provider-crossplane/pkg/clustermesh"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsec2 "github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -113,6 +114,30 @@ func TestClusterMeshReconciler(t *testing.T) {
 		{
 			description: "should delete clustermesh when cluster belong to a clustermesh, but don't have the correct annotations",
 			k8sObjects: []client.Object{
+				&securitygroupv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      clmesh.GetClusterMeshSecurityGroupName("test-cluster"),
+						Namespace: metav1.NamespaceDefault,
+					},
+					Spec: securitygroupv1alpha1.SecurityGroupSpec{
+						IngressRules: []securitygroupv1alpha1.IngressRule{
+							{
+								IPProtocol: "TCP",
+								FromPort:   40000,
+								ToPort:     60000,
+								AllowedCIDRBlocks: []string{
+									"0.0.0.0/0",
+								},
+							},
+						},
+						InfrastructureRef: &corev1.ObjectReference{
+							APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsControlPlane",
+							Name:       "test-cluster",
+							Namespace:  metav1.NamespaceDefault,
+						},
+					},
+				},
 				&clusterv1beta1.Cluster{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: metav1.NamespaceDefault,
@@ -154,7 +179,7 @@ func TestClusterMeshReconciler(t *testing.T) {
 	err = clustermeshv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = sgv1alpha1.AddToScheme(scheme.Scheme)
+	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
@@ -787,6 +812,18 @@ func TestReconcileDelete(t *testing.T) {
 						},
 					},
 				},
+				&securitygroupv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "clustermesh-A-sg",
+					},
+					Spec: securitygroupv1alpha1.SecurityGroupSpec{
+						InfrastructureRef: &corev1.ObjectReference{
+							Name:       "A",
+							Kind:       "KopsControlPlane",
+							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+						},
+					},
+				},
 			},
 			cluster: &clusterv1beta1.Cluster{
 				ObjectMeta: metav1.ObjectMeta{
@@ -814,6 +851,32 @@ func TestReconcileDelete(t *testing.T) {
 							{
 								Name: "B",
 							},
+						},
+					},
+				},
+				&securitygroupv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "clustermesh-B-sg",
+					},
+					Spec: securitygroupv1alpha1.SecurityGroupSpec{
+						InfrastructureRef: &corev1.ObjectReference{
+							Name:       "B",
+							Namespace:  "kubernetes-B",
+							Kind:       "KopsControlPlane",
+							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+						},
+					},
+				},
+				&securitygroupv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "clustermesh-A-sg",
+					},
+					Spec: securitygroupv1alpha1.SecurityGroupSpec{
+						InfrastructureRef: &corev1.ObjectReference{
+							Name:       "A",
+							Namespace:  "kubernetes-A",
+							Kind:       "KopsControlPlane",
+							APIVersion: "controlplane.x-k8s.io/v1alpha1",
 						},
 					},
 				},
@@ -862,6 +925,18 @@ func TestReconcileDelete(t *testing.T) {
 							{
 								Name: "C",
 							},
+						},
+					},
+				},
+				&securitygroupv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "clustermesh-A-sg",
+					},
+					Spec: securitygroupv1alpha1.SecurityGroupSpec{
+						InfrastructureRef: &corev1.ObjectReference{
+							Name:       "A",
+							Kind:       "KopsControlPlane",
+							APIVersion: "controlplane.x-k8s.io/v1alpha1",
 						},
 					},
 				},
@@ -916,6 +991,18 @@ func TestReconcileDelete(t *testing.T) {
 						},
 					},
 				},
+				&securitygroupv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "clustermesh-A-sg",
+					},
+					Spec: securitygroupv1alpha1.SecurityGroupSpec{
+						InfrastructureRef: &corev1.ObjectReference{
+							Name:       "A",
+							Kind:       "KopsControlPlane",
+							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+						},
+					},
+				},
 			},
 			cluster: &clusterv1beta1.Cluster{
 				ObjectMeta: metav1.ObjectMeta{
@@ -956,39 +1043,33 @@ func TestReconcileDelete(t *testing.T) {
 					Spec: clustermeshv1beta1.ClusterMeshSpec{
 						Clusters: []*clustermeshv1beta1.ClusterSpec{
 							{
-								Name:      "A",
-								Namespace: "kubernetes-A",
+								Name: "A",
 							},
 							{
-								Name:      "B",
-								Namespace: "kubernetes-B",
+								Name: "B",
 							},
 						},
 					},
 				},
-				&sgv1alpha1.SecurityGroup{
+				&securitygroupv1alpha1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "clustermesh-A-sg",
-						Namespace: "kubernetes-A",
+						Name: "clustermesh-A-sg",
 					},
-					Spec: sgv1alpha1.SecurityGroupSpec{
+					Spec: securitygroupv1alpha1.SecurityGroupSpec{
 						InfrastructureRef: &corev1.ObjectReference{
 							Name:       "A",
-							Namespace:  "kubernetes-A",
 							Kind:       "KopsControlPlane",
 							APIVersion: "controlplane.x-k8s.io/v1alpha1",
 						},
 					},
 				},
-				&sgv1alpha1.SecurityGroup{
+				&securitygroupv1alpha1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "clustermesh-B-sg",
-						Namespace: "kubernetes-B",
+						Name: "clustermesh-B-sg",
 					},
-					Spec: sgv1alpha1.SecurityGroupSpec{
+					Spec: securitygroupv1alpha1.SecurityGroupSpec{
 						InfrastructureRef: &corev1.ObjectReference{
 							Name:       "B",
-							Namespace:  "kubernetes-B",
 							Kind:       "KopsControlPlane",
 							APIVersion: "controlplane.x-k8s.io/v1alpha1",
 						},
@@ -1015,8 +1096,7 @@ func TestReconcileDelete(t *testing.T) {
 				Spec: clustermeshv1beta1.ClusterMeshSpec{
 					Clusters: []*clustermeshv1beta1.ClusterSpec{
 						{
-							Name:      "B",
-							Namespace: "kubernetes-B",
+							Name: "B",
 						},
 					},
 				},
@@ -1025,6 +1105,9 @@ func TestReconcileDelete(t *testing.T) {
 	}
 
 	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
@@ -1041,13 +1124,16 @@ func TestReconcileDelete(t *testing.T) {
 				},
 			}
 
-			_ = reconciler.reconcileDelete(ctx, tc.cluster, tc.clustermesh)
+			err = reconciler.reconcileDelete(ctx, tc.cluster, tc.clustermesh)
+			g.Expect(err).ToNot(HaveOccurred())
+
 			clustermesh := &clustermeshv1beta1.ClusterMesh{}
 			err = fakeClient.Get(ctx, client.ObjectKey{Name: "test-clustermesh"}, clustermesh)
 			if tc.expectedOutput != nil {
 				g.Expect(clustermesh.GetName()).To(BeEquivalentTo(tc.expectedOutput.GetName()))
 				g.Expect(clustermesh.Spec).To(BeEquivalentTo(tc.expectedOutput.Spec))
 			} else {
+				g.Expect(err).To(HaveOccurred())
 				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 			}
 
@@ -1625,7 +1711,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 		description            string
 		k8sObjects             []client.Object
 		clustermesh            *clustermeshv1beta1.ClusterMesh
-		expectedSecurityGroups []sgv1alpha1.SecurityGroup
+		expectedSecurityGroups []securitygroupv1alpha1.SecurityGroup
 	}{
 		{
 			description: "should create a securitygroups with only one cluster",
@@ -1640,7 +1726,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 					},
 				},
 			},
-			expectedSecurityGroups: []sgv1alpha1.SecurityGroup{
+			expectedSecurityGroups: []securitygroupv1alpha1.SecurityGroup{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "clustermesh-A-sg",
@@ -1679,7 +1765,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 					},
 				},
 			},
-			expectedSecurityGroups: []sgv1alpha1.SecurityGroup{
+			expectedSecurityGroups: []securitygroupv1alpha1.SecurityGroup{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "clustermesh-A-sg",
@@ -1697,7 +1783,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 		{
 			description: "should not create a securitygroup when it already exists",
 			k8sObjects: []client.Object{
-				&sgv1alpha1.SecurityGroup{
+				&securitygroupv1alpha1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "clustermesh-A-sg",
 						OwnerReferences: []metav1.OwnerReference{
@@ -1738,7 +1824,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 					},
 				},
 			},
-			expectedSecurityGroups: []sgv1alpha1.SecurityGroup{
+			expectedSecurityGroups: []securitygroupv1alpha1.SecurityGroup{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "clustermesh-A-sg",
@@ -1769,7 +1855,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 	err = clustermeshv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = sgv1alpha1.AddToScheme(scheme.Scheme)
+	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
@@ -1790,7 +1876,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 			err = ReconcileSecurityGroups(reconciler, ctx, tc.clustermesh)
 			g.Expect(err).ToNot(HaveOccurred())
 			for _, esg := range tc.expectedSecurityGroups {
-				sg := &sgv1alpha1.SecurityGroup{}
+				sg := &securitygroupv1alpha1.SecurityGroup{}
 				key := client.ObjectKey{
 					Name:      esg.Name,
 					Namespace: esg.Namespace,
