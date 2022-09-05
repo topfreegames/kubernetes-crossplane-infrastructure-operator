@@ -822,9 +822,9 @@ func TestSecurityGroupStatus(t *testing.T) {
 			})
 
 			if tc.isErrorExpected {
-				g.Expect(err).NotTo(BeNil())
+				g.Expect(err).To(HaveOccurred())
 			} else {
-				g.Expect(err).To(BeNil())
+				g.Expect(err).NotTo(HaveOccurred())
 			}
 
 			sg = &securitygroupv1alpha1.SecurityGroup{}
@@ -833,9 +833,8 @@ func TestSecurityGroupStatus(t *testing.T) {
 				Name:      "test-security-group",
 			}
 			err = fakeClient.Get(ctx, key, sg)
-			g.Expect(err).To(BeNil())
+			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(sg.Status.Conditions).ToNot(BeNil())
-
 			g.Expect(sg.Status.Ready).To(Equal(tc.expectedReadiness))
 
 			if tc.conditionsToAssert != nil {
