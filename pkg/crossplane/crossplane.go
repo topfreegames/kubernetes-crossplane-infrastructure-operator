@@ -239,7 +239,7 @@ func IsRouteToVpcPeeringAlreadyCreated(ctx context.Context, clusterCIDR, vpcPeer
 }
 
 func GetSecurityGroupReadyCondition(csg *crossec2v1beta1.SecurityGroup) *crossplanev1.Condition {
-	for _, condition := range csg.Status.Conditions {
+	for _, condition := range csg.Status.ResourceStatus.Conditions {
 		if condition.Type == "Ready" {
 			return &condition
 		}

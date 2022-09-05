@@ -141,7 +141,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 				kmp, cluster, kcp,
 				&securitygroupv1alpha1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "",
+						Name:      "test-security-group",
 						Namespace: metav1.NamespaceDefault,
 					},
 					Spec: securitygroupv1alpha1.SecurityGroupSpec{
