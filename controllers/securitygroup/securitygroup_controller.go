@@ -299,7 +299,7 @@ func (r *SecurityGroupReconciler) createCrossplaneSecurityGroup(ctx context.Cont
 		)
 		return &crossec2v1beta1.SecurityGroup{}, err
 	}
-	conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupReadyCondition)
+	conditions.MarkTrue(sg, securitygroupv1alpha1.CrossplaneResourceReadyCondition)
 
 	availableCondition := crossplane.GetSecurityGroupReadyCondition(csg)
 	if availableCondition == nil {
