@@ -306,7 +306,7 @@ func (r *SecurityGroupReconciler) createCrossplaneSecurityGroup(ctx context.Cont
 		return &crossec2v1beta1.SecurityGroup{}, ErrSecurityGroupNotAvailable
 	} else {
 		if availableCondition.Status == corev1.ConditionTrue {
-			conditions.MarkTrue(sg, securitygroupv1alpha1.CrossplaneResourceReadyCondition)
+			conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupReadyCondition)
 		} else {
 			conditions.MarkFalse(sg,
 				securitygroupv1alpha1.SecurityGroupReadyCondition,
