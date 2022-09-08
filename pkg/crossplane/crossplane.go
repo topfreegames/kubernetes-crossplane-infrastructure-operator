@@ -24,7 +24,7 @@ import (
 func NewCrossPlaneVPCPeeringConnection(clustermesh *clustermeshv1beta1.ClusterMesh, peeringRequester, peeringAccepter *clustermeshv1beta1.ClusterSpec) *crossec2v1alphav1.VPCPeeringConnection {
 	crossplaneVPCPeeringConnection := &crossec2v1alphav1.VPCPeeringConnection{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+			APIVersion: "ec2.aws.wildlife.io/v1alpha1",
 			Kind:       "VPCPeeringConnection",
 		},
 		ObjectMeta: metav1.ObjectMeta{
