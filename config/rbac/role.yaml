@@ -50,6 +50,18 @@ rules:
 - apiGroups:
   - ec2.aws.crossplane.io
   resources:
+  - routes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ec2.aws.crossplane.io
+  resources:
   - securitygroups
   verbs:
   - create
