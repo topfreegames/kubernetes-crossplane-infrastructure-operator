@@ -56,7 +56,7 @@ func TestGetOwnedVPCPeeringConnectionsRef(t *testing.T) {
 				&crossec2v1alphav1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "VPCPeeringConnection",
-						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						APIVersion: "ec2.aws.wildlife.io/v1alpha1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "A-B",
@@ -73,7 +73,7 @@ func TestGetOwnedVPCPeeringConnectionsRef(t *testing.T) {
 				&crossec2v1alphav1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "VPCPeeringConnection",
-						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						APIVersion: "ec2.aws.wildlife.io/v1alpha1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "A-C",
@@ -96,12 +96,12 @@ func TestGetOwnedVPCPeeringConnectionsRef(t *testing.T) {
 			expectedOwnedVPCPeeringConnections: []*corev1.ObjectReference{
 				{
 					Name:       "A-B",
-					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					APIVersion: "ec2.aws.wildlife.io/v1alpha1",
 					Kind:       "VPCPeeringConnection",
 				},
 				{
 					Name:       "A-C",
-					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					APIVersion: "ec2.aws.wildlife.io/v1alpha1",
 					Kind:       "VPCPeeringConnection",
 				},
 			},
@@ -112,7 +112,7 @@ func TestGetOwnedVPCPeeringConnectionsRef(t *testing.T) {
 				&crossec2v1alphav1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "VPCPeeringConnection",
-						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						APIVersion: "ec2.aws.wildlife.io/v1alpha1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "A-B",
@@ -129,7 +129,7 @@ func TestGetOwnedVPCPeeringConnectionsRef(t *testing.T) {
 				&crossec2v1alphav1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "VPCPeeringConnection",
-						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						APIVersion: "ec2.aws.wildlife.io/v1alpha1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "A-C",
@@ -147,7 +147,7 @@ func TestGetOwnedVPCPeeringConnectionsRef(t *testing.T) {
 			expectedOwnedVPCPeeringConnections: []*corev1.ObjectReference{
 				{
 					Name:       "A-B",
-					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					APIVersion: "ec2.aws.wildlife.io/v1alpha1",
 					Kind:       "VPCPeeringConnection",
 				},
 			},
