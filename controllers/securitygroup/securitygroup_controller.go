@@ -123,8 +123,12 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 func (r *SecurityGroupReconciler) reconcileDelete(ctx context.Context, sg *securitygroupv1alpha1.SecurityGroup) (ctrl.Result, error) {
 	r.log.Info(fmt.Sprintf("reconciling deletion for security group %s\n", sg.Name))
 
+	key := client.ObjectKey{
+		Name: sg.Name,
+	}
+
 	csg := &crossec2v1beta1.SecurityGroup{}
-	err := r.Get(ctx, client.ObjectKeyFromObject(sg), csg)
+	err := r.Get(ctx, key, csg)
 	if err != nil && !apierrors.IsNotFound(err) {
 		return ctrl.Result{}, fmt.Errorf("could not retrieve security group: %w", err)
 	}
