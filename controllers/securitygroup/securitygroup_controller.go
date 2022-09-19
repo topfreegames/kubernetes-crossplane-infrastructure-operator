@@ -44,12 +44,9 @@ import (
 	"sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 var ErrSecurityGroupNotAvailable = errors.New("security group not available")
-
-const securityGroupFinalizer = "securitygroup.wildlife.infrastructure.io"
 
 // SecurityGroupReconciler reconciles a SecurityGroup object
 type SecurityGroupReconciler struct {
@@ -107,10 +104,6 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		r.log.Info(fmt.Sprintf("finished reconcile loop for %s", sg.ObjectMeta.GetName()))
 	}()
 
-	if !controllerutil.ContainsFinalizer(sg, securityGroupFinalizer) {
-		controllerutil.AddFinalizer(sg, securityGroupFinalizer)
-	}
-
 	result, err := r.reconcileNormal(ctx, sg)
 	durationMsg := fmt.Sprintf("finished reconcile security groups loop for %s finished in %s ", sg.ObjectMeta.Name, time.Since(start).String())
 	if result.RequeueAfter > 0 {
@@ -138,7 +131,6 @@ func (r *SecurityGroupReconciler) reconcileDelete(ctx context.Context, sg *secur
 		return ctrl.Result{}, err
 	}
 
-	controllerutil.RemoveFinalizer(sg, securityGroupFinalizer)
 	return ctrl.Result{}, nil
 }
 
