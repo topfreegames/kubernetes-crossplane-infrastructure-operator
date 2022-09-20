@@ -149,8 +149,8 @@ func (r *ClusterMeshReconciler) reconcileNormal(ctx context.Context, cluster *cl
 		if !apierrors.IsNotFound(err) {
 			return resultError, err
 		}
-
-		ccm := clmesh.NewClusterMesh(cluster.Labels[clmesh.Label], clSpec)
+		meshName := cluster.Labels[clmesh.Label]
+		ccm := clmesh.New(meshName, clSpec)
 		r.log.Info(fmt.Sprintf("creating clustermesh %s\n", ccm.ObjectMeta.GetName()))
 		if err := r.Create(ctx, ccm); err != nil {
 			return resultError, err
@@ -260,6 +260,26 @@ func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *cl
 	if err := r.Get(ctx, key, clustermesh); err != nil {
 		return err
 	}
+
+	sg := &sgv1alpha1.SecurityGroup{}
+	sgKey := client.ObjectKey{
+		Name:      clmesh.GetClusterMeshSecurityGroupName(cluster.Name),
+		Namespace: cluster.Namespace,
+	}
+	if err := r.Get(ctx, sgKey, sg); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+
+	err := r.Delete(ctx, sg)
+	if err != nil {
+		return err
+	}
+	r.log.Info(fmt.Sprintf("deleted security group for cluster %s\n", cluster.ObjectMeta.Name))
+
+	if err := r.ReconcilePeeringsFactory(r, ctx, clustermesh); err != nil {
+		return err
+	}
+
 	for i, clSpec := range clustermesh.Spec.Clusters {
 		if clSpec.Name == cluster.Name {
 			clustermesh.Spec.Clusters = append(clustermesh.Spec.Clusters[:i], clustermesh.Spec.Clusters[i+1:]...)
@@ -271,15 +291,10 @@ func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *cl
 		if err := r.Client.Delete(ctx, clustermesh); err != nil {
 			return err
 		}
-		return nil
 	} else {
 		if err := r.Client.Update(ctx, clustermesh); err != nil {
 			return err
 		}
-	}
-
-	if err := r.ReconcilePeeringsFactory(r, ctx, clustermesh); err != nil {
-		return err
 	}
 
 	return nil
@@ -408,7 +423,6 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 	for _, cl := range clustermesh.Spec.Clusters {
 		sgName := clmesh.GetClusterMeshSecurityGroupName(cl.Name)
 		r.log.Info(fmt.Sprintf("creating security group %s for cluster %s\n", sgName, cl.Name))
-		// TODO: Add OwnerReference to the Clustermesh
 		sg := &sgv1alpha1.SecurityGroup{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      sgName,
