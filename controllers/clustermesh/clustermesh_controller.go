@@ -273,7 +273,7 @@ func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *cl
 	if err != nil {
 		return err
 	}
-	r.log.Info("deleted security group for cluster %s\n", cluster.ObjectMeta.Name)
+	r.log.Info(fmt.Sprintf("deleted security group for cluster %s\n", cluster.ObjectMeta.Name))
 
 	if len(clustermesh.Spec.Clusters) == 0 {
 		if err := r.Client.Delete(ctx, clustermesh); err != nil {
