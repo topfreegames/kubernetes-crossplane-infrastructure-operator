@@ -78,10 +78,6 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	if !sg.ObjectMeta.DeletionTimestamp.IsZero() {
-		return r.reconcileDelete(ctx, sg)
-	}
-
 	if sg.Spec.InfrastructureRef == nil {
 		return ctrl.Result{}, fmt.Errorf("infrastructureRef isn't defined")
 	}
@@ -107,6 +103,10 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		r.log.Info(fmt.Sprintf("finished reconcile loop for %s", sg.ObjectMeta.GetName()))
 	}()
 
+	if !sg.ObjectMeta.DeletionTimestamp.IsZero() {
+		return r.reconcileDelete(ctx, sg)
+	}
+
 	if !controllerutil.ContainsFinalizer(sg, securityGroupFinalizer) {
 		controllerutil.AddFinalizer(sg, securityGroupFinalizer)
 	}
@@ -129,7 +129,11 @@ func (r *SecurityGroupReconciler) reconcileDelete(ctx context.Context, sg *secur
 
 	csg := &crossec2v1beta1.SecurityGroup{}
 	err := r.Get(ctx, key, csg)
-	if err != nil && !apierrors.IsNotFound(err) {
+	if apierrors.IsNotFound(err) {
+		controllerutil.RemoveFinalizer(sg, securityGroupFinalizer)
+		return ctrl.Result{}, nil
+	}
+	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("could not retrieve security group: %w", err)
 	}
 
@@ -189,6 +193,7 @@ func (r *SecurityGroupReconciler) reconcileNormal(ctx context.Context, sg *secur
 	return ctrl.Result{}, nil
 }
 
+// TODO: Improve test coverage of this method
 func (r *SecurityGroupReconciler) reconcileKopsControlPlane(
 	ctx context.Context,
 	sg *securitygroupv1alpha1.SecurityGroup,

@@ -54,7 +54,6 @@ func NewCrossPlaneVPCPeeringConnection(clustermesh *clustermeshv1beta1.ClusterMe
 }
 
 func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha1.SecurityGroup, vpcId, region *string) *crossec2v1beta1.SecurityGroup {
-	// TODO: Add OwnerReference to the WSG
 	csg := &crossec2v1beta1.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: sg.GetName(),

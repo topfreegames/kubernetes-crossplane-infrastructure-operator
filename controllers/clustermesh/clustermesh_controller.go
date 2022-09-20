@@ -253,12 +253,6 @@ func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *cl
 	if err := r.Get(ctx, key, clustermesh); err != nil {
 		return err
 	}
-	for i, clSpec := range clustermesh.Spec.Clusters {
-		if clSpec.Name == cluster.Name {
-			clustermesh.Spec.Clusters = append(clustermesh.Spec.Clusters[:i], clustermesh.Spec.Clusters[i+1:]...)
-			break
-		}
-	}
 
 	sg := &sgv1alpha1.SecurityGroup{}
 	sgKey := client.ObjectKey{
@@ -275,19 +269,25 @@ func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *cl
 	}
 	r.log.Info(fmt.Sprintf("deleted security group for cluster %s\n", cluster.ObjectMeta.Name))
 
+	if err := r.ReconcilePeeringsFactory(r, ctx, clustermesh); err != nil {
+		return err
+	}
+
+	for i, clSpec := range clustermesh.Spec.Clusters {
+		if clSpec.Name == cluster.Name {
+			clustermesh.Spec.Clusters = append(clustermesh.Spec.Clusters[:i], clustermesh.Spec.Clusters[i+1:]...)
+			break
+		}
+	}
+
 	if len(clustermesh.Spec.Clusters) == 0 {
 		if err := r.Client.Delete(ctx, clustermesh); err != nil {
 			return err
 		}
-		return nil
 	} else {
 		if err := r.Client.Update(ctx, clustermesh); err != nil {
 			return err
 		}
-	}
-
-	if err := r.ReconcilePeeringsFactory(r, ctx, clustermesh); err != nil {
-		return err
 	}
 
 	return nil
