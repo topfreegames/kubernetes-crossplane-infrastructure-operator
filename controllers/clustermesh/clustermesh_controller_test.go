@@ -800,116 +800,116 @@ func TestReconcileDelete(t *testing.T) {
 		clustermesh    *clustermeshv1beta1.ClusterMesh
 		expectedOutput *clustermeshv1beta1.ClusterMesh
 	}{
-		// {
-		// 	description: "should remove the cluster A from clustermesh spec",
-		// 	k8sObjects: []client.Object{
-		// 		&clustermeshv1beta1.ClusterMesh{
-		// 			ObjectMeta: metav1.ObjectMeta{
-		// 				Name: "test-clustermesh",
-		// 			},
-		// 			Spec: clustermeshv1beta1.ClusterMeshSpec{
-		// 				Clusters: []*clustermeshv1beta1.ClusterSpec{
-		// 					{
-		// 						Name: "A",
-		// 					},
-		// 				},
-		// 			},
-		// 		},
-		// 		&securitygroupv1alpha1.SecurityGroup{
-		// 			ObjectMeta: metav1.ObjectMeta{
-		// 				Name: "clustermesh-A-sg",
-		// 			},
-		// 			Spec: securitygroupv1alpha1.SecurityGroupSpec{
-		// 				InfrastructureRef: &corev1.ObjectReference{
-		// 					Name:       "A",
-		// 					Kind:       "KopsControlPlane",
-		// 					APIVersion: "controlplane.x-k8s.io/v1alpha1",
-		// 				},
-		// 			},
-		// 		},
-		// 	},
-		// 	cluster: &clusterv1beta1.Cluster{
-		// 		ObjectMeta: metav1.ObjectMeta{
-		// 			Name: "A",
-		// 			Labels: map[string]string{
-		// 				"clusterGroup": "test-clustermesh",
-		// 			},
-		// 		},
-		// 	},
-		// 	clustermesh: &clustermeshv1beta1.ClusterMesh{
-		// 		ObjectMeta: metav1.ObjectMeta{
-		// 			Name: "test-clustermesh",
-		// 		},
-		// 	},
-		// },
-		// {
-		// 	description: "should not remove anything when the cluster don't exist in the clustermesh spec",
-		// 	k8sObjects: []client.Object{
-		// 		&clustermeshv1beta1.ClusterMesh{
-		// 			ObjectMeta: metav1.ObjectMeta{
-		// 				Name: "test-clustermesh",
-		// 			},
-		// 			Spec: clustermeshv1beta1.ClusterMeshSpec{
-		// 				Clusters: []*clustermeshv1beta1.ClusterSpec{
-		// 					{
-		// 						Name: "B",
-		// 					},
-		// 				},
-		// 			},
-		// 		},
-		// 		&securitygroupv1alpha1.SecurityGroup{
-		// 			ObjectMeta: metav1.ObjectMeta{
-		// 				Name: "clustermesh-B-sg",
-		// 			},
-		// 			Spec: securitygroupv1alpha1.SecurityGroupSpec{
-		// 				InfrastructureRef: &corev1.ObjectReference{
-		// 					Name:       "B",
-		// 					Namespace:  "kubernetes-B",
-		// 					Kind:       "KopsControlPlane",
-		// 					APIVersion: "controlplane.x-k8s.io/v1alpha1",
-		// 				},
-		// 			},
-		// 		},
-		// 		&securitygroupv1alpha1.SecurityGroup{
-		// 			ObjectMeta: metav1.ObjectMeta{
-		// 				Name: "clustermesh-A-sg",
-		// 			},
-		// 			Spec: securitygroupv1alpha1.SecurityGroupSpec{
-		// 				InfrastructureRef: &corev1.ObjectReference{
-		// 					Name:       "A",
-		// 					Namespace:  "kubernetes-A",
-		// 					Kind:       "KopsControlPlane",
-		// 					APIVersion: "controlplane.x-k8s.io/v1alpha1",
-		// 				},
-		// 			},
-		// 		},
-		// 	},
-		// 	cluster: &clusterv1beta1.Cluster{
-		// 		ObjectMeta: metav1.ObjectMeta{
-		// 			Name: "A",
-		// 			Labels: map[string]string{
-		// 				"clusterGroup": "test-clustermesh",
-		// 			},
-		// 		},
-		// 	},
-		// 	clustermesh: &clustermeshv1beta1.ClusterMesh{
-		// 		ObjectMeta: metav1.ObjectMeta{
-		// 			Name: "test-clustermesh",
-		// 		},
-		// 	},
-		// 	expectedOutput: &clustermeshv1beta1.ClusterMesh{
-		// 		ObjectMeta: metav1.ObjectMeta{
-		// 			Name: "test-clustermesh",
-		// 		},
-		// 		Spec: clustermeshv1beta1.ClusterMeshSpec{
-		// 			Clusters: []*clustermeshv1beta1.ClusterSpec{
-		// 				{
-		// 					Name: "B",
-		// 				},
-		// 			},
-		// 		},
-		// 	},
-		// },
+		{
+			description: "should remove the cluster A from clustermesh spec",
+			k8sObjects: []client.Object{
+				&clustermeshv1beta1.ClusterMesh{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-clustermesh",
+					},
+					Spec: clustermeshv1beta1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1beta1.ClusterSpec{
+							{
+								Name: "A",
+							},
+						},
+					},
+				},
+				&securitygroupv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "clustermesh-A-sg",
+					},
+					Spec: securitygroupv1alpha1.SecurityGroupSpec{
+						InfrastructureRef: &corev1.ObjectReference{
+							Name:       "A",
+							Kind:       "KopsControlPlane",
+							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+						},
+					},
+				},
+			},
+			cluster: &clusterv1beta1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "A",
+					Labels: map[string]string{
+						"clusterGroup": "test-clustermesh",
+					},
+				},
+			},
+			clustermesh: &clustermeshv1beta1.ClusterMesh{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-clustermesh",
+				},
+			},
+		},
+		{
+			description: "should not remove anything when the cluster don't exist in the clustermesh spec",
+			k8sObjects: []client.Object{
+				&clustermeshv1beta1.ClusterMesh{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-clustermesh",
+					},
+					Spec: clustermeshv1beta1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1beta1.ClusterSpec{
+							{
+								Name: "B",
+							},
+						},
+					},
+				},
+				&securitygroupv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "clustermesh-B-sg",
+					},
+					Spec: securitygroupv1alpha1.SecurityGroupSpec{
+						InfrastructureRef: &corev1.ObjectReference{
+							Name:       "B",
+							Namespace:  "kubernetes-B",
+							Kind:       "KopsControlPlane",
+							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+						},
+					},
+				},
+				&securitygroupv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "clustermesh-A-sg",
+					},
+					Spec: securitygroupv1alpha1.SecurityGroupSpec{
+						InfrastructureRef: &corev1.ObjectReference{
+							Name:       "A",
+							Namespace:  "kubernetes-A",
+							Kind:       "KopsControlPlane",
+							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+						},
+					},
+				},
+			},
+			cluster: &clusterv1beta1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "A",
+					Labels: map[string]string{
+						"clusterGroup": "test-clustermesh",
+					},
+				},
+			},
+			clustermesh: &clustermeshv1beta1.ClusterMesh{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-clustermesh",
+				},
+			},
+			expectedOutput: &clustermeshv1beta1.ClusterMesh{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-clustermesh",
+				},
+				Spec: clustermeshv1beta1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1beta1.ClusterSpec{
+						{
+							Name: "B",
+						},
+					},
+				},
+			},
+		},
 		{
 			description: "should remove cluster A in the first position",
 			k8sObjects: []client.Object{
@@ -973,138 +973,138 @@ func TestReconcileDelete(t *testing.T) {
 				},
 			},
 		},
-		// {
-		// 	description: "should remove cluster A in the last position",
-		// 	k8sObjects: []client.Object{
-		// 		&clustermeshv1beta1.ClusterMesh{
-		// 			ObjectMeta: metav1.ObjectMeta{
-		// 				Name: "test-clustermesh",
-		// 			},
-		// 			Spec: clustermeshv1beta1.ClusterMeshSpec{
-		// 				Clusters: []*clustermeshv1beta1.ClusterSpec{
-		// 					{
-		// 						Name: "C",
-		// 					},
-		// 					{
-		// 						Name: "B",
-		// 					},
-		// 					{
-		// 						Name: "A",
-		// 					},
-		// 				},
-		// 			},
-		// 		},
-		// 		&securitygroupv1alpha1.SecurityGroup{
-		// 			ObjectMeta: metav1.ObjectMeta{
-		// 				Name: "clustermesh-A-sg",
-		// 			},
-		// 			Spec: securitygroupv1alpha1.SecurityGroupSpec{
-		// 				InfrastructureRef: &corev1.ObjectReference{
-		// 					Name:       "A",
-		// 					Kind:       "KopsControlPlane",
-		// 					APIVersion: "controlplane.x-k8s.io/v1alpha1",
-		// 				},
-		// 			},
-		// 		},
-		// 	},
-		// 	cluster: &clusterv1beta1.Cluster{
-		// 		ObjectMeta: metav1.ObjectMeta{
-		// 			Name: "A",
-		// 			Labels: map[string]string{
-		// 				"clusterGroup": "test-clustermesh",
-		// 			},
-		// 		},
-		// 	},
-		// 	clustermesh: &clustermeshv1beta1.ClusterMesh{
-		// 		ObjectMeta: metav1.ObjectMeta{
-		// 			Name: "test-clustermesh",
-		// 		},
-		// 	},
-		// 	expectedOutput: &clustermeshv1beta1.ClusterMesh{
-		// 		ObjectMeta: metav1.ObjectMeta{
-		// 			Name: "test-clustermesh",
-		// 		},
-		// 		Spec: clustermeshv1beta1.ClusterMeshSpec{
-		// 			Clusters: []*clustermeshv1beta1.ClusterSpec{
-		// 				{
-		// 					Name: "C",
-		// 				},
-		// 				{
-		// 					Name: "B",
-		// 				},
-		// 			},
-		// 		},
-		// 	},
-		// },
-		// {
-		// 	description: "should remove the security group of the cluster when cluster is deleted",
-		// 	k8sObjects: []client.Object{
-		// 		&clustermeshv1beta1.ClusterMesh{
-		// 			ObjectMeta: metav1.ObjectMeta{
-		// 				Name: "test-clustermesh",
-		// 			},
-		// 			Spec: clustermeshv1beta1.ClusterMeshSpec{
-		// 				Clusters: []*clustermeshv1beta1.ClusterSpec{
-		// 					{
-		// 						Name: "A",
-		// 					},
-		// 					{
-		// 						Name: "B",
-		// 					},
-		// 				},
-		// 			},
-		// 		},
-		// 		&securitygroupv1alpha1.SecurityGroup{
-		// 			ObjectMeta: metav1.ObjectMeta{
-		// 				Name: "clustermesh-A-sg",
-		// 			},
-		// 			Spec: securitygroupv1alpha1.SecurityGroupSpec{
-		// 				InfrastructureRef: &corev1.ObjectReference{
-		// 					Name:       "A",
-		// 					Kind:       "KopsControlPlane",
-		// 					APIVersion: "controlplane.x-k8s.io/v1alpha1",
-		// 				},
-		// 			},
-		// 		},
-		// 		&securitygroupv1alpha1.SecurityGroup{
-		// 			ObjectMeta: metav1.ObjectMeta{
-		// 				Name: "clustermesh-B-sg",
-		// 			},
-		// 			Spec: securitygroupv1alpha1.SecurityGroupSpec{
-		// 				InfrastructureRef: &corev1.ObjectReference{
-		// 					Name:       "B",
-		// 					Kind:       "KopsControlPlane",
-		// 					APIVersion: "controlplane.x-k8s.io/v1alpha1",
-		// 				},
-		// 			},
-		// 		},
-		// 	},
-		// 	cluster: &clusterv1beta1.Cluster{
-		// 		ObjectMeta: metav1.ObjectMeta{
-		// 			Name: "A",
-		// 			Labels: map[string]string{
-		// 				"clusterGroup": "test-clustermesh",
-		// 			},
-		// 		},
-		// 	},
-		// 	clustermesh: &clustermeshv1beta1.ClusterMesh{
-		// 		ObjectMeta: metav1.ObjectMeta{
-		// 			Name: "test-clustermesh",
-		// 		},
-		// 	},
-		// 	expectedOutput: &clustermeshv1beta1.ClusterMesh{
-		// 		ObjectMeta: metav1.ObjectMeta{
-		// 			Name: "test-clustermesh",
-		// 		},
-		// 		Spec: clustermeshv1beta1.ClusterMeshSpec{
-		// 			Clusters: []*clustermeshv1beta1.ClusterSpec{
-		// 				{
-		// 					Name: "B",
-		// 				},
-		// 			},
-		// 		},
-		// 	},
-		// },
+		{
+			description: "should remove cluster A in the last position",
+			k8sObjects: []client.Object{
+				&clustermeshv1beta1.ClusterMesh{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-clustermesh",
+					},
+					Spec: clustermeshv1beta1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1beta1.ClusterSpec{
+							{
+								Name: "C",
+							},
+							{
+								Name: "B",
+							},
+							{
+								Name: "A",
+							},
+						},
+					},
+				},
+				&securitygroupv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "clustermesh-A-sg",
+					},
+					Spec: securitygroupv1alpha1.SecurityGroupSpec{
+						InfrastructureRef: &corev1.ObjectReference{
+							Name:       "A",
+							Kind:       "KopsControlPlane",
+							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+						},
+					},
+				},
+			},
+			cluster: &clusterv1beta1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "A",
+					Labels: map[string]string{
+						"clusterGroup": "test-clustermesh",
+					},
+				},
+			},
+			clustermesh: &clustermeshv1beta1.ClusterMesh{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-clustermesh",
+				},
+			},
+			expectedOutput: &clustermeshv1beta1.ClusterMesh{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-clustermesh",
+				},
+				Spec: clustermeshv1beta1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1beta1.ClusterSpec{
+						{
+							Name: "C",
+						},
+						{
+							Name: "B",
+						},
+					},
+				},
+			},
+		},
+		{
+			description: "should remove the security group of the cluster when cluster is deleted",
+			k8sObjects: []client.Object{
+				&clustermeshv1beta1.ClusterMesh{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-clustermesh",
+					},
+					Spec: clustermeshv1beta1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1beta1.ClusterSpec{
+							{
+								Name: "A",
+							},
+							{
+								Name: "B",
+							},
+						},
+					},
+				},
+				&securitygroupv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "clustermesh-A-sg",
+					},
+					Spec: securitygroupv1alpha1.SecurityGroupSpec{
+						InfrastructureRef: &corev1.ObjectReference{
+							Name:       "A",
+							Kind:       "KopsControlPlane",
+							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+						},
+					},
+				},
+				&securitygroupv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "clustermesh-B-sg",
+					},
+					Spec: securitygroupv1alpha1.SecurityGroupSpec{
+						InfrastructureRef: &corev1.ObjectReference{
+							Name:       "B",
+							Kind:       "KopsControlPlane",
+							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+						},
+					},
+				},
+			},
+			cluster: &clusterv1beta1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "A",
+					Labels: map[string]string{
+						"clusterGroup": "test-clustermesh",
+					},
+				},
+			},
+			clustermesh: &clustermeshv1beta1.ClusterMesh{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-clustermesh",
+				},
+			},
+			expectedOutput: &clustermeshv1beta1.ClusterMesh{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-clustermesh",
+				},
+				Spec: clustermeshv1beta1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1beta1.ClusterSpec{
+						{
+							Name: "B",
+						},
+					},
+				},
+			},
+		},
 	}
 
 	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
