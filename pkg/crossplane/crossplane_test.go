@@ -3,8 +3,9 @@ package crossplane
 import (
 	"context"
 	"fmt"
-	clmesh "github.com/topfreegames/provider-crossplane/pkg/clustermesh"
 	"testing"
+
+	clmesh "github.com/topfreegames/provider-crossplane/pkg/clustermesh"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	crossec2v1alphav1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
@@ -13,7 +14,7 @@ import (
 
 	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 
@@ -1212,7 +1213,7 @@ func TestCrossPlaneClusterMeshResource(t *testing.T) {
 				Name:  "test-cluster",
 				VPCID: "vpc-asidjasidiasj",
 			}
-			sg := clmesh.NewClusterMesh(cluster.Labels["clusterGroup"], clSpec)
+			sg := clmesh.New(cluster.Labels["clusterGroup"], clSpec)
 			g.Expect(sg.ObjectMeta.Name).To(ContainSubstring("testmesh"))
 		})
 	}
