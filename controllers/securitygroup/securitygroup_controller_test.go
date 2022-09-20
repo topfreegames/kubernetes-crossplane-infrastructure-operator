@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
+
+	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
@@ -21,7 +25,7 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -63,8 +67,7 @@ var (
 
 	csg = &crossec2v1beta1.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-security-group",
-			Namespace: metav1.NamespaceDefault,
+			Name: "test-security-group",
 		},
 		Status: crossec2v1beta1.SecurityGroupStatus{
 			ResourceStatus: crossplanev1.ResourceStatus{
@@ -134,10 +137,15 @@ var (
 
 func TestSecurityGroupReconciler(t *testing.T) {
 
-	testCases := []map[string]interface{}{
+	testCases := []struct {
+		description      string
+		k8sObjects       []client.Object
+		isErrorExpected  bool
+		expectedDeletion bool
+	}{
 		{
-			"description": "should fail without InfrastructureRef defined",
-			"k8sObjects": []client.Object{
+			description: "should fail without InfrastructureRef defined",
+			k8sObjects: []client.Object{
 				kmp, cluster, kcp,
 				&securitygroupv1alpha1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
@@ -158,11 +166,11 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					},
 				},
 			},
-			"isErrorExpected": true,
+			isErrorExpected: true,
 		},
 		{
-			"description": "should create a SecurityGroup with KopsControlPlane infrastructureRef",
-			"k8sObjects": []client.Object{
+			description: "should create a SecurityGroup with KopsControlPlane infrastructureRef",
+			k8sObjects: []client.Object{
 				kmp, cluster, kcp,
 				&securitygroupv1alpha1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
@@ -189,11 +197,11 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					},
 				},
 			},
-			"isErrorExpected": false,
+			isErrorExpected: false,
 		},
 		{
-			"description": "should fail with InfrastructureRef Kind different from KopsMachinePool and KopsControlPlane",
-			"k8sObjects": []client.Object{
+			description: "should fail with InfrastructureRef Kind different from KopsMachinePool and KopsControlPlane",
+			k8sObjects: []client.Object{
 				kmp, cluster, kcp,
 				&securitygroupv1alpha1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
@@ -220,7 +228,42 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					},
 				},
 			},
-			"isErrorExpected": true,
+			isErrorExpected: true,
+		},
+		{
+			description: "should remove SecurityGroup with DeletionTimestamp",
+			k8sObjects: []client.Object{
+				kmp, cluster, kcp,
+				&securitygroupv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-security-group",
+						Namespace: metav1.NamespaceDefault,
+						DeletionTimestamp: &metav1.Time{
+							Time: time.Now().UTC(),
+						},
+					},
+					Spec: securitygroupv1alpha1.SecurityGroupSpec{
+						IngressRules: []securitygroupv1alpha1.IngressRule{
+							{
+								IPProtocol: "TCP",
+								FromPort:   40000,
+								ToPort:     60000,
+								AllowedCIDRBlocks: []string{
+									"0.0.0.0/0",
+								},
+							},
+						},
+						InfrastructureRef: &corev1.ObjectReference{
+							APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsControlPlane",
+							Name:       "test-cluster",
+							Namespace:  metav1.NamespaceDefault,
+						},
+					},
+				},
+			},
+			isErrorExpected:  false,
+			expectedDeletion: true,
 		},
 	}
 	RegisterFailHandler(Fail)
@@ -242,12 +285,10 @@ func TestSecurityGroupReconciler(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
-		t.Run(tc["description"].(string), func(t *testing.T) {
+		t.Run(tc.description, func(t *testing.T) {
 			ctx := context.TODO()
 
-			k8sObjects := tc["k8sObjects"].([]client.Object)
-
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(k8sObjects...).Build()
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
 			fakeEC2Client := &fakeec2.MockEC2Client{}
 			fakeEC2Client.MockDescribeVpcs = func(ctx context.Context, input *awsec2.DescribeVpcsInput, opts []func(*awsec2.Options)) (*awsec2.DescribeVpcsOutput, error) {
 				return &awsec2.DescribeVpcsOutput{
@@ -274,18 +315,21 @@ func TestSecurityGroupReconciler(t *testing.T) {
 				},
 			})
 
-			if !tc["isErrorExpected"].(bool) {
+			if !tc.isErrorExpected {
 				crosssg := &crossec2v1beta1.SecurityGroup{}
 				key := client.ObjectKey{
-					Namespace: metav1.NamespaceDefault,
-					Name:      sg.ObjectMeta.Name,
+					Name: sg.ObjectMeta.Name,
 				}
 				err = fakeClient.Get(ctx, key, crosssg)
-				g.Expect(err).To(BeNil())
-				g.Expect(crosssg).NotTo(BeNil())
+				if !tc.expectedDeletion {
+					g.Expect(err).To(BeNil())
+					g.Expect(crosssg).NotTo(BeNil())
+				} else {
+					g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+				}
 
 			} else {
-				g.Expect(err).ToNot(BeNil())
+				g.Expect(err).To(HaveOccurred())
 			}
 		})
 	}
@@ -390,7 +434,7 @@ func TestReconcileKopsControlPlane(t *testing.T) {
 				},
 			}
 
-			err = reconciler.ReconcileKopsControlPlane(ctx, sg, kcp)
+			err = reconciler.reconcileKopsControlPlane(ctx, sg, kcp)
 
 			if !tc.isErrorExpected {
 				if !errors.Is(err, ErrSecurityGroupNotAvailable) {
@@ -399,8 +443,7 @@ func TestReconcileKopsControlPlane(t *testing.T) {
 
 				crosssg := &crossec2v1beta1.SecurityGroup{}
 				key := client.ObjectKey{
-					Namespace: metav1.NamespaceDefault,
-					Name:      sg.ObjectMeta.Name,
+					Name: sg.ObjectMeta.Name,
 				}
 				err = fakeClient.Get(ctx, key, crosssg)
 				g.Expect(err).To(BeNil())
@@ -496,7 +539,7 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 				},
 			}
 
-			err = reconciler.ReconcileKopsMachinePool(ctx, sg, kmp)
+			err = reconciler.reconcileKopsMachinePool(ctx, sg, kmp)
 
 			if !tc.isErrorExpected {
 				if !errors.Is(err, ErrSecurityGroupNotAvailable) {
@@ -505,8 +548,7 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 
 				crosssg := &crossec2v1beta1.SecurityGroup{}
 				key := client.ObjectKey{
-					Namespace: metav1.NamespaceDefault,
-					Name:      sg.ObjectMeta.Name,
+					Name: sg.ObjectMeta.Name,
 				}
 				err = fakeClient.Get(ctx, key, crosssg)
 				g.Expect(err).To(BeNil())
@@ -515,6 +557,88 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 			} else {
 				g.Expect(err).ToNot(BeNil())
 			}
+		})
+	}
+}
+
+func TestReconcileDelete(t *testing.T) {
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	wsgMock := securitygroupv1alpha1.SecurityGroup{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-security-group",
+			Namespace: corev1.NamespaceDefault,
+		},
+		Spec: securitygroupv1alpha1.SecurityGroupSpec{
+			IngressRules: []securitygroupv1alpha1.IngressRule{
+				{
+					IPProtocol: "TCP",
+					FromPort:   40000,
+					ToPort:     60000,
+					AllowedCIDRBlocks: []string{
+						"0.0.0.0/0",
+					},
+				},
+			},
+			InfrastructureRef: &corev1.ObjectReference{
+				APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+				Kind:       "KopsControlPlane",
+				Name:       "test-cluster",
+				Namespace:  metav1.NamespaceDefault,
+			},
+		},
+	}
+
+	csgMock := crossec2v1beta1.SecurityGroup{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-security-group",
+		},
+	}
+
+	testCases := []struct {
+		description string
+		k8sObjects  []client.Object
+		wsg         securitygroupv1alpha1.SecurityGroup
+	}{
+		{
+			description: "should remove the crossplane security group",
+			k8sObjects: []client.Object{
+				&wsgMock, &csgMock,
+			},
+			wsg: wsgMock,
+		},
+	}
+
+	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+
+			ctx := context.TODO()
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
+
+			reconciler := &SecurityGroupReconciler{
+				Client: fakeClient,
+				log:    ctrl.LoggerFrom(ctx),
+			}
+
+			_, err = reconciler.reconcileDelete(ctx, &tc.wsg)
+			g.Expect(err).ToNot(HaveOccurred())
+
+			deletedCSG := &crossec2v1beta1.SecurityGroup{}
+			key := client.ObjectKey{
+				Name: tc.wsg.Name,
+			}
+			err = fakeClient.Get(ctx, key, deletedCSG)
+			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		})
 	}
 }
@@ -664,8 +788,7 @@ func TestSecurityGroupStatus(t *testing.T) {
 			k8sObjects: []client.Object{
 				kmp, cluster, kcp, sg, &crossec2v1beta1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-security-group",
-						Namespace: metav1.NamespaceDefault,
+						Name: "test-security-group",
 					},
 					Status: crossec2v1beta1.SecurityGroupStatus{
 						ResourceStatus: crossplanev1.ResourceStatus{
@@ -825,9 +948,9 @@ func TestSecurityGroupStatus(t *testing.T) {
 			})
 
 			if tc.isErrorExpected {
-				g.Expect(err).NotTo(BeNil())
+				g.Expect(err).To(HaveOccurred())
 			} else {
-				g.Expect(err).To(BeNil())
+				g.Expect(err).NotTo(HaveOccurred())
 			}
 
 			sg = &securitygroupv1alpha1.SecurityGroup{}
@@ -836,9 +959,8 @@ func TestSecurityGroupStatus(t *testing.T) {
 				Name:      "test-security-group",
 			}
 			err = fakeClient.Get(ctx, key, sg)
-			g.Expect(err).To(BeNil())
+			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(sg.Status.Conditions).ToNot(BeNil())
-
 			g.Expect(sg.Status.Ready).To(Equal(tc.expectedReadiness))
 
 			if tc.conditionsToAssert != nil {

@@ -54,11 +54,9 @@ func NewCrossPlaneVPCPeeringConnection(clustermesh *clustermeshv1beta1.ClusterMe
 }
 
 func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha1.SecurityGroup, vpcId, region *string) *crossec2v1beta1.SecurityGroup {
-	// TODO: Add OwnerReference to the WSG
 	csg := &crossec2v1beta1.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      sg.GetName(),
-			Namespace: sg.GetNamespace(),
+			Name: sg.GetName(),
 		},
 		Spec: crossec2v1beta1.SecurityGroupSpec{
 			ForProvider: crossec2v1beta1.SecurityGroupParameters{
@@ -240,7 +238,7 @@ func IsRouteToVpcPeeringAlreadyCreated(ctx context.Context, clusterCIDR, vpcPeer
 }
 
 func GetSecurityGroupReadyCondition(csg *crossec2v1beta1.SecurityGroup) *crossplanev1.Condition {
-	for _, condition := range csg.Status.Conditions {
+	for _, condition := range csg.Status.ResourceStatus.Conditions {
 		if condition.Type == "Ready" {
 			return &condition
 		}
