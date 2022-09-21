@@ -339,3 +339,25 @@ func GetOwnedRoutes(ctx context.Context, owner client.Object, kubeclient client.
 
 	return &ownedRoutes, nil
 }
+
+func GetOwnedRoutesRef(ctx context.Context, owner client.Object, kubeclient client.Client) ([]*corev1.ObjectReference, error) {
+	routes := &crossec2v1alphav1.RouteList{}
+	err := kubeclient.List(ctx, routes)
+	if err != nil {
+		return nil, err
+	}
+
+	var ss []*corev1.ObjectReference
+	for _, route := range routes.Items {
+		if util.IsOwnedByObject(&route, owner) {
+			objectRef := &corev1.ObjectReference{
+				Kind:       route.TypeMeta.Kind,
+				Name:       route.ObjectMeta.Name,
+				APIVersion: route.TypeMeta.APIVersion,
+			}
+			ss = append(ss, objectRef)
+		}
+	}
+
+	return ss, nil
+}

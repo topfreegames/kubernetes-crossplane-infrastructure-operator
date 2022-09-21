@@ -19,6 +19,7 @@ require (
 	github.com/onsi/gomega v1.19.0
 	github.com/pkg/errors v0.9.1
 	github.com/topfreegames/kubernetes-kops-operator v0.0.8-alpha
+	go.uber.org/zap v1.19.1
 	k8s.io/api v0.24.0
 	k8s.io/apimachinery v0.24.0
 	k8s.io/client-go v0.24.0
@@ -132,7 +133,6 @@ require (
 	go.opencensus.io v0.23.0 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
-	go.uber.org/zap v1.19.1 // indirect
 	golang.org/x/crypto v0.0.0-20220214200702-86341886e292 // indirect
 	golang.org/x/net v0.0.0-20220225172249-27dd8689420f // indirect
 	golang.org/x/oauth2 v0.0.0-20211104180415-d3ed0bb246c8 // indirect

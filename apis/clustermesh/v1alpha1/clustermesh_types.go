@@ -64,6 +64,7 @@ type ClusterMeshStatus struct {
 	CrossplanePeeringRef       []*v1.ObjectReference     `json:"crossplanePeeringRef,omitempty"`
 	CrossplaneSecurityGroupRef []*v1.ObjectReference     `json:"crossplaneSecurityGroupRef,omitempty"`
 	Conditions                 clusterv1beta1.Conditions `json:"conditions,omitempty"`
+	RoutesRef                  []*v1.ObjectReference     `json:"routesRef,omitempty"`
 }
 
 //+kubebuilder:object:root=true
