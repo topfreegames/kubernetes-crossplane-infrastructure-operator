@@ -414,8 +414,8 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 	rules := []sgv1alpha1.IngressRule{
 		{
 			IPProtocol:        "-1", // we support icmp, udp and tcp
-			FromPort:          1,
-			ToPort:            65535,
+			FromPort:          -1,
+			ToPort:            -1,
 			AllowedCIDRBlocks: cidrResults,
 		},
 	}
