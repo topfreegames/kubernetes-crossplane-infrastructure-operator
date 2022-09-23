@@ -8,7 +8,7 @@ import (
 	clmesh "github.com/topfreegames/provider-crossplane/pkg/clustermesh"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	crossec2v1alphav1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
+	crossec2v1alpha1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
 	"github.com/google/go-cmp/cmp"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
@@ -54,7 +54,7 @@ func TestGetOwnedVPCPeeringConnectionsRef(t *testing.T) {
 		{
 			description: "should return vpcpeeringconnections A-B and A-C",
 			vpcPeeringConnections: []client.Object{
-				&crossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "VPCPeeringConnection",
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -71,7 +71,7 @@ func TestGetOwnedVPCPeeringConnectionsRef(t *testing.T) {
 						},
 					},
 				},
-				&crossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "VPCPeeringConnection",
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -110,7 +110,7 @@ func TestGetOwnedVPCPeeringConnectionsRef(t *testing.T) {
 		{
 			description: "should return only vpcpeeringconnections A-B",
 			vpcPeeringConnections: []client.Object{
-				&crossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "VPCPeeringConnection",
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -127,7 +127,7 @@ func TestGetOwnedVPCPeeringConnectionsRef(t *testing.T) {
 						},
 					},
 				},
-				&crossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "VPCPeeringConnection",
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -161,7 +161,7 @@ func TestGetOwnedVPCPeeringConnectionsRef(t *testing.T) {
 	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = crossec2v1alphav1.AddToScheme(scheme.Scheme)
+	err = crossec2v1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = clusterv1beta1.AddToScheme(scheme.Scheme)
@@ -189,7 +189,7 @@ func TestGetOwnedVPCPeeringConnections(t *testing.T) {
 		},
 	}
 
-	vpcWithOwner := &crossec2v1alphav1.VPCPeeringConnection{
+	vpcWithOwner := &crossec2v1alpha1.VPCPeeringConnection{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "VPCPeeringConnection",
 			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -208,7 +208,7 @@ func TestGetOwnedVPCPeeringConnections(t *testing.T) {
 		},
 	}
 
-	vpc2WithOwner := &crossec2v1alphav1.VPCPeeringConnection{
+	vpc2WithOwner := &crossec2v1alpha1.VPCPeeringConnection{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "VPCPeeringConnection",
 			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -230,7 +230,7 @@ func TestGetOwnedVPCPeeringConnections(t *testing.T) {
 	testCases := []struct {
 		description                        string
 		objects                            []client.Object
-		expectedOwnedVPCPeeringConnections []crossec2v1alphav1.VPCPeeringConnection
+		expectedOwnedVPCPeeringConnections []crossec2v1alpha1.VPCPeeringConnection
 	}{
 		{
 			description: "should return vpcpeeringconnections A-B and A-C",
@@ -243,7 +243,7 @@ func TestGetOwnedVPCPeeringConnections(t *testing.T) {
 					},
 				},
 			},
-			expectedOwnedVPCPeeringConnections: []crossec2v1alphav1.VPCPeeringConnection{
+			expectedOwnedVPCPeeringConnections: []crossec2v1alpha1.VPCPeeringConnection{
 				*vpcWithOwner,
 				*vpc2WithOwner,
 			},
@@ -252,7 +252,7 @@ func TestGetOwnedVPCPeeringConnections(t *testing.T) {
 			description: "should return only vpcpeeringconnections A-B",
 			objects: []client.Object{
 				vpcWithOwner,
-				&crossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "VPCPeeringConnection",
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -270,7 +270,7 @@ func TestGetOwnedVPCPeeringConnections(t *testing.T) {
 					},
 				},
 			},
-			expectedOwnedVPCPeeringConnections: []crossec2v1alphav1.VPCPeeringConnection{
+			expectedOwnedVPCPeeringConnections: []crossec2v1alpha1.VPCPeeringConnection{
 				*vpcWithOwner,
 			},
 		},
@@ -282,7 +282,7 @@ func TestGetOwnedVPCPeeringConnections(t *testing.T) {
 	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = crossec2v1alphav1.AddToScheme(scheme.Scheme)
+	err = crossec2v1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = clusterv1beta1.AddToScheme(scheme.Scheme)
@@ -431,7 +431,7 @@ func TestGetOwnedRoutes(t *testing.T) {
 		},
 	}
 
-	owner := &crossec2v1alphav1.VPCPeeringConnection{
+	owner := &crossec2v1alpha1.VPCPeeringConnection{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
 			Kind:       "VPCPeeringConnection",
@@ -449,7 +449,7 @@ func TestGetOwnedRoutes(t *testing.T) {
 		},
 	}
 
-	routeWithOwner := &crossec2v1alphav1.Route{
+	routeWithOwner := &crossec2v1alpha1.Route{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Route",
 			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -468,7 +468,7 @@ func TestGetOwnedRoutes(t *testing.T) {
 		},
 	}
 
-	route2WithOwner := &crossec2v1alphav1.Route{
+	route2WithOwner := &crossec2v1alpha1.Route{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Route",
 			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -490,7 +490,7 @@ func TestGetOwnedRoutes(t *testing.T) {
 	testCases := []struct {
 		description                 string
 		objects                     []client.Object
-		expectedOwnedSecurityGroups []crossec2v1alphav1.Route
+		expectedOwnedSecurityGroups []crossec2v1alpha1.Route
 	}{
 		{
 			description: "should return sg A and B",
@@ -505,7 +505,7 @@ func TestGetOwnedRoutes(t *testing.T) {
 					},
 				},
 			},
-			expectedOwnedSecurityGroups: []crossec2v1alphav1.Route{
+			expectedOwnedSecurityGroups: []crossec2v1alpha1.Route{
 				*routeWithOwner,
 				*route2WithOwner,
 			},
@@ -516,7 +516,7 @@ func TestGetOwnedRoutes(t *testing.T) {
 				routeWithOwner,
 				clustermesh,
 				owner,
-				&crossec2v1alphav1.Route{
+				&crossec2v1alpha1.Route{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "Route",
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -534,7 +534,7 @@ func TestGetOwnedRoutes(t *testing.T) {
 					},
 				},
 			},
-			expectedOwnedSecurityGroups: []crossec2v1alphav1.Route{
+			expectedOwnedSecurityGroups: []crossec2v1alpha1.Route{
 				*routeWithOwner,
 			},
 		},
@@ -546,7 +546,7 @@ func TestGetOwnedRoutes(t *testing.T) {
 	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = crossec2v1alphav1.AddToScheme(scheme.Scheme)
+	err = crossec2v1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = clusterv1beta1.AddToScheme(scheme.Scheme)
@@ -687,7 +687,7 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 		clustermeshStatus             clustermeshv1beta1.ClusterMeshStatus
 		peeringRequester              *clustermeshv1beta1.ClusterSpec
 		peeringAccepter               *clustermeshv1beta1.ClusterSpec
-		expectedVPCPeeringConnection  *crossec2v1alphav1.VPCPeeringConnection
+		expectedVPCPeeringConnection  *crossec2v1alpha1.VPCPeeringConnection
 		expectedVPCPeeringConnections []*corev1.ObjectReference
 	}{
 		{
@@ -705,7 +705,7 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 				Region: "eu-central-1",
 				VPCID:  "yyy",
 			},
-			expectedVPCPeeringConnection: &crossec2v1alphav1.VPCPeeringConnection{
+			expectedVPCPeeringConnection: &crossec2v1alpha1.VPCPeeringConnection{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
 					Kind:       "VPCPeeringConnection",
@@ -722,11 +722,11 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 					},
 					ResourceVersion: "1",
 				},
-				Spec: crossec2v1alphav1.VPCPeeringConnectionSpec{
-					ForProvider: crossec2v1alphav1.VPCPeeringConnectionParameters{
+				Spec: crossec2v1alpha1.VPCPeeringConnectionSpec{
+					ForProvider: crossec2v1alpha1.VPCPeeringConnectionParameters{
 						Region:     "us-east-1",
 						PeerRegion: aws.String("eu-central-1"),
-						CustomVPCPeeringConnectionParameters: crossec2v1alphav1.CustomVPCPeeringConnectionParameters{
+						CustomVPCPeeringConnectionParameters: crossec2v1alpha1.CustomVPCPeeringConnectionParameters{
 							VPCID:         aws.String("xxx"),
 							PeerVPCID:     aws.String("yyy"),
 							AcceptRequest: true,
@@ -745,7 +745,7 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 		{
 			description: "should do nothing when trying to create a vpcPeeringConnection already created",
 			vpcPeeringConnections: []client.Object{
-				&crossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "VPCPeeringConnection",
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -754,7 +754,7 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 						Name: "A-B",
 					},
 				},
-				&crossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "VPCPeeringConnection",
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -763,7 +763,7 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 						Name: "A-C",
 					},
 				},
-				&crossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "VPCPeeringConnection",
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -802,7 +802,7 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 				Region: "eu-central-1",
 				VPCID:  "yyy",
 			},
-			expectedVPCPeeringConnection: &crossec2v1alphav1.VPCPeeringConnection{
+			expectedVPCPeeringConnection: &crossec2v1alpha1.VPCPeeringConnection{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
 					Kind:       "VPCPeeringConnection",
@@ -819,11 +819,11 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 					},
 					ResourceVersion: "1",
 				},
-				Spec: crossec2v1alphav1.VPCPeeringConnectionSpec{
-					ForProvider: crossec2v1alphav1.VPCPeeringConnectionParameters{
+				Spec: crossec2v1alpha1.VPCPeeringConnectionSpec{
+					ForProvider: crossec2v1alpha1.VPCPeeringConnectionParameters{
 						Region:     "us-east-1",
 						PeerRegion: aws.String("eu-central-1"),
-						CustomVPCPeeringConnectionParameters: crossec2v1alphav1.CustomVPCPeeringConnectionParameters{
+						CustomVPCPeeringConnectionParameters: crossec2v1alpha1.CustomVPCPeeringConnectionParameters{
 							VPCID:         aws.String("xxx"),
 							PeerVPCID:     aws.String("yyy"),
 							AcceptRequest: true,
@@ -852,7 +852,7 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 		{
 			description: "should create a new vpcpeeringconnection when some are already created",
 			vpcPeeringConnections: []client.Object{
-				&crossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "VPCPeeringConnection",
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -861,7 +861,7 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 						Name: "A-B",
 					},
 				},
-				&crossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "VPCPeeringConnection",
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -895,7 +895,7 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 				Region: "eu-central-1",
 				VPCID:  "yyy",
 			},
-			expectedVPCPeeringConnection: &crossec2v1alphav1.VPCPeeringConnection{
+			expectedVPCPeeringConnection: &crossec2v1alpha1.VPCPeeringConnection{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
 					Kind:       "VPCPeeringConnection",
@@ -912,11 +912,11 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 					},
 					ResourceVersion: "1",
 				},
-				Spec: crossec2v1alphav1.VPCPeeringConnectionSpec{
-					ForProvider: crossec2v1alphav1.VPCPeeringConnectionParameters{
+				Spec: crossec2v1alpha1.VPCPeeringConnectionSpec{
+					ForProvider: crossec2v1alpha1.VPCPeeringConnectionParameters{
 						Region:     "us-east-1",
 						PeerRegion: aws.String("eu-central-1"),
-						CustomVPCPeeringConnectionParameters: crossec2v1alphav1.CustomVPCPeeringConnectionParameters{
+						CustomVPCPeeringConnectionParameters: crossec2v1alpha1.CustomVPCPeeringConnectionParameters{
 							VPCID:         aws.String("xxx"),
 							PeerVPCID:     aws.String("yyy"),
 							AcceptRequest: true,
@@ -950,7 +950,7 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = crossec2v1alphav1.AddToScheme(scheme.Scheme)
+	err = crossec2v1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
@@ -962,7 +962,7 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 			key := client.ObjectKey{
 				Name: fmt.Sprintf("%s-%s", tc.peeringRequester.Name, tc.peeringAccepter.Name),
 			}
-			vpcPeeringConnection := &crossec2v1alphav1.VPCPeeringConnection{}
+			vpcPeeringConnection := &crossec2v1alpha1.VPCPeeringConnection{}
 			err = fakeClient.Get(ctx, key, vpcPeeringConnection)
 			g.Expect(err).To(BeNil())
 			g.Expect(vpcPeeringConnection).ToNot(BeNil())
@@ -1006,7 +1006,7 @@ func TestDeleteCrossplaneVPCPeeringConnection(t *testing.T) {
 				},
 			},
 			vpcPeeringConnections: []client.Object{
-				&crossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "VPCPeeringConnection",
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -1015,7 +1015,7 @@ func TestDeleteCrossplaneVPCPeeringConnection(t *testing.T) {
 						Name: "A-B",
 					},
 				},
-				&crossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "VPCPeeringConnection",
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -1024,7 +1024,7 @@ func TestDeleteCrossplaneVPCPeeringConnection(t *testing.T) {
 						Name: "A-C",
 					},
 				},
-				&crossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "VPCPeeringConnection",
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -1074,7 +1074,7 @@ func TestDeleteCrossplaneVPCPeeringConnection(t *testing.T) {
 				},
 			},
 			vpcPeeringConnections: []client.Object{
-				&crossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "VPCPeeringConnection",
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -1083,7 +1083,7 @@ func TestDeleteCrossplaneVPCPeeringConnection(t *testing.T) {
 						Name: "A-C",
 					},
 				},
-				&crossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "VPCPeeringConnection",
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -1128,7 +1128,7 @@ func TestDeleteCrossplaneVPCPeeringConnection(t *testing.T) {
 				},
 			},
 			vpcPeeringConnections: []client.Object{
-				&crossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "VPCPeeringConnection",
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -1150,7 +1150,7 @@ func TestDeleteCrossplaneVPCPeeringConnection(t *testing.T) {
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
 
-	err := crossec2v1alphav1.AddToScheme(scheme.Scheme)
+	err := crossec2v1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
@@ -1162,7 +1162,7 @@ func TestDeleteCrossplaneVPCPeeringConnection(t *testing.T) {
 				Name: tc.vpcPeeringToBeDeleted.Name,
 			}
 
-			vpcPeeringConnection := &crossec2v1alphav1.VPCPeeringConnection{}
+			vpcPeeringConnection := &crossec2v1alpha1.VPCPeeringConnection{}
 			err = fakeClient.Get(ctx, key, vpcPeeringConnection)
 			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 
@@ -1170,7 +1170,7 @@ func TestDeleteCrossplaneVPCPeeringConnection(t *testing.T) {
 				key = client.ObjectKey{
 					Name: expectedVPCPeeringConnectionRef.Name,
 				}
-				expectedVPCPeeringConnection := &crossec2v1alphav1.VPCPeeringConnection{}
+				expectedVPCPeeringConnection := &crossec2v1alpha1.VPCPeeringConnection{}
 				err = fakeClient.Get(ctx, key, expectedVPCPeeringConnection)
 				g.Expect(err).To(BeNil())
 			}
@@ -1427,7 +1427,7 @@ func TestGetSecurityGroupAvailableCondition(t *testing.T) {
 func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 
 	route := []client.Object{
-		&crossec2v1alphav1.Route{
+		&crossec2v1alpha1.Route{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "ec2.aws.crossplane.io/v1alpha1",
 				Kind:       "Route",
@@ -1436,10 +1436,10 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 				Name: "route-A-ab",
 				UID:  "xxx",
 			},
-			Spec: crossec2v1alphav1.RouteSpec{
-				ForProvider: crossec2v1alphav1.RouteParameters{
+			Spec: crossec2v1alpha1.RouteSpec{
+				ForProvider: crossec2v1alpha1.RouteParameters{
 					DestinationCIDRBlock: aws.String("bbbb"),
-					CustomRouteParameters: crossec2v1alphav1.CustomRouteParameters{
+					CustomRouteParameters: crossec2v1alpha1.CustomRouteParameters{
 						VPCPeeringConnectionID: aws.String("ab"),
 						RouteTableID:           aws.String("rt-xxxx"),
 					},
@@ -1540,7 +1540,7 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
 
-	err := crossec2v1alphav1.AddToScheme(scheme.Scheme)
+	err := crossec2v1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
@@ -1557,7 +1557,7 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 
 func TestCreateCrossplaneRoute(t *testing.T) {
 
-	vpcPeeringConnection := &crossec2v1alphav1.VPCPeeringConnection{
+	vpcPeeringConnection := &crossec2v1alpha1.VPCPeeringConnection{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "VPCPeeringConnection",
 			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
@@ -1593,7 +1593,7 @@ func TestCreateCrossplaneRoute(t *testing.T) {
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
 
-	err := crossec2v1alphav1.AddToScheme(scheme.Scheme)
+	err := crossec2v1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
@@ -1603,12 +1603,75 @@ func TestCreateCrossplaneRoute(t *testing.T) {
 
 			err := CreateCrossplaneRoute(ctx, fakeClient, tc.clusterSpec.Region, tc.clusterSpec.CIDR, tc.routeTable, *vpcPeeringConnection)
 			g.Expect(err).To(BeNil())
-			route := crossec2v1alphav1.Route{}
+			route := crossec2v1alpha1.Route{}
 			err = fakeClient.Get(ctx, client.ObjectKey{Name: tc.routeTable + "-" + vpcPeeringConnection.ObjectMeta.Annotations["crossplane.io/external-name"]}, &route)
 			g.Expect(err).To(BeNil())
 			g.Expect(route.Spec.ForProvider.RouteTableID).To(BeEquivalentTo(aws.String(tc.routeTable)))
 			g.Expect(route.Spec.ForProvider.DestinationCIDRBlock).To(BeEquivalentTo(aws.String(tc.clusterSpec.CIDR)))
 			g.Expect(route.Spec.ForProvider.VPCPeeringConnectionID).To(BeEquivalentTo(aws.String(vpcPeeringConnection.ObjectMeta.Annotations["crossplane.io/external-name"])))
+		})
+	}
+}
+
+func TestGetOwnedRoutesRef(t *testing.T) {
+
+	owner := &crossec2v1alpha1.VPCPeeringConnection{
+		TypeMeta:   metav1.TypeMeta{
+			Kind:       "VPCPeeringConnection",
+			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "a-b",
+		},
+	}
+
+	testCases := []struct {
+		description         string
+		routes             []client.Object
+		expectedOwnedRoutes []*corev1.ObjectReference
+	}{
+		{
+			description: "should return owned route for VPC Peering a-b",
+			routes: []client.Object{
+				&crossec2v1alpha1.Route{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						Kind:       "Route",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "rt-xxxx-pcx-xxxx",
+						UID:  "xxx",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+								Kind:       "VPCPeeringConnection",
+								Name:       "a-b",
+							},
+						},
+					},
+				},
+			},
+			expectedOwnedRoutes: []*corev1.ObjectReference{
+				{
+					APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+					Kind:       "Route",
+					Name:       "rt-xxxx-pcx-xxxx",
+				},
+			},
+		},
+	}
+
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	err := crossec2v1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.routes...).Build()
+			ownedRoutes, _ := GetOwnedRoutesRef(context.TODO(), owner, fakeClient)
+			g.Expect(cmp.Equal(ownedRoutes, tc.expectedOwnedRoutes)).To(BeTrue())
 		})
 	}
 }

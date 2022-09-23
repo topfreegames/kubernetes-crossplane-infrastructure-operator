@@ -1787,11 +1787,23 @@ func TestReconcileRoutes(t *testing.T) {
 			err = fakeClient.List(ctx, vpcPeerings)
 			g.Expect(err).To(BeNil())
 			g.Expect(vpcPeerings.Items).To(Not(BeEmpty()))
+			var vpcPeeringsIds []*string
+			var vpcPeeringsCIDRBlock []*string
+			for _, vpcPeering := range vpcPeerings.Items {
+				vpcPeeringsIds = append(vpcPeeringsIds, aws.String(vpcPeering.Annotations["crossplane.io/external-name"]))
+				if vpcPeering.Status.AtProvider.RequesterVPCInfo != nil {
+					vpcPeeringsCIDRBlock = append(vpcPeeringsCIDRBlock, vpcPeering.Status.AtProvider.RequesterVPCInfo.CIDRBlock)
+				}
+				if vpcPeering.Status.AtProvider.AccepterVPCInfo != nil {
+					vpcPeeringsCIDRBlock = append(vpcPeeringsCIDRBlock, vpcPeering.Status.AtProvider.AccepterVPCInfo.CIDRBlock)
+				}
+			}
 
 			for _, route := range routes.Items {
 				g.Expect(aws.ToString(route.Spec.ForProvider.RouteTableID)).To(BeElementOf(tc.clSpec.RouteTableIDs))
 				if len(vpcPeerings.Items) > 1 {
-					continue
+					g.Expect(route.Spec.ForProvider.VPCPeeringConnectionID).To(BeElementOf(vpcPeeringsIds))
+					g.Expect(route.Spec.ForProvider.DestinationCIDRBlock).To(BeElementOf(vpcPeeringsCIDRBlock))
 				} else {
 					g.Expect(route.Spec.ForProvider.VPCPeeringConnectionID).To(BeEquivalentTo(aws.String(vpcPeeringConnection.Annotations["crossplane.io/external-name"])))
 					g.Expect(route.Spec.ForProvider.DestinationCIDRBlock).To(Or(BeEquivalentTo(vpcPeeringConnection.Status.AtProvider.RequesterVPCInfo.CIDRBlock), BeEquivalentTo(vpcPeeringConnection.Status.AtProvider.AccepterVPCInfo.CIDRBlock)))
@@ -1809,7 +1821,7 @@ func TestReconcileRoutes(t *testing.T) {
 						Name:       route.Name,
 					})
 				}
-				g.Expect(clustermesh.Status.RoutesRef).To(ContainElements(objectRef))
+				g.Expect(objectRef).To(ContainElements(clustermesh.Status.RoutesRef))
 			}
 		})
 	}
