@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"time"
 
+	wildlifecrossec2v1alphav1 "github.com/topfreegames/crossplane-provider-aws/apis/ec2/manualv1alpha1"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	"github.com/topfreegames/kubernetes-kops-operator/pkg/kops"
 	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
@@ -32,7 +33,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/barkimedes/go-deepcopy"
-	crossec2v1alphav1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
 	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
@@ -53,9 +53,10 @@ import (
 )
 
 var (
-	requeue1min   = ctrl.Result{RequeueAfter: 1 * time.Minute}
-	resultDefault = ctrl.Result{RequeueAfter: 1 * time.Hour}
-	resultError   = ctrl.Result{RequeueAfter: 30 * time.Minute}
+	requeue1min                    = ctrl.Result{RequeueAfter: 1 * time.Minute}
+	resultDefault                  = ctrl.Result{RequeueAfter: 1 * time.Hour}
+	resultError                    = ctrl.Result{RequeueAfter: 30 * time.Minute}
+	vpcPeeringConnectionAPIVersion = "ec2.aws.wildlife.io/v1alpha1"
 )
 
 // ClusterMeshReconciler reconciles a ClusterMesh object
@@ -348,7 +349,7 @@ func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clustermes
 }
 
 func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clustermeshv1beta1.ClusterSpec) (ctrl.Result, error) {
-	vpcPeeringConnections := &crossec2v1alphav1.VPCPeeringConnectionList{}
+	vpcPeeringConnections := &wildlifecrossec2v1alphav1.VPCPeeringConnectionList{}
 	err := r.Client.List(ctx, vpcPeeringConnections)
 	if err != nil {
 		return resultError, err
@@ -377,7 +378,7 @@ func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clus
 	return resultDefault, nil
 }
 
-func manageCrossplaneRoutes(r *ClusterMeshReconciler, ctx context.Context, clusterCIDR string, vpcPeeringConnection crossec2v1alphav1.VPCPeeringConnection, clSpec *clustermeshv1beta1.ClusterSpec) error {
+func manageCrossplaneRoutes(r *ClusterMeshReconciler, ctx context.Context, clusterCIDR string, vpcPeeringConnection wildlifecrossec2v1alphav1.VPCPeeringConnection, clSpec *clustermeshv1beta1.ClusterSpec) error {
 	vpcPeeringConnectionID := vpcPeeringConnection.ObjectMeta.Annotations["crossplane.io/external-name"]
 	isRouteCreated, err := crossplane.IsRouteToVpcPeeringAlreadyCreated(ctx, clusterCIDR, vpcPeeringConnectionID, clSpec.RouteTableIDs, r.Client)
 	if err != nil {
