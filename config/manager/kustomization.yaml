@@ -13,5 +13,6 @@ kind: Kustomization
 images:
 - name: controller
   newName: tfgco/provider-crossplane
+  newTag: v0.0.3-alpha
 - name: manager
   newName: tfgco/provider-crossplane
