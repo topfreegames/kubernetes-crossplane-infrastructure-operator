@@ -410,7 +410,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - ec2.aws.crossplane.io
+  - ec2.aws.wildlife.io
   resources:
   - vpcpeeringconnections
   verbs:
