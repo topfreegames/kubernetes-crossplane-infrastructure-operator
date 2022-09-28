@@ -68,7 +68,7 @@ type ClusterMeshReconciler struct {
 	PopulateClusterSpecFactory     func(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error)
 	ReconcilePeeringsFactory       func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error
 	ReconcileSecurityGroupsFactory func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error
-	ReconcileRoutesFactory         func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec) (ctrl.Result, error)
+	ReconcileRoutesFactory         func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error)
 }
 
 //+kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
@@ -180,7 +180,7 @@ func (r *ClusterMeshReconciler) reconcileExternalResources(ctx context.Context, 
 		return resultError, err
 	}
 
-	result, err := r.ReconcileRoutesFactory(r, ctx, clSpec)
+	result, err := r.ReconcileRoutesFactory(r, ctx, clSpec, clustermesh)
 	if err != nil {
 		return resultError, err
 	}
@@ -348,12 +348,14 @@ func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clustermes
 	return nil
 }
 
-func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clustermeshv1beta1.ClusterSpec) (ctrl.Result, error) {
+func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
 	vpcPeeringConnections := &wildlifecrossec2v1alphav1.VPCPeeringConnectionList{}
 	err := r.Client.List(ctx, vpcPeeringConnections)
 	if err != nil {
 		return resultError, err
 	}
+
+	var routesRef []*corev1.ObjectReference
 
 	for _, vpcPeeringConnection := range vpcPeeringConnections.Items {
 		statusReady := checkConditionsReadyAndSynced(vpcPeeringConnection.Status.Conditions)
@@ -367,13 +369,25 @@ func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clus
 			if err != nil {
 				return resultError, err
 			}
+			ownedRoutesRef, err := crossplane.GetOwnedRoutesRef(ctx, &vpcPeeringConnection, r.Client)
+			if err != nil {
+				return resultError, err
+			}
+			routesRef = append(routesRef, ownedRoutesRef...)
 		} else if cmp.Equal(vpcPeeringConnection.Status.AtProvider.RequesterVPCInfo.CIDRBlock, &clSpec.CIDR) {
 			err := manageCrossplaneRoutes(r, ctx, *vpcPeeringConnection.Status.AtProvider.AccepterVPCInfo.CIDRBlock, vpcPeeringConnection, clSpec)
 			if err != nil {
 				return resultError, err
 			}
+			ownedRoutesRef, err := crossplane.GetOwnedRoutesRef(ctx, &vpcPeeringConnection, r.Client)
+			if err != nil {
+				return resultError, err
+			}
+			routesRef = append(routesRef, ownedRoutesRef...)
 		}
 	}
+
+	clustermesh.Status.RoutesRef = routesRef
 
 	return resultDefault, nil
 }
