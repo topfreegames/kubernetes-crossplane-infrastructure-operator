@@ -1713,7 +1713,7 @@ func TestReconcileRoutes(t *testing.T) {
 						},
 					},
 				},
-				&crossec2v1alpha1.VPCPeeringConnection{
+				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
 						Kind:       "VPCPeeringConnection",
@@ -1724,15 +1724,15 @@ func TestReconcileRoutes(t *testing.T) {
 							"crossplane.io/external-name": "pcx-zzzz",
 						},
 					},
-					Status: crossec2v1alpha1.VPCPeeringConnectionStatus{
+					Status: wildlifecrossec2v1alphav1.VPCPeeringConnectionStatus{
 						ResourceStatus: v1.ResourceStatus{
 							ConditionedStatus: *v1.NewConditionedStatus(v1.Available(), v1.ReconcileSuccess()),
 						},
-						AtProvider: crossec2v1alpha1.VPCPeeringConnectionObservation{
-							AccepterVPCInfo: &crossec2v1alpha1.VPCPeeringConnectionVPCInfo{
+						AtProvider: wildlifecrossec2v1alphav1.VPCPeeringConnectionObservation{
+							AccepterVPCInfo: &wildlifecrossec2v1alphav1.VPCPeeringConnectionVPCInfo{
 								CIDRBlock: aws.String("ccccc"),
 							},
-							RequesterVPCInfo: &crossec2v1alpha1.VPCPeeringConnectionVPCInfo{
+							RequesterVPCInfo: &wildlifecrossec2v1alphav1.VPCPeeringConnectionVPCInfo{
 								CIDRBlock: aws.String("aaaaa"),
 							},
 						},
@@ -1788,7 +1788,7 @@ func TestReconcileRoutes(t *testing.T) {
 			} else {
 				g.Expect(routes.Items).To(Not(BeEmpty()))
 			}
-			vpcPeerings := &crossec2v1alpha1.VPCPeeringConnectionList{}
+			vpcPeerings := &wildlifecrossec2v1alphav1.VPCPeeringConnectionList{}
 			err = fakeClient.List(ctx, vpcPeerings)
 			g.Expect(err).To(BeNil())
 			g.Expect(vpcPeerings.Items).To(Not(BeEmpty()))
