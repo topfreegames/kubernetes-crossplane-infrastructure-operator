@@ -1617,7 +1617,7 @@ func TestCreateCrossplaneRoute(t *testing.T) {
 func TestGetOwnedRoutesRef(t *testing.T) {
 
 	owner := &crossec2v1alpha1.VPCPeeringConnection{
-		TypeMeta:   metav1.TypeMeta{
+		TypeMeta: metav1.TypeMeta{
 			Kind:       "VPCPeeringConnection",
 			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
 		},
@@ -1628,7 +1628,7 @@ func TestGetOwnedRoutesRef(t *testing.T) {
 
 	testCases := []struct {
 		description         string
-		routes             []client.Object
+		routes              []client.Object
 		expectedOwnedRoutes []*corev1.ObjectReference
 	}{
 		{
