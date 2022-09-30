@@ -133,6 +133,11 @@ func (r *SecurityGroupReconciler) reconcileDelete(ctx context.Context, sg *secur
 		Name: sg.Name,
 	}
 
+	// create a new launch template version without security group
+	// update the autoscaling group with the new version
+	// remove crossplane security group (then aws sg will be removed)
+	// remove finalizers
+
 	csg := &crossec2v1beta1.SecurityGroup{}
 	err := r.Get(ctx, key, csg)
 	if apierrors.IsNotFound(err) {
@@ -393,6 +398,35 @@ func (r *SecurityGroupReconciler) attachSGToASG(ctx context.Context, ec2Client e
 	}
 
 	ltVersionOutput, err := ec2.AttachSecurityGroupToLaunchTemplate(ctx, ec2Client, sgId, launchTemplateVersion)
+	if err != nil {
+		return err
+	}
+
+	latestVersion := strconv.FormatInt(*ltVersionOutput.LaunchTemplateVersion.VersionNumber, 10)
+
+	if *asg.LaunchTemplate.Version != latestVersion {
+		_, err = autoscaling.UpdateAutoScalingGroupLaunchTemplate(ctx, asgClient, *ltVersionOutput.LaunchTemplateVersion.LaunchTemplateId, latestVersion, asgName)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Remove the security group from ASG the removing it from the launch template
+func (r *SecurityGroupReconciler) detachSGFromASG(ctx context.Context, ec2Client ec2.EC2Client, asgClient autoscaling.AutoScalingClient, asgName, sgId string) error {
+
+	asg, err := autoscaling.GetAutoScalingGroupByName(ctx, asgClient, asgName)
+	if err != nil {
+		return err
+	}
+
+	launchTemplateVersion, err := ec2.GetLastLaunchTemplateVersion(ctx, ec2Client, *asg.LaunchTemplate.LaunchTemplateId)
+	if err != nil {
+		return err
+	}
+
+	ltVersionOutput, err := ec2.DetachSecurityGroupFromLaunchTemplate(ctx, ec2Client, sgId, launchTemplateVersion)
 	if err != nil {
 		return err
 	}
