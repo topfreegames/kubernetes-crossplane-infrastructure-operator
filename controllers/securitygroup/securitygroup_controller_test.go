@@ -96,6 +96,7 @@ var (
 			KopsInstanceGroupSpec: kopsapi.InstanceGroupSpec{
 				NodeLabels: map[string]string{
 					"kops.k8s.io/instance-group-name": "test-ig",
+					"kops.k8s.io/instance-group-role": "Node",
 				},
 			},
 		},
@@ -299,10 +300,15 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					},
 				}, nil
 			}
+
+			fakeASGClient := &fakeasg.MockAutoScalingClient{}
 			reconciler := &SecurityGroupReconciler{
 				Client: fakeClient,
 				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
 					return fakeEC2Client
+				},
+				NewAutoScalingClientFactory: func(cfg aws.Config) autoscaling.AutoScalingClient {
+					return fakeASGClient
 				},
 				ManageCrossplaneSGFactory: func(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error {
 					return crossplane.ManageCrossplaneSecurityGroupResource(ctx, kubeClient, csg)
@@ -421,12 +427,18 @@ func TestReconcileKopsControlPlane(t *testing.T) {
 				}, nil
 			}
 
+			fakeASGClient := &fakeasg.MockAutoScalingClient{}
+
 			recorder := record.NewFakeRecorder(5)
 
 			reconciler := &SecurityGroupReconciler{
 				Client: fakeClient,
+				log:    ctrl.LoggerFrom(ctx),
 				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
 					return fakeEC2Client
+				},
+				NewAutoScalingClientFactory: func(cfg aws.Config) autoscaling.AutoScalingClient {
+					return fakeASGClient
 				},
 				Recorder: recorder,
 				ManageCrossplaneSGFactory: func(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error {
@@ -530,6 +542,7 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 
 			reconciler := &SecurityGroupReconciler{
 				Client: fakeClient,
+				log:    ctrl.LoggerFrom(ctx),
 				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
 					return fakeEC2Client
 				},

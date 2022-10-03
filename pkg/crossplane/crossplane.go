@@ -3,6 +3,7 @@ package crossplane
 import (
 	"context"
 	"fmt"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
@@ -16,7 +17,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/cluster-api/util"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -131,33 +131,14 @@ func NewCrossplaneRoute(region, destinationCIDRBlock, routeTable string, vpcPeer
 
 func ManageCrossplaneSecurityGroupResource(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error {
 	log := ctrl.LoggerFrom(ctx)
-	if err := kubeClient.Create(ctx, csg); err != nil {
-		if !apierrors.IsAlreadyExists(err) {
-			return err
-		}
-
-		retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			key := client.ObjectKey{
-				Namespace: csg.ObjectMeta.Namespace,
-				Name:      csg.ObjectMeta.Name,
-			}
-			var currentCSG crossec2v1beta1.SecurityGroup
-			err := kubeClient.Get(ctx, key, &currentCSG)
-			if err != nil {
-				return err
-			}
-			currentCSG.Spec = csg.Spec
-
-			err = kubeClient.Update(ctx, &currentCSG)
-			return err
-		})
-		if retryErr != nil {
-			return retryErr
-		}
-		log.Info(fmt.Sprintf("updated csg %s", csg.ObjectMeta.GetName()))
+	res, err := controllerutil.CreateOrUpdate(ctx, kubeClient, csg, func() error {
 		return nil
+	})
+	if err != nil {
+		return err
 	}
-	log.Info(fmt.Sprintf("created csg %s", csg.ObjectMeta.GetName()))
+	log.Info(fmt.Sprintf("crossplane security group %s\n", string(res)))
+
 	return nil
 }
 

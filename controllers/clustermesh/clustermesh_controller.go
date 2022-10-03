@@ -249,6 +249,11 @@ func (r *ClusterMeshReconciler) validateClusterMesh(ctx context.Context, cluster
 		conditions.MarkFalse(clustermesh, clustermeshv1beta1.ClusterMeshSecurityGroupsReadyCondition, clustermeshv1beta1.ClusterMeshSecurityGroupFailedReason, clusterv1beta1.ConditionSeverityError, "SecurityGroups not ready")
 	}
 
+	// TODO: This update is being done to avoid the conflict with Patch at the end, we should research handle this in a better way
+	if err := r.Update(ctx, clustermesh); err != nil {
+		return err
+	}
+
 	return nil
 }
 

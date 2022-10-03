@@ -19,7 +19,7 @@ require (
 	github.com/onsi/gomega v1.19.0
 	github.com/pkg/errors v0.9.1
 	github.com/topfreegames/crossplane-provider-aws v0.27.0-vpcpeering-only
-	github.com/topfreegames/kubernetes-kops-operator v0.0.8-alpha
+	github.com/topfreegames/kubernetes-kops-operator v0.1.1-alpha
 	go.uber.org/zap v1.19.1
 	k8s.io/api v0.24.0
 	k8s.io/apimachinery v0.24.0
