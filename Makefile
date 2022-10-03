@@ -1,5 +1,5 @@
 ## latest git tag for the commit, e.g., v0.3.10
-RELEASE_TAG ?= $(shell git describe --abbrev=0 2>/dev/null)
+RELEASE_TAG ?= $(shell git describe --tags 2>/dev/null)
 
 # Image URL to use all building/pushing image targets
 IMG ?= tfgco/provider-crossplane:$(RELEASE_TAG)
