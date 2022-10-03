@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
 	"github.com/topfreegames/kubernetes-kops-operator/pkg/kops"
@@ -89,6 +90,10 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	r.log.Info(fmt.Sprintf("starting reconcile loop for %s", sg.ObjectMeta.GetName()))
 
+	if !sg.ObjectMeta.DeletionTimestamp.IsZero() {
+		return r.reconcileDelete(ctx, sg)
+	}
+
 	// Initialize the patch helper.
 	patchHelper, err := patch.NewHelper(sg, r.Client)
 	if err != nil {
@@ -107,10 +112,6 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 		r.log.Info(fmt.Sprintf("finished reconcile loop for %s", sg.ObjectMeta.GetName()))
 	}()
-
-	if !sg.ObjectMeta.DeletionTimestamp.IsZero() {
-		return r.reconcileDelete(ctx, sg)
-	}
 
 	if !controllerutil.ContainsFinalizer(sg, securityGroupFinalizer) {
 		controllerutil.AddFinalizer(sg, securityGroupFinalizer)
@@ -214,6 +215,8 @@ func (r *SecurityGroupReconciler) reconcileKopsControlPlane(
 		return err
 	}
 
+	asgClient := r.NewAutoScalingClientFactory(cfg)
+
 	csg, err := r.createCrossplaneSecurityGroup(ctx, vpcId, region, sg)
 	if err != nil {
 		return fmt.Errorf("error creating crossplane securitygroup: %w", err)
@@ -224,28 +227,35 @@ func (r *SecurityGroupReconciler) reconcileKopsControlPlane(
 		return err
 	}
 
+	var attachErr error
 	for _, kmp := range kmps {
 		asgName, err := kops.GetAutoScalingGroupNameFromKopsMachinePool(kmp)
 		if err != nil {
-			return err
+			attachErr = multierror.Append(attachErr, err)
+			continue
 		}
 
-		asgClient := r.NewAutoScalingClientFactory(cfg)
 		err = r.attachSGToASG(ctx, ec2Client, asgClient, *asgName, csg.Status.AtProvider.SecurityGroupID)
 		if err != nil {
-			conditions.MarkFalse(sg,
-				securitygroupv1alpha1.SecurityGroupAttachedCondition,
-				securitygroupv1alpha1.SecurityGroupAttachmentFailedReason,
-				clusterv1beta1.ConditionSeverityError,
-				err.Error(),
-			)
-			return err
+			r.Recorder.Eventf(sg, corev1.EventTypeWarning, securitygroupv1alpha1.SecurityGroupAttachmentFailedReason, err.Error())
+			attachErr = multierror.Append(attachErr, err)
+			continue
 		}
 	}
-	conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupAttachedCondition)
-	conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupReadyCondition)
 
-	return nil
+	if attachErr != nil {
+		conditions.MarkFalse(sg,
+			securitygroupv1alpha1.SecurityGroupAttachedCondition,
+			securitygroupv1alpha1.SecurityGroupAttachmentFailedReason,
+			clusterv1beta1.ConditionSeverityError,
+			attachErr.Error(),
+		)
+	} else {
+		conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupAttachedCondition)
+		conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupReadyCondition)
+	}
+
+	return attachErr
 }
 
 func (r *SecurityGroupReconciler) reconcileKopsMachinePool(
