@@ -746,8 +746,8 @@ github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5/go.mod h1
 github.com/tmc/grpc-websocket-proxy v0.0.0-20201229170055-e5319fda7802/go.mod h1:ncp9v5uamzpCO7NfCPTXjqaC+bZgJeR0sMTm6dMHP7U=
 github.com/topfreegames/crossplane-provider-aws v0.27.0-vpcpeering-only h1:KlcNIDFGMlmD8C6vc6KjWnyv451SRjQhJCYhVu2W5Ss=
 github.com/topfreegames/crossplane-provider-aws v0.27.0-vpcpeering-only/go.mod h1:wB61cKlwsY2S1U7UIMENEE2p3kO1cOlLRcifZXZuR6E=
-github.com/topfreegames/kubernetes-kops-operator v0.0.8-alpha h1:NfAvn709bwzaLcukeUSEvZeBs3lxnh/8/uuZJM7yCnk=
-github.com/topfreegames/kubernetes-kops-operator v0.0.8-alpha/go.mod h1:4fa8z/WyWT4ExWTu/APf5L1qX7hdBu6fgvylhS+LTQE=
+github.com/topfreegames/kubernetes-kops-operator v0.1.1-alpha h1:dcawGADy5tIjt7NXU0Y+mwKDiN27GOrxZJuhGW1ip2I=
+github.com/topfreegames/kubernetes-kops-operator v0.1.1-alpha/go.mod h1:jkJgbIJ/9hDmfLupQdsQEGHa3tJX9IrpC0gVuWSFa+E=
 github.com/tv42/httpunix v0.0.0-20150427012821-b75d8614f926/go.mod h1:9ESjWnEqriFuLhtthL60Sar/7RFoluCcXsuvEwTV5KM=
 github.com/ugorji/go v1.1.4/go.mod h1:uQMGLiO92mf5W77hV/PUCpI3pbzQx3CRekS0kk+RGrc=
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2/go.mod h1:UETIi67q53MR2AWcXfiuqkDkRtnGDLqkBTpCHuJHxtU=
