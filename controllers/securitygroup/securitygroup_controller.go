@@ -23,7 +23,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/hashicorp/go-multierror"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
 	"github.com/topfreegames/kubernetes-kops-operator/pkg/kops"
@@ -36,6 +35,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	"github.com/go-logr/logr"
+	"github.com/hashicorp/go-multierror"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -133,11 +133,6 @@ func (r *SecurityGroupReconciler) reconcileDelete(ctx context.Context, sg *secur
 		Name: sg.Name,
 	}
 
-	// create a new launch template version without security group
-	// update the autoscaling group with the new version
-	// remove crossplane security group (then aws sg will be removed)
-	// remove finalizers
-
 	csg := &crossec2v1beta1.SecurityGroup{}
 	err := r.Get(ctx, key, csg)
 	if apierrors.IsNotFound(err) {
@@ -145,7 +140,12 @@ func (r *SecurityGroupReconciler) reconcileDelete(ctx context.Context, sg *secur
 		return ctrl.Result{}, nil
 	}
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("could not retrieve security group: %w", err)
+		return ctrl.Result{}, fmt.Errorf("could not retrieve crossplane security group: %w", err)
+	}
+
+	err = r.deleteSGFromASG(ctx, sg, csg)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
 	err = r.Delete(ctx, csg)
@@ -414,8 +414,105 @@ func (r *SecurityGroupReconciler) attachSGToASG(ctx context.Context, ec2Client e
 }
 
 // Remove the security group from ASG the removing it from the launch template
-func (r *SecurityGroupReconciler) detachSGFromASG(ctx context.Context, ec2Client ec2.EC2Client, asgClient autoscaling.AutoScalingClient, asgName, sgId string) error {
+func (r *SecurityGroupReconciler) deleteSGFromASG(ctx context.Context, sg *securitygroupv1alpha1.SecurityGroup, csg *crossec2v1beta1.SecurityGroup) error {
 
+	switch sg.Spec.InfrastructureRef.Kind {
+	case "KopsControlPlane":
+		kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+		key := client.ObjectKey{
+			Namespace: sg.Spec.InfrastructureRef.Namespace,
+			Name:      sg.Spec.InfrastructureRef.Name,
+		}
+		if err := r.Client.Get(ctx, key, kcp); err != nil {
+			return err
+		}
+
+		err := r.deleteSGFromKopsControlPlaneASGs(ctx, sg, csg, kcp)
+		if err != nil {
+			return err
+		}
+	case "KopsMachinePool":
+		kmp := &kinfrastructurev1alpha1.KopsMachinePool{}
+		key := client.ObjectKey{
+			Name:      sg.Spec.InfrastructureRef.Name,
+			Namespace: sg.Spec.InfrastructureRef.Namespace,
+		}
+		if err := r.Client.Get(ctx, key, kmp); err != nil {
+			return err
+		}
+
+		err := r.deleteSGFromKopsMachinePoolASG(ctx, sg, csg, kmp)
+		if err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("infrastructureRef not supported")
+	}
+
+	return nil
+}
+
+func (r *SecurityGroupReconciler) deleteSGFromKopsControlPlaneASGs(ctx context.Context, sg *securitygroupv1alpha1.SecurityGroup, csg *crossec2v1beta1.SecurityGroup, kcp *kcontrolplanev1alpha1.KopsControlPlane) error {
+	_, _, cfg, ec2Client, err := r.getAwsAccountInfo(ctx, kcp)
+	if err != nil {
+		return err
+	}
+
+	asgClient := r.NewAutoScalingClientFactory(cfg)
+
+	kmps, err := kops.GetKopsMachinePoolsWithLabel(ctx, r.Client, "cluster.x-k8s.io/cluster-name", kcp.Name)
+	if err != nil {
+		return err
+	}
+
+	var attachErr error
+	for _, kmp := range kmps {
+		asgName, err := kops.GetAutoScalingGroupNameFromKopsMachinePool(kmp)
+		if err != nil {
+			attachErr = multierror.Append(attachErr, err)
+			continue
+		}
+
+		err = r.detachSGFromASG(ctx, ec2Client, asgClient, *asgName, csg.Status.AtProvider.SecurityGroupID)
+		if err != nil {
+			attachErr = multierror.Append(attachErr, err)
+			continue
+		}
+	}
+
+	if attachErr != nil {
+		return attachErr
+	}
+
+	return nil
+}
+
+func (r *SecurityGroupReconciler) deleteSGFromKopsMachinePoolASG(ctx context.Context, sg *securitygroupv1alpha1.SecurityGroup, csg *crossec2v1beta1.SecurityGroup, kmp *kinfrastructurev1alpha1.KopsMachinePool) error {
+	kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+	key := client.ObjectKey{
+		Namespace: sg.Spec.InfrastructureRef.Namespace,
+		Name:      kmp.Spec.ClusterName,
+	}
+	if err := r.Client.Get(ctx, key, kcp); err != nil {
+		return err
+	}
+
+	_, _, cfg, ec2Client, err := r.getAwsAccountInfo(ctx, kcp)
+	if err != nil {
+		return err
+	}
+
+	asgClient := r.NewAutoScalingClientFactory(cfg)
+
+	asgName, err := kops.GetAutoScalingGroupNameFromKopsMachinePool(*kmp)
+	if err != nil {
+		return err
+	}
+
+	return r.detachSGFromASG(ctx, ec2Client, asgClient, *asgName, csg.Status.AtProvider.SecurityGroupID)
+}
+
+func (r *SecurityGroupReconciler) detachSGFromASG(ctx context.Context, ec2Client ec2.EC2Client, asgClient autoscaling.AutoScalingClient, asgName, sgId string) error {
 	asg, err := autoscaling.GetAutoScalingGroupByName(ctx, asgClient, asgName)
 	if err != nil {
 		return err

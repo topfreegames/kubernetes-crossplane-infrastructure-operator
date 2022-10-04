@@ -184,10 +184,9 @@ func DetachSecurityGroupFromLaunchTemplate(ctx context.Context, ec2Client EC2Cli
 	}
 
 	networkInterface := launchTemplateVersion.LaunchTemplateData.NetworkInterfaces[0]
-	for _, group := range networkInterface.Groups {
+	for i, group := range networkInterface.Groups {
 		if group == securityGroupId {
-			// remove from groups
-			// networkInterface.Groups = remove(networkInterface.Groups, securityGroupId)
+			networkInterface.Groups = append(networkInterface.Groups[:i], networkInterface.Groups[i+1:]...)
 			break
 		}
 	}
