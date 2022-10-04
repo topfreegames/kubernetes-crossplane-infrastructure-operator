@@ -98,7 +98,7 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	defer func() {
 
 		if clustermesh != nil && len(clustermesh.Spec.Clusters) > 0 {
-			err = patchHelper.Patch(ctx, clustermesh)
+			err = patchHelper.Patch(ctx, clustermesh, patch.WithForceOverwriteConditions{})
 			if err != nil {
 				r.log.Error(rerr, fmt.Sprintf("failed to patch clustermesh: %s", err))
 				rerr = err
@@ -247,11 +247,6 @@ func (r *ClusterMeshReconciler) validateClusterMesh(ctx context.Context, cluster
 		conditions.MarkTrue(clustermesh, clustermeshv1beta1.ClusterMeshSecurityGroupsReadyCondition)
 	} else {
 		conditions.MarkFalse(clustermesh, clustermeshv1beta1.ClusterMeshSecurityGroupsReadyCondition, clustermeshv1beta1.ClusterMeshSecurityGroupFailedReason, clusterv1beta1.ConditionSeverityError, "SecurityGroups not ready")
-	}
-
-	// TODO: This update is being done to avoid the conflict with Patch at the end, we should research handle this in a better way
-	if err := r.Update(ctx, clustermesh); err != nil {
-		return err
 	}
 
 	return nil
