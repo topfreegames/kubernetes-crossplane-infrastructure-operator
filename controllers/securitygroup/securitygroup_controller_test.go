@@ -6,11 +6,9 @@ import (
 	"testing"
 	"time"
 
-	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
+	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/autoscaling"
 	fakeasg "github.com/topfreegames/provider-crossplane/pkg/aws/autoscaling/fake"
@@ -25,9 +23,8 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
@@ -37,6 +34,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 )
 
 var (
@@ -657,6 +657,107 @@ func TestReconcileDelete(t *testing.T) {
 }
 
 func TestAttachSGToASG(t *testing.T) {
+	testCases := []map[string]interface{}{
+		{
+			"description": "should attach SecurityGroup to the ASG",
+			"k8sObjects": []client.Object{
+				kmp, cluster, kcp, sg,
+			},
+			"isErrorExpected": false,
+		},
+	}
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	err := clusterv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = kcontrolplanev1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	for _, tc := range testCases {
+		t.Run(tc["description"].(string), func(t *testing.T) {
+			ctx := context.TODO()
+
+			k8sObjects := tc["k8sObjects"].([]client.Object)
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(k8sObjects...).Build()
+			fakeEC2Client := &fakeec2.MockEC2Client{}
+			fakeEC2Client.MockDescribeLaunchTemplateVersions = func(ctx context.Context, params *awsec2.DescribeLaunchTemplateVersionsInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplateVersionsOutput, error) {
+				return &awsec2.DescribeLaunchTemplateVersionsOutput{
+					LaunchTemplateVersions: []ec2types.LaunchTemplateVersion{
+						{
+							LaunchTemplateId: params.LaunchTemplateId,
+							LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
+								NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
+									{
+										Groups: []string{
+											"sg-xxxx",
+										},
+									},
+								},
+							},
+						},
+					},
+				}, nil
+			}
+			fakeEC2Client.MockCreateLaunchTemplateVersion = func(ctx context.Context, params *awsec2.CreateLaunchTemplateVersionInput, optFns []func(*awsec2.Options)) (*awsec2.CreateLaunchTemplateVersionOutput, error) {
+				return &awsec2.CreateLaunchTemplateVersionOutput{
+					LaunchTemplateVersion: &ec2types.LaunchTemplateVersion{
+						VersionNumber: aws.Int64(1),
+					},
+				}, nil
+			}
+			fakeEC2Client.MockModifyLaunchTemplate = func(ctx context.Context, params *awsec2.ModifyLaunchTemplateInput, optFns []func(*awsec2.Options)) (*awsec2.ModifyLaunchTemplateOutput, error) {
+				return &awsec2.ModifyLaunchTemplateOutput{
+					LaunchTemplate: &ec2types.LaunchTemplate{},
+				}, nil
+			}
+			fakeEC2Client.MockDescribeSecurityGroups = func(ctx context.Context, params *awsec2.DescribeSecurityGroupsInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeSecurityGroupsOutput, error) {
+				return &awsec2.DescribeSecurityGroupsOutput{}, nil
+			}
+			fakeASGClient := &fakeasg.MockAutoScalingClient{}
+			fakeASGClient.MockDescribeAutoScalingGroups = func(ctx context.Context, params *awsautoscaling.DescribeAutoScalingGroupsInput, optFns []func(*awsautoscaling.Options)) (*awsautoscaling.DescribeAutoScalingGroupsOutput, error) {
+				return &awsautoscaling.DescribeAutoScalingGroupsOutput{
+					AutoScalingGroups: []autoscalingtypes.AutoScalingGroup{
+						{
+							AutoScalingGroupName: aws.String("testASG"),
+							LaunchTemplate: &autoscalingtypes.LaunchTemplateSpecification{
+								LaunchTemplateId: aws.String("lt-xxxx"),
+								Version:          aws.String("1"),
+							},
+						},
+					},
+				}, nil
+			}
+			reconciler := &SecurityGroupReconciler{
+				Client: fakeClient,
+				NewAutoScalingClientFactory: func(cfg aws.Config) autoscaling.AutoScalingClient {
+					return fakeASGClient
+				},
+			}
+
+			err = reconciler.attachSGToASG(ctx, fakeEC2Client, fakeASGClient, "asgName", "sg-yyyy")
+			if !tc["isErrorExpected"].(bool) {
+				g.Expect(err).To(BeNil())
+
+			} else {
+				g.Expect(err).ToNot(BeNil())
+			}
+		})
+	}
+}
+
+func TestDettachSGToASG(t *testing.T) {
 	testCases := []map[string]interface{}{
 		{
 			"description": "should attach SecurityGroup to the ASG",
