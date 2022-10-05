@@ -774,7 +774,7 @@ func TestReconcileNormal(t *testing.T) {
 				ReconcileRoutesFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
 					return ctrl.Result{}, nil
 				},
-				ReconcileSecurityGroupsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+				ReconcileSecurityGroupsFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) error {
 					return nil
 				},
 			}
@@ -1897,14 +1897,14 @@ func TestReconcileSecurityGroups(t *testing.T) {
 		expectedSecurityGroups []securitygroupv1alpha1.SecurityGroup
 	}{
 		{
-			description: "should create a securitygroups with only one cluster",
+			description: "should create a securitygroup",
 			clustermesh: &clustermeshv1beta1.ClusterMesh{
 				Spec: clustermeshv1beta1.ClusterMeshSpec{
 					Clusters: []*clustermeshv1beta1.ClusterSpec{
 						{
 							Name:      "A",
 							Namespace: "kubernetes-A",
-							CIDR:      "10.0.4.5/22",
+							CIDR:      "10.0.4.0/22",
 						},
 					},
 				},
@@ -1919,7 +1919,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 			},
 		},
 		{
-			description: "should create securitygroup for clusters A, B, and C",
+			description: "should create securitygroup for clusters A and B",
 			k8sObjects: []client.Object{
 				&crossec2v1beta1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
@@ -1938,12 +1938,12 @@ func TestReconcileSecurityGroups(t *testing.T) {
 						{
 							Name:      "A",
 							Namespace: "kubernetes-A",
-							CIDR:      "10.0.4.5/22",
+							CIDR:      "10.0.4.0/22",
 						},
 						{
 							Name:      "B",
 							Namespace: "kubernetes-B",
-							CIDR:      "10.0.5.5/22",
+							CIDR:      "10.0.8.0/22",
 						},
 					},
 				},
@@ -1983,17 +1983,17 @@ func TestReconcileSecurityGroups(t *testing.T) {
 						{
 							Name:      "A",
 							Namespace: "kubernetes-A",
-							CIDR:      "10.0.4.5/22",
+							CIDR:      "10.0.4.0/22",
 						},
 						{
 							Name:      "B",
 							Namespace: "kubernetes-B",
-							CIDR:      "10.0.5.5/22",
+							CIDR:      "10.0.8.0/22",
 						},
 						{
 							Name:      "C",
 							Namespace: "kubernetes-C",
-							CIDR:      "10.0.6.5/22",
+							CIDR:      "10.0.12.0/22",
 						},
 					},
 				},
@@ -2050,14 +2050,16 @@ func TestReconcileSecurityGroups(t *testing.T) {
 			reconciler := &ClusterMeshReconciler{
 				Client: fakeClient,
 				log:    ctrl.LoggerFrom(ctx),
-				ReconcileSecurityGroupsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+				ReconcileSecurityGroupsFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) error {
 					return nil
 				},
 				Scheme: scheme.Scheme,
 			}
 
-			err = ReconcileSecurityGroups(reconciler, ctx, tc.clustermesh)
-			g.Expect(err).ToNot(HaveOccurred())
+			for _, cluster := range tc.clustermesh.Spec.Clusters {
+				err = ReconcileSecurityGroups(reconciler, ctx, cluster, tc.clustermesh)
+				g.Expect(err).ToNot(HaveOccurred())
+			}
 			for _, esg := range tc.expectedSecurityGroups {
 				sg := &securitygroupv1alpha1.SecurityGroup{}
 				key := client.ObjectKey{
