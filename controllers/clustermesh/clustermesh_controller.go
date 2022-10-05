@@ -65,7 +65,7 @@ type ClusterMeshReconciler struct {
 	NewEC2ClientFactory            func(cfg aws.Config) ec2.EC2Client
 	PopulateClusterSpecFactory     func(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error)
 	ReconcilePeeringsFactory       func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error
-	ReconcileSecurityGroupsFactory func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error
+	ReconcileSecurityGroupsFactory func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) error
 	ReconcileRoutesFactory         func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error)
 }
 
@@ -173,7 +173,7 @@ func (r *ClusterMeshReconciler) reconcileExternalResources(ctx context.Context, 
 		return resultError, err
 	}
 
-	err = r.ReconcileSecurityGroupsFactory(r, ctx, clustermesh)
+	err = r.ReconcileSecurityGroupsFactory(r, ctx, clSpec, clustermesh)
 	if err != nil {
 		return resultError, err
 	}
@@ -405,8 +405,8 @@ func manageCrossplaneRoutes(r *ClusterMeshReconciler, ctx context.Context, clust
 	return nil
 }
 
-func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
-	r.log.Info(fmt.Sprintf("reconciling security groups for clustermesh %s\n", clustermesh.Name))
+func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+	r.log.Info(fmt.Sprintf("reconciling security group for cluster %s in clustermesh %s\n", cluster.Name, clustermesh.Name))
 
 	ownedSecurityGroupsRefs, err := crossplane.GetOwnedSecurityGroupsRef(ctx, clustermesh, r.Client)
 	if err != nil {
@@ -428,37 +428,35 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 		},
 	}
 
-	for _, cl := range clustermesh.Spec.Clusters {
-		sgName := clmesh.GetClusterMeshSecurityGroupName(cl.Name)
-		r.log.Info(fmt.Sprintf("creating security group %s for cluster %s\n", sgName, cl.Name))
-		sg := &sgv1alpha1.SecurityGroup{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      sgName,
-				Namespace: cl.Namespace,
-			},
-		}
+	sgName := clmesh.GetClusterMeshSecurityGroupName(cluster.Name)
+	r.log.Info(fmt.Sprintf("creating security group %s for cluster %s in clustermesh %s\n", sgName, cluster.Name, clustermesh.Name))
+	sg := &sgv1alpha1.SecurityGroup{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      sgName,
+			Namespace: cluster.Namespace,
+		},
+	}
 
-		infraRef := corev1.ObjectReference{
-			Kind:       "KopsControlPlane",
-			APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
-			Name:       cl.Name,
-			Namespace:  cl.Namespace,
-		}
+	infraRef := corev1.ObjectReference{
+		Kind:       "KopsControlPlane",
+		APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+		Name:       cluster.Name,
+		Namespace:  cluster.Namespace,
+	}
 
-		res, err := controllerutil.CreateOrUpdate(ctx, r.Client, sg, func() error {
-			sg.Spec.InfrastructureRef = &infraRef
-			sg.Spec.IngressRules = rules
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-		r.log.Info(fmt.Sprintf("security group %s for cluster %s\n", string(res), cl.Name))
+	res, err := controllerutil.CreateOrUpdate(ctx, r.Client, sg, func() error {
+		sg.Spec.InfrastructureRef = &infraRef
+		sg.Spec.IngressRules = rules
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	r.log.Info(fmt.Sprintf("successfully created security group %s for cluster %s in clustermesh %s\n", string(res), cluster.Name, clustermesh.Name))
 
-		err = controllerutil.SetOwnerReference(clustermesh, sg, r.Scheme)
-		if err != nil {
-			return err
-		}
+	err = controllerutil.SetOwnerReference(clustermesh, sg, r.Scheme)
+	if err != nil {
+		return err
 	}
 	return nil
 }
