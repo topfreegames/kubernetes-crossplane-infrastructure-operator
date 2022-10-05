@@ -1493,6 +1493,28 @@ func TestReconcileRoutes(t *testing.T) {
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
 
+	clustermesh := clustermeshv1beta1.ClusterMesh{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ClusterMesh",
+			APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "clustermesh-test",
+		},
+		Spec: clustermeshv1beta1.ClusterMeshSpec{
+			Clusters: []*clustermeshv1beta1.ClusterSpec{
+				{
+					Name:      "A",
+					Namespace: "A",
+				},
+				{
+					Name:      "B",
+					Namespace: "B",
+				},
+			},
+		},
+	}
+
 	vpcPeeringConnection := wildlifecrossec2v1alphav1.VPCPeeringConnection{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: vpcPeeringConnectionAPIVersion,
@@ -1502,6 +1524,13 @@ func TestReconcileRoutes(t *testing.T) {
 			Name: "a-b",
 			Annotations: map[string]string{
 				"crossplane.io/external-name": "pcx-xxxx",
+			},
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
+					Kind:       "ClusterMesh",
+					Name:       clustermesh.Name,
+				},
 			},
 		},
 		Status: wildlifecrossec2v1alphav1.VPCPeeringConnectionStatus{
@@ -1530,6 +1559,7 @@ func TestReconcileRoutes(t *testing.T) {
 		{
 			description: "should create route if does not exists and vpcPeering is ready. also the current cluster is the accepter on vpc peering",
 			k8sObjects: []client.Object{
+				&clustermesh,
 				&vpcPeeringConnection,
 			},
 			clSpec: &clustermeshv1beta1.ClusterSpec{
@@ -1547,6 +1577,7 @@ func TestReconcileRoutes(t *testing.T) {
 		{
 			description: "should create route if does not exists and vpcPeering is ready. also the current cluster is the requester on vpc peering",
 			k8sObjects: []client.Object{
+				&clustermesh,
 				&vpcPeeringConnection,
 			},
 			clSpec: &clustermeshv1beta1.ClusterSpec{
@@ -1564,6 +1595,7 @@ func TestReconcileRoutes(t *testing.T) {
 		{
 			description: "should not create routes and return without error if vpcPeering is not ready",
 			k8sObjects: []client.Object{
+				&clustermesh,
 				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: vpcPeeringConnectionAPIVersion,
@@ -1571,6 +1603,13 @@ func TestReconcileRoutes(t *testing.T) {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "a-b",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
+								Kind:       "ClusterMesh",
+								Name:       clustermesh.Name,
+							},
+						},
 					},
 					Status: wildlifecrossec2v1alphav1.VPCPeeringConnectionStatus{
 						ResourceStatus: v1.ResourceStatus{
@@ -1594,6 +1633,7 @@ func TestReconcileRoutes(t *testing.T) {
 		{
 			description: "should not create routes if cluster don't belong to any vpcPeering",
 			k8sObjects: []client.Object{
+				&clustermesh,
 				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: vpcPeeringConnectionAPIVersion,
@@ -1603,6 +1643,13 @@ func TestReconcileRoutes(t *testing.T) {
 						Name: "a-b",
 						Annotations: map[string]string{
 							"crossplane.io/external-name": "pcx-xxxx",
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
+								Kind:       "ClusterMesh",
+								Name:       clustermesh.Name,
+							},
 						},
 					},
 					Status: wildlifecrossec2v1alphav1.VPCPeeringConnectionStatus{
@@ -1635,6 +1682,7 @@ func TestReconcileRoutes(t *testing.T) {
 		{
 			description: "should create routes even if not all routes are created",
 			k8sObjects: []client.Object{
+				&clustermesh,
 				&vpcPeeringConnection,
 				&crossec2v1alpha1.Route{
 					TypeMeta: metav1.TypeMeta{
@@ -1672,6 +1720,7 @@ func TestReconcileRoutes(t *testing.T) {
 		{
 			description: "should add already-created routes to the ClusterMesh status",
 			k8sObjects: []client.Object{
+				&clustermesh,
 				&vpcPeeringConnection,
 				&crossec2v1alpha1.Route{
 					TypeMeta: metav1.TypeMeta{
@@ -1722,6 +1771,13 @@ func TestReconcileRoutes(t *testing.T) {
 						Name: "c-a",
 						Annotations: map[string]string{
 							"crossplane.io/external-name": "pcx-zzzz",
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
+								Kind:       "ClusterMesh",
+								Name:       clustermesh.Name,
+							},
 						},
 					},
 					Status: wildlifecrossec2v1alphav1.VPCPeeringConnectionStatus{
@@ -1775,9 +1831,7 @@ func TestReconcileRoutes(t *testing.T) {
 				log:    ctrl.LoggerFrom(ctx),
 			}
 
-			clustermesh := &clustermeshv1beta1.ClusterMesh{}
-
-			_, err = ReconcileRoutes(reconciler, ctx, tc.clSpec, clustermesh)
+			_, err = ReconcileRoutes(reconciler, ctx, tc.clSpec, &clustermesh)
 			g.Expect(err).To(BeNil())
 
 			routes := &crossec2v1alpha1.RouteList{}
