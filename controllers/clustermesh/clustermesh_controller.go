@@ -349,8 +349,7 @@ func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clustermes
 }
 
 func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
-	vpcPeeringConnections := &wildlifecrossec2v1alphav1.VPCPeeringConnectionList{}
-	err := r.Client.List(ctx, vpcPeeringConnections)
+	vpcPeeringConnections, err := crossplane.GetOwnedVPCPeeringConnections(ctx, clustermesh, r.Client)
 	if err != nil {
 		return resultError, err
 	}
@@ -369,22 +368,18 @@ func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clus
 			if err != nil {
 				return resultError, err
 			}
-			ownedRoutesRef, err := crossplane.GetOwnedRoutesRef(ctx, &vpcPeeringConnection, r.Client)
-			if err != nil {
-				return resultError, err
-			}
-			routesRef = append(routesRef, ownedRoutesRef...)
 		} else if cmp.Equal(vpcPeeringConnection.Status.AtProvider.RequesterVPCInfo.CIDRBlock, &clSpec.CIDR) {
 			err := manageCrossplaneRoutes(r, ctx, *vpcPeeringConnection.Status.AtProvider.AccepterVPCInfo.CIDRBlock, vpcPeeringConnection, clSpec)
 			if err != nil {
 				return resultError, err
 			}
+		}
+
 			ownedRoutesRef, err := crossplane.GetOwnedRoutesRef(ctx, &vpcPeeringConnection, r.Client)
 			if err != nil {
 				return resultError, err
 			}
 			routesRef = append(routesRef, ownedRoutesRef...)
-		}
 	}
 
 	clustermesh.Status.RoutesRef = routesRef
