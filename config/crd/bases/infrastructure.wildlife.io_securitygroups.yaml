@@ -86,6 +86,8 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               ingressRules:
+                description: IngressRules is a list of ingress rules to apply to the
+                  Crossplane SecurityGroup.
                 items:
                   properties:
                     allowedCIDRs:
