@@ -788,9 +788,67 @@ func TestAttachSGToASG(t *testing.T) {
 }
 
 func TestDeleteSGFromASG(t *testing.T) {
-	// test delete sg from asg for the following cases
-	// 1. should delete sg from asg with kopsmachinepool
-	// 2. should delete sg from asg with kopscontrolplane
+	sg2 := &securitygroupv1alpha1.SecurityGroup{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-security-group2",
+			Namespace: metav1.NamespaceDefault,
+		},
+		Spec: securitygroupv1alpha1.SecurityGroupSpec{
+			IngressRules: []securitygroupv1alpha1.IngressRule{
+				{
+					IPProtocol: "TCP",
+					FromPort:   -1,
+					ToPort:     -1,
+					AllowedCIDRBlocks: []string{
+						"0.0.0.0/0",
+					},
+				},
+			},
+			InfrastructureRef: &corev1.ObjectReference{
+				APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+				Kind:       "KopsControlPlane",
+				Name:       "test-cluster2",
+				Namespace:  metav1.NamespaceDefault,
+			},
+		},
+	}
+
+	kmp2 := &kinfrastructurev1alpha1.KopsMachinePool{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: metav1.NamespaceDefault,
+			Name:      "test-kops-machine-pool2",
+			Labels: map[string]string{
+				"cluster.x-k8s.io/cluster-name": "test-cluster2",
+			},
+		},
+		Spec: kinfrastructurev1alpha1.KopsMachinePoolSpec{
+			ClusterName: "test-cluster2",
+			KopsInstanceGroupSpec: kopsapi.InstanceGroupSpec{
+				NodeLabels: map[string]string{
+					"kops.k8s.io/instance-group-name": "test-ig",
+					"kops.k8s.io/instance-group-role": "Node",
+				},
+			},
+		},
+	}
+
+	kcp2 := &kcontrolplanev1alpha1.KopsControlPlane{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: metav1.NamespaceDefault,
+			Name:      "test-cluster2",
+		},
+		Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
+			KopsClusterSpec: kopsapi.ClusterSpec{
+				Subnets: []kopsapi.ClusterSubnetSpec{
+					{
+						Name: "test-subnet",
+						CIDR: "0.0.0.0/26",
+						Zone: "us-east-1d",
+					},
+				},
+			},
+		},
+	}
 
 	testCases := []map[string]interface{}{
 		{
@@ -799,6 +857,22 @@ func TestDeleteSGFromASG(t *testing.T) {
 				kmp, cluster, kcp, sg,
 			},
 			"isErrorExpected": false,
+			"mutateFn": func(sg *securitygroupv1alpha1.SecurityGroup, kmp *kinfrastructurev1alpha1.KopsMachinePool, kcp *kcontrolplanev1alpha1.KopsControlPlane) {
+			},
+		},
+		{
+			"description": "should delete kops machine pool SecurityGroup to the ASG",
+			"k8sObjects": []client.Object{
+				kmp, cluster, kcp, sg, kcp2, kmp2, sg2,
+			},
+			"isErrorExpected": false,
+			"mutateFn": func(sgi *securitygroupv1alpha1.SecurityGroup, kmpi *kinfrastructurev1alpha1.KopsMachinePool, kcpi *kcontrolplanev1alpha1.KopsControlPlane) {
+				sg = sgi
+
+				kmp = kmpi
+
+				kcp = kcpi
+			},
 		},
 	}
 	RegisterFailHandler(Fail)
@@ -892,6 +966,7 @@ func TestDeleteSGFromASG(t *testing.T) {
 					return fakeASGClient
 				},
 			}
+			tc["mutateFn"].(func(sgi *securitygroupv1alpha1.SecurityGroup, kmpi *kinfrastructurev1alpha1.KopsMachinePool, kcpi *kcontrolplanev1alpha1.KopsControlPlane))(sg, kmp, kcp)
 
 			err = reconciler.deleteSGFromASG(ctx, sg, csg)
 			if !tc["isErrorExpected"].(bool) {
