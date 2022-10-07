@@ -827,6 +827,15 @@ func TestDeleteSGFromASG(t *testing.T) {
 
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(k8sObjects...).Build()
 			fakeEC2Client := &fakeec2.MockEC2Client{}
+			fakeEC2Client.MockDescribeVpcs = func(ctx context.Context, input *awsec2.DescribeVpcsInput, opts []func(*awsec2.Options)) (*awsec2.DescribeVpcsOutput, error) {
+				return &awsec2.DescribeVpcsOutput{
+					Vpcs: []ec2types.Vpc{
+						{
+							VpcId: aws.String("x.x.x.x"),
+						},
+					},
+				}, nil
+			}
 			fakeEC2Client.MockDescribeLaunchTemplateVersions = func(ctx context.Context, params *awsec2.DescribeLaunchTemplateVersionsInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplateVersionsOutput, error) {
 				return &awsec2.DescribeLaunchTemplateVersionsOutput{
 					LaunchTemplateVersions: []ec2types.LaunchTemplateVersion{
@@ -876,6 +885,9 @@ func TestDeleteSGFromASG(t *testing.T) {
 			}
 			reconciler := &SecurityGroupReconciler{
 				Client: fakeClient,
+				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
+					return fakeEC2Client
+				},
 				NewAutoScalingClientFactory: func(cfg aws.Config) autoscaling.AutoScalingClient {
 					return fakeASGClient
 				},
