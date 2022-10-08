@@ -89,19 +89,15 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	clustermesh := &clustermeshv1beta1.ClusterMesh{}
 
-	patchHelper, err := patch.NewHelper(clustermesh, r.Client)
-	if err != nil {
-		r.log.Error(err, "failed to initialize patch helper")
-		return resultError, err
-	}
-
 	defer func() {
-
 		if clustermesh != nil && len(clustermesh.Spec.Clusters) > 0 {
-			err = patchHelper.Patch(ctx, clustermesh, patch.WithForceOverwriteConditions{})
+			err := r.Status().Update(ctx, clustermesh)
 			if err != nil {
-				r.log.Error(rerr, fmt.Sprintf("failed to patch clustermesh: %s", err))
-				rerr = err
+				r.log.Error(err, "error updating clustermesh %s status", clustermesh)
+			}
+			err = r.Update(ctx, clustermesh)
+			if err != nil {
+				r.log.Error(err, "error updating clustermesh %s", clustermesh)
 			}
 		}
 	}()
