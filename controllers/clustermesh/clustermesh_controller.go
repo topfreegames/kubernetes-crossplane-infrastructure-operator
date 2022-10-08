@@ -106,16 +106,20 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if !shouldReconcileCluster {
 
 		// TODO: Improve how to determine that a cluster was marked for removal from a cluster group
-		clusterBelongsToMesh, err := r.isClusterBelongToAnyMesh(cluster.Name)
+		clusterBelongsToMesh, clustermeshName, err := r.isClusterBelongToAnyMesh(cluster.Name)
 		if err != nil {
 			return resultError, fmt.Errorf("error to determine if the cluster belongs to a mesh: %w", err)
 		}
 		if clusterBelongsToMesh {
 			r.log.Info(fmt.Sprintf("starting reconcile clustermesh deletion for %s", cluster.ObjectMeta.Name))
+			clustermesh.Name = clustermeshName
 			err = r.reconcileDelete(ctx, cluster, clustermesh)
+			if err != nil {
+				return resultError, err
+			}
 			durationMsg := fmt.Sprintf("finished reconcile clustermesh loop for %s finished in %s ", cluster.ObjectMeta.Name, time.Since(start).String())
 			r.log.Info(durationMsg)
-			return resultDefault, err
+			return resultDefault, nil
 		} else {
 			return resultDefault, nil
 		}
@@ -251,7 +255,7 @@ func (r *ClusterMeshReconciler) validateClusterMesh(ctx context.Context, cluster
 func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *clusterv1beta1.Cluster, clustermesh *clustermeshv1beta1.ClusterMesh) error {
 
 	key := client.ObjectKey{
-		Name: cluster.Labels[clmesh.Label],
+		Name: clustermesh.Name,
 	}
 
 	if err := r.Get(ctx, key, clustermesh); err != nil {
@@ -478,20 +482,20 @@ func checkConditionsReadyAndSynced(listConditions []crossplanev1.Condition) bool
 	}
 }
 
-func (r *ClusterMeshReconciler) isClusterBelongToAnyMesh(clusterName string) (bool, error) {
+func (r *ClusterMeshReconciler) isClusterBelongToAnyMesh(clusterName string) (bool, string, error) {
 	clustermeshes := &clustermeshv1beta1.ClusterMeshList{}
 	err := r.Client.List(context.TODO(), clustermeshes)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	for _, clusterMesh := range clustermeshes.Items {
 		for _, clSpec := range clusterMesh.Spec.Clusters {
 			if clSpec.Name == clusterName {
-				return true, nil
+				return true, clusterMesh.Name, nil
 			}
 		}
 	}
-	return false, nil
+	return false, "", nil
 }
 
 func (r *ClusterMeshReconciler) isClusterBelongToMesh(clusterName string, clusterMesh clustermeshv1beta1.ClusterMesh) bool {
