@@ -57,6 +57,8 @@ type IngressRule struct {
 
 // SecurityGroupSpec defines the desired state of SecurityGroup
 type SecurityGroupSpec struct {
+
+	// IngressRules is a list of ingress rules to apply to the Crossplane SecurityGroup.
 	IngressRules []IngressRule `json:"ingressRules,omitempty"`
 	// InfrastructureRef is a reference to a provider-specific resource.
 	InfrastructureRef *corev1.ObjectReference `json:"infrastructureRef,omitempty"`

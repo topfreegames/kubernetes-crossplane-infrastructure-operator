@@ -405,6 +405,189 @@ func TestAttachSecurityGroupToLaunchTemplate(t *testing.T) {
 	}
 }
 
+func TestDettachSecurityGroupToLaunchTemplate(t *testing.T) {
+
+	testCases := []struct {
+		description                     string
+		launchTemplateVersion           *ec2types.LaunchTemplateVersion
+		mockCreateLaunchTemplateVersion func(ctx context.Context, params *ec2.CreateLaunchTemplateVersionInput, optFns []func(*ec2.Options)) (*ec2.CreateLaunchTemplateVersionOutput, error)
+		mockDescribeSecurityGroups      func(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns []func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error)
+		expectedError                   bool
+		expectedResult                  *ec2.CreateLaunchTemplateVersionOutput
+		expectedErrorMessage            string
+	}{
+		{
+			description: "should dettach the securityGroup to LT",
+			launchTemplateVersion: &ec2types.LaunchTemplateVersion{
+				LaunchTemplateId: aws.String("lt-xxxx"),
+				VersionNumber:    aws.Int64(1),
+				LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
+					NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
+						{
+							Groups: []string{
+								"sg-1",
+							},
+						},
+					},
+				},
+			},
+			expectedError: false,
+			expectedResult: &ec2.CreateLaunchTemplateVersionOutput{
+				LaunchTemplateVersion: &ec2types.LaunchTemplateVersion{
+					LaunchTemplateId: aws.String("lt-xxxx"),
+					VersionNumber:    aws.Int64(2),
+					LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
+						NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
+							{
+								Groups: []string{},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			description: "should not return error if SG already dettached from launch template",
+			launchTemplateVersion: &ec2types.LaunchTemplateVersion{
+				LaunchTemplateId: aws.String("lt-xxxx"),
+				VersionNumber:    aws.Int64(1),
+				LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
+					NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
+						{
+							Groups: []string{
+								"sg-2",
+								"sg-3",
+							},
+						},
+					},
+				},
+			},
+			expectedError: false,
+			expectedResult: &ec2.CreateLaunchTemplateVersionOutput{
+				LaunchTemplateVersion: &ec2types.LaunchTemplateVersion{
+					LaunchTemplateId: aws.String("lt-xxxx"),
+					VersionNumber:    aws.Int64(2),
+					LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
+						NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
+							{
+								Groups: []string{
+									"sg-2",
+									"sg-3",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			description: "should fail without NetworkInterfaces",
+			launchTemplateVersion: &ec2types.LaunchTemplateVersion{
+				LaunchTemplateId: aws.String("lt-xxxx"),
+				LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
+					NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{},
+				},
+			},
+			expectedResult:       nil,
+			expectedError:        true,
+			expectedErrorMessage: "failed to retrieve SGs from LaunchTemplate",
+		},
+		{
+			description: "should fail with empty groups in NetworkInterface",
+			launchTemplateVersion: &ec2types.LaunchTemplateVersion{
+				LaunchTemplateId: aws.String("lt-xxxx"),
+				LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
+					NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
+						{
+							Groups: []string{},
+						},
+					},
+				},
+			},
+			expectedResult:       nil,
+			expectedError:        true,
+			expectedErrorMessage: "failed to retrieve SGs from LaunchTemplate",
+		},
+		{
+			description: "should return error when failing to create LT version",
+			launchTemplateVersion: &ec2types.LaunchTemplateVersion{
+				LaunchTemplateId: aws.String("lt-xxxx"),
+				LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
+					NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
+						{
+							Groups: []string{
+								"sg-old",
+							},
+						},
+					},
+				},
+			},
+			mockCreateLaunchTemplateVersion: func(ctx context.Context, params *ec2.CreateLaunchTemplateVersionInput, optFns []func(*ec2.Options)) (*ec2.CreateLaunchTemplateVersionOutput, error) {
+				return nil, errors.New("some error")
+			},
+			expectedResult:       nil,
+			expectedError:        true,
+			expectedErrorMessage: "failed to create version in Launch Template",
+		},
+	}
+
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			ctx := context.TODO()
+			fakeEC2Client := &fake.MockEC2Client{}
+			if tc.mockCreateLaunchTemplateVersion == nil {
+				fakeEC2Client.MockCreateLaunchTemplateVersion = func(ctx context.Context, params *ec2.CreateLaunchTemplateVersionInput, optFns []func(*ec2.Options)) (*ec2.CreateLaunchTemplateVersionOutput, error) {
+					var version int64
+					if *params.SourceVersion == "$Latest" {
+						version = 1
+					} else {
+						version, _ = strconv.ParseInt(*params.SourceVersion, 10, 64)
+					}
+
+					return &ec2.CreateLaunchTemplateVersionOutput{
+						LaunchTemplateVersion: &ec2types.
+							LaunchTemplateVersion{
+							LaunchTemplateId: params.LaunchTemplateId,
+							VersionNumber:    aws.Int64(version + 1),
+							LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
+								NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
+									{
+										Groups:           params.LaunchTemplateData.NetworkInterfaces[0].Groups,
+										NetworkCardIndex: params.LaunchTemplateData.NetworkInterfaces[0].NetworkCardIndex,
+									},
+								},
+							},
+						},
+					}, nil
+				}
+			} else {
+				fakeEC2Client.MockCreateLaunchTemplateVersion = tc.mockCreateLaunchTemplateVersion
+
+			}
+
+			if tc.mockDescribeSecurityGroups == nil {
+				fakeEC2Client.MockDescribeSecurityGroups = func(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns []func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error) {
+					return &ec2.DescribeSecurityGroupsOutput{}, nil
+				}
+			} else {
+				fakeEC2Client.MockDescribeSecurityGroups = tc.mockDescribeSecurityGroups
+			}
+
+			output, err := DetachSecurityGroupFromLaunchTemplate(ctx, fakeEC2Client, "sg-1", tc.launchTemplateVersion)
+			if !tc.expectedError {
+				g.Expect(err).To(BeNil())
+			} else {
+				g.Expect(err).ToNot(BeNil())
+				g.Expect(err.Error()).To(ContainSubstring(tc.expectedErrorMessage))
+			}
+			g.Expect(output).To(BeEquivalentTo(tc.expectedResult))
+		})
+	}
+}
+
 func TestRouteTableIDsFromVPCId(t *testing.T) {
 	testCases := []map[string]interface{}{
 		{

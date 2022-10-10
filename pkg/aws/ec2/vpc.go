@@ -176,3 +176,48 @@ func AttachSecurityGroupToLaunchTemplate(ctx context.Context, ec2Client EC2Clien
 
 	return output, nil
 }
+
+func DetachSecurityGroupFromLaunchTemplate(ctx context.Context, ec2Client EC2Client, securityGroupId string, launchTemplateVersion *ec2types.LaunchTemplateVersion) (*ec2.CreateLaunchTemplateVersionOutput, error) {
+
+	if len(launchTemplateVersion.LaunchTemplateData.NetworkInterfaces) == 0 || len(launchTemplateVersion.LaunchTemplateData.NetworkInterfaces[0].Groups) == 0 {
+		return nil, fmt.Errorf("failed to retrieve SGs from LaunchTemplate %s", *launchTemplateVersion.LaunchTemplateId)
+	}
+
+	networkInterface := launchTemplateVersion.LaunchTemplateData.NetworkInterfaces[0]
+	remainingSecurityGroups := []string{}
+	for _, group := range networkInterface.Groups {
+		if group != securityGroupId {
+			remainingSecurityGroups = append(remainingSecurityGroups, group)
+		}
+	}
+
+	networkInterface.Groups = remainingSecurityGroups
+
+	b, err := json.Marshal(networkInterface)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to marshal networkInterface")
+	}
+
+	networkInterfaceRequest := ec2types.LaunchTemplateInstanceNetworkInterfaceSpecificationRequest{}
+	err = json.Unmarshal(b, &networkInterfaceRequest)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal networkInterfaceRequest")
+	}
+
+	input := &ec2.CreateLaunchTemplateVersionInput{
+		LaunchTemplateData: &ec2types.RequestLaunchTemplateData{
+			NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecificationRequest{
+				networkInterfaceRequest,
+			},
+		},
+		LaunchTemplateId: aws.String(*launchTemplateVersion.LaunchTemplateId),
+		SourceVersion:    aws.String("$Latest"),
+	}
+
+	output, err := ec2Client.CreateLaunchTemplateVersion(ctx, input)
+	if err != nil {
+		return nil, errors.Wrap(err, fmt.Sprintf("failed to create version in Launch Template %s", *launchTemplateVersion.LaunchTemplateId))
+	}
+
+	return output, nil
+}
