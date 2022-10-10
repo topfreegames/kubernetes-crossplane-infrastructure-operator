@@ -274,13 +274,16 @@ func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *cl
 	}
 	r.log.Info(fmt.Sprintf("deleted security group for cluster %s\n", cluster.ObjectMeta.Name))
 
-	for _, vpcPeeringConnectionRef := range clustermesh.Status.CrossplanePeeringRef {
+	clustermeshCopy := clustermesh.DeepCopy()
+
+	for _, vpcPeeringConnectionRef := range clustermeshCopy.Status.CrossplanePeeringRef {
 		for _, clSpec := range clustermesh.Spec.Clusters {
 			if vpcPeeringConnectionRef.Name == fmt.Sprintf("%s-%s", cluster.Name, clSpec.Name) || vpcPeeringConnectionRef.Name == fmt.Sprintf("%s-%s", clSpec.Name, cluster.Name) {
 				err := crossplane.DeleteCrossplaneVPCPeeringConnection(ctx, r.Client, clustermesh, vpcPeeringConnectionRef)
 				if err != nil {
 					return err
 				}
+				break
 			}
 		}
 	}
@@ -297,6 +300,9 @@ func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *cl
 			return err
 		}
 	} else {
+		if err := r.Client.Status().Update(ctx, clustermesh); err != nil {
+			return err
+		}
 		if err := r.Client.Update(ctx, clustermesh); err != nil {
 			return err
 		}
