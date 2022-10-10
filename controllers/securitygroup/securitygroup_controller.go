@@ -90,10 +90,6 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	r.log.Info(fmt.Sprintf("starting reconcile loop for %s", sg.ObjectMeta.GetName()))
 
-	if !sg.ObjectMeta.DeletionTimestamp.IsZero() {
-		return r.reconcileDelete(ctx, sg)
-	}
-
 	// Initialize the patch helper.
 	patchHelper, err := patch.NewHelper(sg, r.Client)
 	if err != nil {
@@ -112,6 +108,10 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 		r.log.Info(fmt.Sprintf("finished reconcile loop for %s", sg.ObjectMeta.GetName()))
 	}()
+
+	if !sg.ObjectMeta.DeletionTimestamp.IsZero() {
+		return r.reconcileDelete(ctx, sg)
+	}
 
 	if !controllerutil.ContainsFinalizer(sg, securityGroupFinalizer) {
 		controllerutil.AddFinalizer(sg, securityGroupFinalizer)
