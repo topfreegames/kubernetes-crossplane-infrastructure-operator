@@ -36,6 +36,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+var (
+	vpcPeeringConnectionAPIVersion = "ec2.aws.wildlife.io/v1alpha1"
+)
+
 func TestClusterMeshReconciler(t *testing.T) {
 	testCases := []struct {
 		description                    string
@@ -495,6 +499,7 @@ func TestIsClusterBelongToAnyMesh(t *testing.T) {
 		description     string
 		k8sObjects      []client.Object
 		errorValidation func(error) bool
+		clustermeshName string
 		expectedOutput  bool
 	}{
 		{
@@ -517,7 +522,8 @@ func TestIsClusterBelongToAnyMesh(t *testing.T) {
 					},
 				},
 			},
-			expectedOutput: true,
+			clustermeshName: "test-clustermesh",
+			expectedOutput:  true,
 		},
 		{
 			description: "should return false when the cluster isn't part of any clustermesh",
@@ -569,11 +575,12 @@ func TestIsClusterBelongToAnyMesh(t *testing.T) {
 				Client: fakeClient,
 			}
 
-			belong, err := reconciler.isClusterBelongToAnyMesh("A")
+			belong, meshName, err := reconciler.isClusterBelongToAnyMesh("A")
 			if tc.errorValidation != nil {
 				g.Expect(tc.errorValidation(err)).To(BeTrue())
 			} else {
 				g.Expect(belong).To(BeEquivalentTo(tc.expectedOutput))
+				g.Expect(meshName).To(BeEquivalentTo(tc.clustermeshName))
 			}
 		})
 	}
@@ -768,7 +775,7 @@ func TestReconcileNormal(t *testing.T) {
 						Name: cluster.Name,
 					}, nil
 				},
-				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) error {
 					return nil
 				},
 				ReconcileRoutesFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
@@ -796,11 +803,13 @@ func TestReconcileDelete(t *testing.T) {
 	g := NewWithT(t)
 
 	testCases := []struct {
-		description    string
-		k8sObjects     []client.Object
-		cluster        *clusterv1beta1.Cluster
-		clustermesh    *clustermeshv1beta1.ClusterMesh
-		expectedOutput *clustermeshv1beta1.ClusterMesh
+		description                          string
+		k8sObjects                           []client.Object
+		cluster                              *clusterv1beta1.Cluster
+		clustermesh                          *clustermeshv1beta1.ClusterMesh
+		expectedVpcPeeringConnections        []string
+		shouldBeDeletedVpcPeeringConnections []string
+		expectedOutput                       *clustermeshv1beta1.ClusterMesh
 	}{
 		{
 			description: "should remove the cluster A from clustermesh spec",
@@ -1107,222 +1116,46 @@ func TestReconcileDelete(t *testing.T) {
 				},
 			},
 		},
-	}
-
-	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	for _, tc := range testCases {
-		t.Run(tc.description, func(t *testing.T) {
-
-			ctx := context.TODO()
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
-
-			reconciler := &ClusterMeshReconciler{
-				Client: fakeClient,
-				log:    ctrl.LoggerFrom(ctx),
-				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
-					return nil
-				},
-			}
-
-			err = reconciler.reconcileDelete(ctx, tc.cluster, tc.clustermesh)
-			g.Expect(err).ToNot(HaveOccurred())
-
-			clustermesh := &clustermeshv1beta1.ClusterMesh{}
-			err = fakeClient.Get(ctx, client.ObjectKey{Name: "test-clustermesh"}, clustermesh)
-			if tc.expectedOutput != nil {
-				g.Expect(clustermesh.GetName()).To(BeEquivalentTo(tc.expectedOutput.GetName()))
-				g.Expect(clustermesh.Spec).To(BeEquivalentTo(tc.expectedOutput.Spec))
-			} else {
-				g.Expect(err).To(HaveOccurred())
-				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
-			}
-
-		})
-	}
-}
-
-func TestReconcilePeerings(t *testing.T) {
-	RegisterFailHandler(Fail)
-	g := NewWithT(t)
-
-	testCases := []struct {
-		description                          string
-		k8sObjects                           []client.Object
-		clustermesh                          *clustermeshv1beta1.ClusterMesh
-		expectedVpcPeeringConnections        []string
-		shouldBeDeletedVpcPeeringConnections []string
-	}{
 		{
-			description: "should not create a vpcpeering with only one cluster",
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
-						{
-							Name: "A",
-						},
-					},
-				},
-			},
-		},
-		{
-			description: "should create vpcpeeringconnection A-B, A-C, and B-C",
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
-						{
-							Name: "A",
-						},
-						{
-							Name: "B",
-						},
-						{
-							Name: "C",
-						},
-					},
-				},
-			},
-			expectedVpcPeeringConnections: []string{"A-B", "A-C", "B-C"},
-		},
-		{
-			description: "should not create a vpcpeering when it already exists",
+			description: "should remove vpcpeerings related to A cluster when it's deleted",
 			k8sObjects: []client.Object{
-				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
-					TypeMeta: metav1.TypeMeta{
-						APIVersion: vpcPeeringConnectionAPIVersion,
-						Kind:       "VPCPeeringConnection",
-					},
+				&clustermeshv1beta1.ClusterMesh{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: "A-B",
-						OwnerReferences: []metav1.OwnerReference{
+						Name: "test-clustermesh",
+					},
+					Spec: clustermeshv1beta1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1beta1.ClusterSpec{
 							{
-								Name: "test-clustermesh",
+								Name: "B",
+							},
+							{
+								Name: "A",
+							},
+							{
+								Name: "C",
+							},
+						},
+					},
+					Status: clustermeshv1beta1.ClusterMeshStatus{
+						CrossplanePeeringRef: []*corev1.ObjectReference{
+							{
+								Name:       "A-B",
+								APIVersion: vpcPeeringConnectionAPIVersion,
+								Kind:       "VPCPeeringConnection",
+							},
+							{
+								Name:       "A-C",
+								APIVersion: vpcPeeringConnectionAPIVersion,
+								Kind:       "VPCPeeringConnection",
+							},
+							{
+								Name:       "B-C",
+								APIVersion: vpcPeeringConnectionAPIVersion,
+								Kind:       "VPCPeeringConnection",
 							},
 						},
 					},
 				},
-			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
-						{
-							Name: "A",
-						},
-						{
-							Name: "B",
-						},
-						{
-							Name: "C",
-						},
-					},
-				},
-				Status: clustermeshv1beta1.ClusterMeshStatus{
-					CrossplanePeeringRef: []*corev1.ObjectReference{
-						{
-							Name:       "A-B",
-							APIVersion: "ec2.aws.wildife.io/v1alpha1",
-							Kind:       "VPCPeeringConnection",
-						},
-					},
-				},
-			},
-			expectedVpcPeeringConnections: []string{"A-B", "A-C", "B-C"},
-		},
-		{
-			description: "should not create a vpcpeering when it already exists inverted",
-			k8sObjects: []client.Object{
-				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
-					TypeMeta: metav1.TypeMeta{
-						APIVersion: vpcPeeringConnectionAPIVersion,
-						Kind:       "VPCPeeringConnection",
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "B-A",
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								Name: "test-clustermesh",
-							},
-						},
-					},
-				},
-			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
-						{
-							Name: "A",
-						},
-						{
-							Name: "B",
-						},
-						{
-							Name: "C",
-						},
-					},
-				},
-				Status: clustermeshv1beta1.ClusterMeshStatus{
-					CrossplanePeeringRef: []*corev1.ObjectReference{
-						{
-							Name:       "B-A",
-							APIVersion: vpcPeeringConnectionAPIVersion,
-							Kind:       "VPCPeeringConnection",
-						},
-					},
-				},
-			},
-			expectedVpcPeeringConnections: []string{"B-A", "A-C", "B-C"},
-		},
-		{
-			description: "should create correctly with different spec orders",
-			k8sObjects: []client.Object{
-				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
-					TypeMeta: metav1.TypeMeta{
-						APIVersion: vpcPeeringConnectionAPIVersion,
-						Kind:       "VPCPeeringConnection",
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "A-B",
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								Name: "test-clustermesh",
-							},
-						},
-					},
-				},
-			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
-						{
-							Name: "C",
-						},
-						{
-							Name: "B",
-						},
-						{
-							Name: "A",
-						},
-					},
-				},
-				Status: clustermeshv1beta1.ClusterMeshStatus{
-					CrossplanePeeringRef: []*corev1.ObjectReference{
-						{
-							Name:       "A-B",
-							APIVersion: vpcPeeringConnectionAPIVersion,
-							Kind:       "VPCPeeringConnection",
-						},
-					},
-				},
-			},
-			expectedVpcPeeringConnections: []string{"A-B", "C-A", "C-B"},
-		},
-		{
-			description: "should remove vpcpeerings related with cluster C",
-			k8sObjects: []client.Object{
 				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: vpcPeeringConnectionAPIVersion,
@@ -1366,6 +1199,14 @@ func TestReconcilePeerings(t *testing.T) {
 					},
 				},
 			},
+			cluster: &clusterv1beta1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "A",
+					Labels: map[string]string{
+						"clusterGroup": "test-clustermesh",
+					},
+				},
+			},
 			clustermesh: &clustermeshv1beta1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
@@ -1377,6 +1218,9 @@ func TestReconcilePeerings(t *testing.T) {
 						},
 						{
 							Name: "A",
+						},
+						{
+							Name: "C",
 						},
 					},
 				},
@@ -1400,11 +1244,219 @@ func TestReconcilePeerings(t *testing.T) {
 					},
 				},
 			},
-			expectedVpcPeeringConnections:        []string{"A-B"},
-			shouldBeDeletedVpcPeeringConnections: []string{"A-C", "B-C"},
+			expectedOutput: &clustermeshv1beta1.ClusterMesh{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-clustermesh",
+				},
+				Spec: clustermeshv1beta1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1beta1.ClusterSpec{
+						{
+							Name: "B",
+						},
+						{
+							Name: "C",
+						},
+					},
+				},
+			},
+			expectedVpcPeeringConnections:        []string{"B-C"},
+			shouldBeDeletedVpcPeeringConnections: []string{"A-C", "A-B"},
 		},
 		{
 			description: "should remove last vpcpeering of the clustermesh",
+			k8sObjects: []client.Object{
+				&clustermeshv1beta1.ClusterMesh{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-clustermesh",
+					},
+					Spec: clustermeshv1beta1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1beta1.ClusterSpec{
+							{
+								Name: "A",
+							},
+							{
+								Name: "B",
+							},
+						},
+					},
+					Status: clustermeshv1beta1.ClusterMeshStatus{
+						CrossplanePeeringRef: []*corev1.ObjectReference{
+							{
+								Name:       "A-B",
+								APIVersion: vpcPeeringConnectionAPIVersion,
+								Kind:       "VPCPeeringConnection",
+							},
+						},
+					},
+				},
+				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: vpcPeeringConnectionAPIVersion,
+						Kind:       "VPCPeeringConnection",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "A-B",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name: "test-clustermesh",
+							},
+						},
+					},
+				},
+			},
+			cluster: &clusterv1beta1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "A",
+					Labels: map[string]string{
+						"clusterGroup": "test-clustermesh",
+					},
+				},
+			},
+			clustermesh: &clustermeshv1beta1.ClusterMesh{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-clustermesh",
+				},
+				Spec: clustermeshv1beta1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1beta1.ClusterSpec{
+						{
+							Name: "A",
+						},
+						{
+							Name: "B",
+						},
+					},
+				},
+				Status: clustermeshv1beta1.ClusterMeshStatus{
+					CrossplanePeeringRef: []*corev1.ObjectReference{
+						{
+							Name:       "A-B",
+							APIVersion: vpcPeeringConnectionAPIVersion,
+							Kind:       "VPCPeeringConnection",
+						},
+					},
+				},
+			},
+			expectedOutput: &clustermeshv1beta1.ClusterMesh{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-clustermesh",
+				},
+				Spec: clustermeshv1beta1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1beta1.ClusterSpec{
+						{
+							Name: "B",
+						},
+					},
+				},
+			},
+			shouldBeDeletedVpcPeeringConnections: []string{"A-B"},
+		},
+	}
+
+	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = wildlifecrossec2v1alphav1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+
+			ctx := context.TODO()
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
+
+			reconciler := &ClusterMeshReconciler{
+				Client: fakeClient,
+				log:    ctrl.LoggerFrom(ctx),
+			}
+
+			err = reconciler.reconcileDelete(ctx, tc.cluster, tc.clustermesh)
+			g.Expect(err).ToNot(HaveOccurred())
+
+			clustermesh := &clustermeshv1beta1.ClusterMesh{}
+			err = fakeClient.Get(ctx, client.ObjectKey{Name: "test-clustermesh"}, clustermesh)
+			if tc.expectedOutput != nil {
+				g.Expect(clustermesh.GetName()).To(BeEquivalentTo(tc.expectedOutput.GetName()))
+				g.Expect(clustermesh.Spec).To(BeEquivalentTo(tc.expectedOutput.Spec))
+			} else {
+				g.Expect(err).To(HaveOccurred())
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}
+
+			for _, vpcPeeringConnectionName := range tc.expectedVpcPeeringConnections {
+				vpcPeeringConnection := &wildlifecrossec2v1alphav1.VPCPeeringConnection{}
+				key := client.ObjectKey{
+					Name: vpcPeeringConnectionName,
+				}
+				err = fakeClient.Get(ctx, key, vpcPeeringConnection)
+				g.Expect(err).To(BeNil())
+			}
+
+			for _, vpcPeeringConnectionName := range tc.shouldBeDeletedVpcPeeringConnections {
+				vpcPeeringConnection := &wildlifecrossec2v1alphav1.VPCPeeringConnection{}
+				key := client.ObjectKey{
+					Name: vpcPeeringConnectionName,
+				}
+				err = fakeClient.Get(ctx, key, vpcPeeringConnection)
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}
+
+		})
+	}
+}
+
+func TestReconcilePeerings(t *testing.T) {
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	testCases := []struct {
+		description                   string
+		k8sObjects                    []client.Object
+		clSpec                        *clustermeshv1beta1.ClusterSpec
+		clustermesh                   *clustermeshv1beta1.ClusterMesh
+		expectedVpcPeeringConnections []string
+	}{
+		{
+			description: "should not create a vpcpeering with only one cluster",
+			clSpec: &clustermeshv1beta1.ClusterSpec{
+				Name: "A",
+			},
+			clustermesh: &clustermeshv1beta1.ClusterMesh{
+				Spec: clustermeshv1beta1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1beta1.ClusterSpec{
+						{
+							Name: "A",
+						},
+					},
+				},
+			},
+		},
+		{
+			description: "should create vpcpeeringconnection A-B, A-C, not B-C",
+			clSpec: &clustermeshv1beta1.ClusterSpec{
+				Name: "A",
+			},
+			clustermesh: &clustermeshv1beta1.ClusterMesh{
+				Spec: clustermeshv1beta1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1beta1.ClusterSpec{
+						{
+							Name: "A",
+						},
+						{
+							Name: "B",
+						},
+						{
+							Name: "C",
+						},
+					},
+				},
+			},
+			expectedVpcPeeringConnections: []string{"A-B", "A-C"},
+		},
+		{
+			description: "should not create a vpcpeering when it already exists",
 			k8sObjects: []client.Object{
 				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
@@ -1421,12 +1473,112 @@ func TestReconcilePeerings(t *testing.T) {
 					},
 				},
 			},
+			clSpec: &clustermeshv1beta1.ClusterSpec{
+				Name: "A",
+			},
 			clustermesh: &clustermeshv1beta1.ClusterMesh{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-clustermesh",
-				},
 				Spec: clustermeshv1beta1.ClusterMeshSpec{
 					Clusters: []*clustermeshv1beta1.ClusterSpec{
+						{
+							Name: "A",
+						},
+						{
+							Name: "B",
+						},
+						{
+							Name: "C",
+						},
+					},
+				},
+				Status: clustermeshv1beta1.ClusterMeshStatus{
+					CrossplanePeeringRef: []*corev1.ObjectReference{
+						{
+							Name:       "A-B",
+							APIVersion: "ec2.aws.wildife.io/v1alpha1",
+							Kind:       "VPCPeeringConnection",
+						},
+					},
+				},
+			},
+			expectedVpcPeeringConnections: []string{"A-B", "A-C"},
+		},
+		{
+			description: "should not create a vpcpeering when it already exists inverted",
+			k8sObjects: []client.Object{
+				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: vpcPeeringConnectionAPIVersion,
+						Kind:       "VPCPeeringConnection",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "B-A",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name: "test-clustermesh",
+							},
+						},
+					},
+				},
+			},
+			clSpec: &clustermeshv1beta1.ClusterSpec{
+				Name: "A",
+			},
+			clustermesh: &clustermeshv1beta1.ClusterMesh{
+				Spec: clustermeshv1beta1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1beta1.ClusterSpec{
+						{
+							Name: "A",
+						},
+						{
+							Name: "B",
+						},
+						{
+							Name: "C",
+						},
+					},
+				},
+				Status: clustermeshv1beta1.ClusterMeshStatus{
+					CrossplanePeeringRef: []*corev1.ObjectReference{
+						{
+							Name:       "B-A",
+							APIVersion: vpcPeeringConnectionAPIVersion,
+							Kind:       "VPCPeeringConnection",
+						},
+					},
+				},
+			},
+			expectedVpcPeeringConnections: []string{"B-A", "A-C"},
+		},
+		{
+			description: "should create correctly with different spec orders",
+			k8sObjects: []client.Object{
+				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: vpcPeeringConnectionAPIVersion,
+						Kind:       "VPCPeeringConnection",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "A-B",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name: "test-clustermesh",
+							},
+						},
+					},
+				},
+			},
+			clSpec: &clustermeshv1beta1.ClusterSpec{
+				Name: "A",
+			},
+			clustermesh: &clustermeshv1beta1.ClusterMesh{
+				Spec: clustermeshv1beta1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1beta1.ClusterSpec{
+						{
+							Name: "C",
+						},
+						{
+							Name: "B",
+						},
 						{
 							Name: "A",
 						},
@@ -1442,7 +1594,7 @@ func TestReconcilePeerings(t *testing.T) {
 					},
 				},
 			},
-			shouldBeDeletedVpcPeeringConnections: []string{"A-B"},
+			expectedVpcPeeringConnections: []string{"A-B", "A-C"},
 		},
 	}
 
@@ -1461,12 +1613,12 @@ func TestReconcilePeerings(t *testing.T) {
 			reconciler := &ClusterMeshReconciler{
 				Client: fakeClient,
 				log:    ctrl.LoggerFrom(ctx),
-				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) error {
 					return nil
 				},
 			}
 
-			_ = ReconcilePeerings(reconciler, ctx, tc.clustermesh)
+			_ = ReconcilePeerings(reconciler, ctx, tc.clSpec, tc.clustermesh)
 			for _, vpcPeeringConnectionName := range tc.expectedVpcPeeringConnections {
 				vpcPeeringConnection := &wildlifecrossec2v1alphav1.VPCPeeringConnection{}
 				key := client.ObjectKey{
@@ -1474,15 +1626,6 @@ func TestReconcilePeerings(t *testing.T) {
 				}
 				err = fakeClient.Get(ctx, key, vpcPeeringConnection)
 				g.Expect(err).To(BeNil())
-			}
-
-			for _, vpcPeeringConnectionName := range tc.shouldBeDeletedVpcPeeringConnections {
-				vpcPeeringConnection := &wildlifecrossec2v1alphav1.VPCPeeringConnection{}
-				key := client.ObjectKey{
-					Name: vpcPeeringConnectionName,
-				}
-				err = fakeClient.Get(ctx, key, vpcPeeringConnection)
-				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 			}
 
 		})
