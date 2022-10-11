@@ -1318,8 +1318,7 @@ func TestManageCrossplaneSecurityGroupResource(t *testing.T) {
 			ingressRules := tc["ingressRules"].([]securitygroupv1alpha1.IngressRule)
 			sg := &securitygroupv1alpha1.SecurityGroup{
 				ObjectMeta: metav1.ObjectMeta{
-					Namespace: metav1.NamespaceDefault,
-					Name:      "test-sg",
+					Name: "test-sg",
 				},
 				Spec: securitygroupv1alpha1.SecurityGroupSpec{
 					IngressRules: ingressRules,
