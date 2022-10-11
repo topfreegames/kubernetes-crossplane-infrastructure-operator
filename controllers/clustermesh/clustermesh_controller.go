@@ -360,6 +360,7 @@ func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clus
 				return resultError, err
 			}
 		}
+    
 		ownedRoutesRef, err := crossplane.GetOwnedRoutesRef(ctx, &vpcPeeringConnection, r.Client)
 		if err != nil {
 			return resultError, err
