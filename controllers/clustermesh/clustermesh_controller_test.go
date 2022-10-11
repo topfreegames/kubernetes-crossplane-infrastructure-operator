@@ -122,8 +122,7 @@ func TestClusterMeshReconciler(t *testing.T) {
 			k8sObjects: []client.Object{
 				&securitygroupv1alpha1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      clmesh.GetClusterMeshSecurityGroupName("test-cluster"),
-						Namespace: metav1.NamespaceDefault,
+						Name: clmesh.GetClusterMeshSecurityGroupName("test-cluster"),
 					},
 					Spec: securitygroupv1alpha1.SecurityGroupSpec{
 						IngressRules: []securitygroupv1alpha1.IngressRule{
@@ -2055,8 +2054,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 			expectedSecurityGroups: []securitygroupv1alpha1.SecurityGroup{
 				{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "clustermesh-A-sg",
-						Namespace: "kubernetes-A",
+						Name: "clustermesh-A-sg",
 					},
 				},
 			},
@@ -2094,8 +2092,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 			expectedSecurityGroups: []securitygroupv1alpha1.SecurityGroup{
 				{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "clustermesh-A-sg",
-						Namespace: "kubernetes-A",
+						Name: "clustermesh-A-sg",
 					},
 				},
 				{
@@ -2153,20 +2150,17 @@ func TestReconcileSecurityGroups(t *testing.T) {
 			expectedSecurityGroups: []securitygroupv1alpha1.SecurityGroup{
 				{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "clustermesh-A-sg",
-						Namespace: "kubernetes-A",
+						Name: "clustermesh-A-sg",
 					},
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "clustermesh-B-sg",
-						Namespace: "kubernetes-B",
+						Name: "clustermesh-B-sg",
 					},
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "clustermesh-C-sg",
-						Namespace: "kubernetes-C",
+						Name: "clustermesh-C-sg",
 					},
 				},
 			},
@@ -2206,8 +2200,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 			for _, esg := range tc.expectedSecurityGroups {
 				sg := &securitygroupv1alpha1.SecurityGroup{}
 				key := client.ObjectKey{
-					Name:      esg.Name,
-					Namespace: esg.Namespace,
+					Name: esg.Name,
 				}
 				err = fakeClient.Get(ctx, key, sg)
 				g.Expect(err).To(BeNil())
