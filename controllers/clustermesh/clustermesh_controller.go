@@ -442,7 +442,7 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 		Namespace:  cluster.Namespace,
 	}
 
-	res, err := controllerutil.CreateOrUpdate(ctx, r.Client, sg, func() error {
+	operationResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, sg, func() error {
 		sg.Spec.InfrastructureRef = &infraRef
 		sg.Spec.IngressRules = rules
 		return nil
@@ -450,7 +450,7 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 	if err != nil {
 		return err
 	}
-	r.log.Info(fmt.Sprintf("successfully created security group %s for cluster %s in clustermesh %s\n", string(res), cluster.Name, clustermesh.Name))
+	r.log.Info(fmt.Sprintf("successfully %s security group %s for cluster %s in clustermesh %s\n", string(operationResult), sg.Name, cluster.Name, clustermesh.Name))
 
 	err = controllerutil.SetOwnerReference(clustermesh, sg, r.Scheme)
 	if err != nil {
