@@ -42,8 +42,7 @@ import (
 var (
 	sg = &securitygroupv1alpha1.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-security-group",
-			Namespace: metav1.NamespaceDefault,
+			Name: "test-security-group",
 		},
 		Spec: securitygroupv1alpha1.SecurityGroupSpec{
 			IngressRules: []securitygroupv1alpha1.IngressRule{
@@ -150,8 +149,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 				kmp, cluster, kcp,
 				&securitygroupv1alpha1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-security-group",
-						Namespace: metav1.NamespaceDefault,
+						Name: "test-security-group",
 					},
 					Spec: securitygroupv1alpha1.SecurityGroupSpec{
 						IngressRules: []securitygroupv1alpha1.IngressRule{
@@ -175,8 +173,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 				kmp, cluster, kcp,
 				&securitygroupv1alpha1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-security-group",
-						Namespace: metav1.NamespaceDefault,
+						Name: "test-security-group",
 					},
 					Spec: securitygroupv1alpha1.SecurityGroupSpec{
 						IngressRules: []securitygroupv1alpha1.IngressRule{
@@ -206,8 +203,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 				kmp, cluster, kcp,
 				&securitygroupv1alpha1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-security-group",
-						Namespace: metav1.NamespaceDefault,
+						Name: "test-security-group",
 					},
 					Spec: securitygroupv1alpha1.SecurityGroupSpec{
 						IngressRules: []securitygroupv1alpha1.IngressRule{
@@ -237,8 +233,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 				kmp, cluster, kcp,
 				&securitygroupv1alpha1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-security-group",
-						Namespace: metav1.NamespaceDefault,
+						Name: "test-security-group",
 						DeletionTimestamp: &metav1.Time{
 							Time: time.Now().UTC(),
 						},
@@ -316,8 +311,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			}
 			_, err := reconciler.Reconcile(ctx, ctrl.Request{
 				NamespacedName: client.ObjectKey{
-					Namespace: metav1.NamespaceDefault,
-					Name:      "test-security-group",
+					Name: "test-security-group",
 				},
 			})
 
@@ -353,8 +347,7 @@ func TestReconcileKopsControlPlane(t *testing.T) {
 			k8sObjects: []client.Object{
 				kmp, cluster, kcp, &securitygroupv1alpha1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-security-group",
-						Namespace: metav1.NamespaceDefault,
+						Name: "test-security-group",
 					},
 					Spec: securitygroupv1alpha1.SecurityGroupSpec{
 						IngressRules: []securitygroupv1alpha1.IngressRule{
@@ -580,8 +573,7 @@ func TestReconcileDelete(t *testing.T) {
 
 	wsgMock := securitygroupv1alpha1.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-security-group",
-			Namespace: corev1.NamespaceDefault,
+			Name: "test-security-group",
 		},
 		Spec: securitygroupv1alpha1.SecurityGroupSpec{
 			IngressRules: []securitygroupv1alpha1.IngressRule{
@@ -790,8 +782,7 @@ func TestAttachSGToASG(t *testing.T) {
 func TestDeleteSGFromASG(t *testing.T) {
 	sg2 := &securitygroupv1alpha1.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-security-group2",
-			Namespace: metav1.NamespaceDefault,
+			Name: "test-security-group2",
 		},
 		Spec: securitygroupv1alpha1.SecurityGroupSpec{
 			IngressRules: []securitygroupv1alpha1.IngressRule{
@@ -1504,8 +1495,7 @@ func TestSecurityGroupStatus(t *testing.T) {
 
 			_, err = reconciler.Reconcile(ctx, ctrl.Request{
 				NamespacedName: client.ObjectKey{
-					Namespace: metav1.NamespaceDefault,
-					Name:      "test-security-group",
+					Name: "test-security-group",
 				},
 			})
 
@@ -1517,8 +1507,7 @@ func TestSecurityGroupStatus(t *testing.T) {
 
 			sg = &securitygroupv1alpha1.SecurityGroup{}
 			key := client.ObjectKey{
-				Namespace: metav1.NamespaceDefault,
-				Name:      "test-security-group",
+				Name: "test-security-group",
 			}
 			err = fakeClient.Get(ctx, key, sg)
 			g.Expect(err).NotTo(HaveOccurred())

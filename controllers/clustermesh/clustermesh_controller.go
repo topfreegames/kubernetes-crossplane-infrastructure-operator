@@ -262,8 +262,7 @@ func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *cl
 
 	sg := &sgv1alpha1.SecurityGroup{}
 	sgKey := client.ObjectKey{
-		Name:      clmesh.GetClusterMeshSecurityGroupName(cluster.Name),
-		Namespace: cluster.Namespace,
+		Name: clmesh.GetClusterMeshSecurityGroupName(cluster.Name),
 	}
 	if err := r.Get(ctx, sgKey, sg); err != nil && !apierrors.IsNotFound(err) {
 		return err
@@ -373,11 +372,11 @@ func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clus
 			}
 		}
 
-			ownedRoutesRef, err := crossplane.GetOwnedRoutesRef(ctx, &vpcPeeringConnection, r.Client)
-			if err != nil {
-				return resultError, err
-			}
-			routesRef = append(routesRef, ownedRoutesRef...)
+		ownedRoutesRef, err := crossplane.GetOwnedRoutesRef(ctx, &vpcPeeringConnection, r.Client)
+		if err != nil {
+			return resultError, err
+		}
+		routesRef = append(routesRef, ownedRoutesRef...)
 	}
 
 	clustermesh.Status.RoutesRef = routesRef
@@ -432,8 +431,7 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 	r.log.Info(fmt.Sprintf("creating security group %s for cluster %s in clustermesh %s\n", sgName, cluster.Name, clustermesh.Name))
 	sg := &sgv1alpha1.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      sgName,
-			Namespace: cluster.Namespace,
+			Name: sgName,
 		},
 	}
 
@@ -458,6 +456,11 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciler, ctx context.Context, clus
 	if err != nil {
 		return err
 	}
+
+	if err := r.Client.Update(ctx, sg); err != nil {
+		return err
+	}
+
 	return nil
 }
 
