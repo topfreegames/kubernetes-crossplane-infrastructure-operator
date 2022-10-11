@@ -74,6 +74,32 @@ rules:
 - apiGroups:
   - ec2.aws.wildlife.io
   resources:
+  - securitygroups
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ec2.aws.wildlife.io
+  resources:
+  - securitygroups/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - ec2.aws.wildlife.io
+  resources:
+  - securitygroups/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - ec2.aws.wildlife.io
+  resources:
   - vpcpeeringconnections
   verbs:
   - create
@@ -88,29 +114,3 @@ rules:
   - get
   - list
   - watch
-- apiGroups:
-  - infrastructure.wildlife.io
-  resources:
-  - securitygroups
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - infrastructure.wildlife.io
-  resources:
-  - securitygroups/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - infrastructure.wildlife.io
-  resources:
-  - securitygroups/status
-  verbs:
-  - get
-  - patch
-  - update
