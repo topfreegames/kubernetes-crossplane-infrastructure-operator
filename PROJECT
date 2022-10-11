@@ -9,8 +9,8 @@ resources:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: infrastructure.wildlife.io
-  group: infrastructure.wildlife.io
+  domain: ec2.aws.wildlife.io
+  group: ec2.aws.wildlife.io
   kind: SecurityGroup
   path: github.com/topfreegames/provider-crossplane/api/v1alpha1
   version: v1alpha1

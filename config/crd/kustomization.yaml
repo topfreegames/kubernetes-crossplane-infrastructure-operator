@@ -2,7 +2,7 @@
 # since it depends on service name and namespace that are out of this kustomize package.
 # It should be run by config/default
 resources:
-- bases/infrastructure.wildlife.io_securitygroups.yaml
+- bases/ec2.aws.wildlife.io_securitygroups.yaml
 - bases/clustermesh.infrastructure.wildlife.io_clustermeshes.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 

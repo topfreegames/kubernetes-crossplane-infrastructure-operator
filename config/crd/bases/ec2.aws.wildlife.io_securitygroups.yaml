@@ -5,17 +5,15 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.9.2
   creationTimestamp: null
-  name: securitygroups.infrastructure.wildlife.io
+  name: securitygroups.ec2.aws.wildlife.io
 spec:
-  group: infrastructure.wildlife.io
+  group: ec2.aws.wildlife.io
   names:
     kind: SecurityGroup
     listKind: SecurityGroupList
     plural: securitygroups
-    shortNames:
-    - wsg
     singular: securitygroup
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .metadata.creationTimestamp

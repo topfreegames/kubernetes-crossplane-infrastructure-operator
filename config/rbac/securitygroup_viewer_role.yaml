@@ -5,7 +5,7 @@ metadata:
   name: securitygroup-viewer-role
 rules:
 - apiGroups:
-  - infrastructure.wildlife.io
+  - ec2.aws.wildlife.io
   resources:
   - securitygroups
   verbs:
@@ -13,7 +13,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - infrastructure.wildlife.io
+  - ec2.aws.wildlife.io
   resources:
   - securitygroups/status
   verbs:

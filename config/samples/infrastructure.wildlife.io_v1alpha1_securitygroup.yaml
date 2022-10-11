@@ -1,4 +1,4 @@
-apiVersion: infrastructure.wildlife.io/v1alpha1
+apiVersion: ec2.aws.wildlife.io/v1alpha1
 kind: SecurityGroup
 metadata:
   name: securitygroup-sample

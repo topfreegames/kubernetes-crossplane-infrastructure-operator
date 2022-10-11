@@ -5,7 +5,7 @@ metadata:
   name: securitygroup-editor-role
 rules:
 - apiGroups:
-  - infrastructure.wildlife.io
+  - ec2.aws.wildlife.io
   resources:
   - securitygroups
   verbs:
@@ -17,7 +17,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - infrastructure.wildlife.io
+  - ec2.aws.wildlife.io
   resources:
   - securitygroups/status
   verbs:
