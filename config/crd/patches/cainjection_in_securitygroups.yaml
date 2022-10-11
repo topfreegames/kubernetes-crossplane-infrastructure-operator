@@ -4,4 +4,4 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: $(CERTIFICATE_NAMESPACE)/$(CERTIFICATE_NAME)
-  name: securitygroups.infrastructure.wildlife.io
+  name: securitygroups.ec2.aws.wildlife.io
