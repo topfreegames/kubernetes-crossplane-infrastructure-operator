@@ -1377,8 +1377,8 @@ func TestReconcileDelete(t *testing.T) {
 			clustermesh := &clustermeshv1beta1.ClusterMesh{}
 			err = fakeClient.Get(ctx, client.ObjectKey{Name: "test-clustermesh"}, clustermesh)
 			if tc.expectedOutput != nil {
-				g.Expect(clustermesh.GetName()).To(BeEquivalentTo(tc.expectedOutput.GetName()))
-				g.Expect(clustermesh.Spec).To(BeEquivalentTo(tc.expectedOutput.Spec))
+				g.Expect(tc.clustermesh.GetName()).To(BeEquivalentTo(tc.expectedOutput.GetName()))
+				g.Expect(tc.clustermesh.Spec).To(BeEquivalentTo(tc.expectedOutput.Spec))
 			} else {
 				g.Expect(err).To(HaveOccurred())
 				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())

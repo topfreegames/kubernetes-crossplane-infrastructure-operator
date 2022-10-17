@@ -296,13 +296,6 @@ func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *cl
 		if err := r.Client.Delete(ctx, clustermesh); err != nil {
 			return err
 		}
-	} else {
-		if err := r.Client.Status().Update(ctx, clustermesh); err != nil {
-			return err
-		}
-		if err := r.Client.Update(ctx, clustermesh); err != nil {
-			return err
-		}
 	}
 
 	return nil
@@ -360,7 +353,7 @@ func ReconcileRoutes(r *ClusterMeshReconciler, ctx context.Context, clSpec *clus
 				return resultError, err
 			}
 		}
-    
+
 		ownedRoutesRef, err := crossplane.GetOwnedRoutesRef(ctx, &vpcPeeringConnection, r.Client)
 		if err != nil {
 			return resultError, err
