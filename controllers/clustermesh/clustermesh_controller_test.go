@@ -807,7 +807,9 @@ func TestReconcileDelete(t *testing.T) {
 		cluster                              *clusterv1beta1.Cluster
 		clustermesh                          *clustermeshv1beta1.ClusterMesh
 		expectedVpcPeeringConnections        []string
+		expectedSecurityGroup                []string
 		shouldBeDeletedVpcPeeringConnections []string
+		shouldBeDeletedSecurityGroup         []string
 		expectedOutput                       *clustermeshv1beta1.ClusterMesh
 	}{
 		{
@@ -1349,6 +1351,166 @@ func TestReconcileDelete(t *testing.T) {
 			},
 			shouldBeDeletedVpcPeeringConnections: []string{"A-B"},
 		},
+		{
+			description: "should remove crossplaneRef related to A cluster when it's deleted",
+			k8sObjects: []client.Object{
+				&clustermeshv1beta1.ClusterMesh{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-clustermesh",
+					},
+					Spec: clustermeshv1beta1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1beta1.ClusterSpec{
+							{
+								Name: "B",
+							},
+							{
+								Name: "A",
+							},
+							{
+								Name: "C",
+							},
+						},
+					},
+					Status: clustermeshv1beta1.ClusterMeshStatus{
+						CrossplaneSecurityGroupRef: []*corev1.ObjectReference{
+							{
+								Name:       "clustermesh-A-sg",
+								APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+								Kind:       "SecurityGroup",
+							},
+							{
+								Name:       "clustermesh-B-sg",
+								APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+								Kind:       "SecurityGroup",
+							},
+							{
+								Name:       "clustermesh-C-sg",
+								APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+								Kind:       "SecurityGroup",
+							},
+						},
+					},
+				},
+				&securitygroupv1alpha1.SecurityGroup{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						Kind:       "SecurityGroup",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "clustermesh-A-sg",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name: "test-clustermesh",
+							},
+						},
+					},
+				},
+				&securitygroupv1alpha1.SecurityGroup{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						Kind:       "SecurityGroup",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "clustermesh-B-sg",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name: "test-clustermesh",
+							},
+						},
+					},
+				},
+				&securitygroupv1alpha1.SecurityGroup{
+					TypeMeta: metav1.TypeMeta{
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+						Kind:       "SecurityGroup",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "clustermesh-C-sg",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name: "test-clustermesh",
+							},
+						},
+					},
+				},
+			},
+			cluster: &clusterv1beta1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "A",
+					Labels: map[string]string{
+						"clusterGroup": "test-clustermesh",
+					},
+				},
+			},
+			clustermesh: &clustermeshv1beta1.ClusterMesh{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-clustermesh",
+				},
+				Spec: clustermeshv1beta1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1beta1.ClusterSpec{
+						{
+							Name: "B",
+						},
+						{
+							Name: "A",
+						},
+						{
+							Name: "C",
+						},
+					},
+				},
+				Status: clustermeshv1beta1.ClusterMeshStatus{
+					CrossplaneSecurityGroupRef: []*corev1.ObjectReference{
+						{
+							Name:       "clustermesh-A-sg",
+							APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+							Kind:       "SecurityGroup",
+						},
+						{
+							Name:       "clustermesh-B-sg",
+							APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+							Kind:       "SecurityGroup",
+						},
+						{
+							Name:       "clustermesh-C-sg",
+							APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+							Kind:       "SecurityGroup",
+						},
+					},
+				},
+			},
+			expectedOutput: &clustermeshv1beta1.ClusterMesh{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-clustermesh",
+				},
+				Spec: clustermeshv1beta1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1beta1.ClusterSpec{
+						{
+							Name: "B",
+						},
+						{
+							Name: "C",
+						},
+					},
+				},
+				Status: clustermeshv1beta1.ClusterMeshStatus{
+					CrossplaneSecurityGroupRef: []*corev1.ObjectReference{
+						{
+							Name:       "clustermesh-B-sg",
+							APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+							Kind:       "SecurityGroup",
+						},
+						{
+							Name:       "clustermesh-C-sg",
+							APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+							Kind:       "SecurityGroup",
+						},
+					},
+				},
+			},
+			expectedSecurityGroup:        []string{"clustermesh-B-sg", "clustermesh-C-sg"},
+			shouldBeDeletedSecurityGroup: []string{"clustermesh-A-sg"},
+		},
 	}
 
 	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
@@ -1399,6 +1561,24 @@ func TestReconcileDelete(t *testing.T) {
 					Name: vpcPeeringConnectionName,
 				}
 				err = fakeClient.Get(ctx, key, vpcPeeringConnection)
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}
+
+			for _, securityGroupName := range tc.expectedSecurityGroup {
+				securityGroup := &securitygroupv1alpha1.SecurityGroup{}
+				key := client.ObjectKey{
+					Name: securityGroupName,
+				}
+				err = fakeClient.Get(ctx, key, securityGroup)
+				g.Expect(err).To(BeNil())
+			}
+
+			for _, securityGroupName := range tc.shouldBeDeletedSecurityGroup {
+				securityGroup := &securitygroupv1alpha1.SecurityGroup{}
+				key := client.ObjectKey{
+					Name: securityGroupName,
+				}
+				err = fakeClient.Get(ctx, key, securityGroup)
 				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 			}
 
