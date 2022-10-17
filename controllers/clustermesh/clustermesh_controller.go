@@ -19,6 +19,7 @@ package clustermesh
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	wildlifecrossec2v1alphav1 "github.com/topfreegames/crossplane-provider-aws/apis/ec2/manualv1alpha1"
@@ -86,13 +87,15 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	defer func() {
 		if clustermesh != nil && len(clustermesh.Spec.Clusters) > 0 {
-			err := r.Status().Update(ctx, clustermesh)
+			clustermeshHelper := clustermesh.DeepCopy()
+			err := r.Patch(ctx, clustermesh, client.Merge)
+			if err != nil {
+				r.log.Error(err, "error patching clustermesh %s", clustermesh)
+			}
+			clustermesh.Status = clustermeshHelper.Status
+			err = r.Status().Update(ctx, clustermesh)
 			if err != nil {
 				r.log.Error(err, "error updating clustermesh %s status", clustermesh)
-			}
-			err = r.Update(ctx, clustermesh)
-			if err != nil {
-				r.log.Error(err, "error updating clustermesh %s", clustermesh)
 			}
 		}
 	}()
@@ -261,26 +264,32 @@ func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *cl
 	sgKey := client.ObjectKey{
 		Name: clmesh.GetClusterMeshSecurityGroupName(cluster.Name),
 	}
-	if err := r.Get(ctx, sgKey, sg); err != nil && !apierrors.IsNotFound(err) {
-		return err
+	for i, securityGroupRef := range clustermesh.Status.CrossplaneSecurityGroupRef {
+		if securityGroupRef.Name == sgKey.Name {
+			clustermesh.Status.CrossplaneSecurityGroupRef = append(clustermesh.Status.CrossplaneSecurityGroupRef[:i], clustermesh.Status.CrossplaneSecurityGroupRef[i+1:]...)
+		}
+	}
+	err := r.Get(ctx, sgKey, sg)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+	} else {
+		err := r.Delete(ctx, sg)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
 	}
 
-	err := r.Delete(ctx, sg)
-	if err != nil && !apierrors.IsNotFound(err) {
-		return err
-	}
 	r.log.Info(fmt.Sprintf("deleted security group for cluster %s\n", cluster.ObjectMeta.Name))
 
 	clustermeshCopy := clustermesh.DeepCopy()
 
 	for _, vpcPeeringConnectionRef := range clustermeshCopy.Status.CrossplanePeeringRef {
-		for _, clSpec := range clustermesh.Spec.Clusters {
-			if vpcPeeringConnectionRef.Name == fmt.Sprintf("%s-%s", cluster.Name, clSpec.Name) || vpcPeeringConnectionRef.Name == fmt.Sprintf("%s-%s", clSpec.Name, cluster.Name) {
-				err := crossplane.DeleteCrossplaneVPCPeeringConnection(ctx, r.Client, clustermesh, vpcPeeringConnectionRef)
-				if err != nil {
-					return err
-				}
-				break
+		if strings.Contains(vpcPeeringConnectionRef.Name, cluster.Name) {
+			err := crossplane.DeleteCrossplaneVPCPeeringConnection(ctx, r.Client, clustermesh, vpcPeeringConnectionRef)
+			if err != nil {
+				return err
 			}
 		}
 	}
