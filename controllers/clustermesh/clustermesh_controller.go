@@ -301,25 +301,21 @@ func (r *ClusterMeshReconciler) reconcileDelete(ctx context.Context, cluster *cl
 	return nil
 }
 
-func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, clSpec *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+func ReconcilePeerings(r *ClusterMeshReconciler, ctx context.Context, currentCluster *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) error {
 	ownedVPCPeeringConnectionsRef, err := crossplane.GetOwnedVPCPeeringConnectionsRef(ctx, clustermesh, r.Client)
 	if err != nil {
 		return err
 	}
 	clustermesh.Status.CrossplanePeeringRef = ownedVPCPeeringConnectionsRef
 
-	for _, peeringRequesterCluster := range clustermesh.Spec.Clusters {
-		for _, peeringAccepterCluster := range clustermesh.Spec.Clusters {
-			if cmp.Equal(peeringRequesterCluster, peeringAccepterCluster) {
-				continue
-			}
-			if cmp.Equal(peeringRequesterCluster, clSpec) {
-				if !crossplane.IsVPCPeeringAlreadyCreated(clustermesh, clSpec, peeringAccepterCluster) {
-					err := crossplane.CreateCrossplaneVPCPeeringConnection(ctx, r.Client, clustermesh, clSpec, peeringAccepterCluster)
-					if err != nil && !apierrors.IsAlreadyExists(err) {
-						return err
-					}
-				}
+	for _, cluster := range clustermesh.Spec.Clusters {
+		if cmp.Equal(currentCluster, cluster) {
+			continue
+		}
+		if !crossplane.IsVPCPeeringAlreadyCreated(clustermesh, currentCluster, cluster) {
+			err := crossplane.CreateCrossplaneVPCPeeringConnection(ctx, r.Client, clustermesh, currentCluster, cluster)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				return err
 			}
 		}
 	}
