@@ -188,17 +188,15 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.9.2
   creationTimestamp: null
-  name: securitygroups.infrastructure.wildlife.io
+  name: securitygroups.ec2.aws.wildlife.io
 spec:
-  group: infrastructure.wildlife.io
+  group: ec2.aws.wildlife.io
   names:
     kind: SecurityGroup
     listKind: SecurityGroupList
     plural: securitygroups
-    shortNames:
-    - wsg
     singular: securitygroup
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .metadata.creationTimestamp
@@ -253,6 +251,7 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               ingressRules:
+                description: IngressRules is a list of ingress rules to apply to the Crossplane SecurityGroup.
                 items:
                   properties:
                     allowedCIDRs:
@@ -440,6 +439,32 @@ rules:
 - apiGroups:
   - ec2.aws.wildlife.io
   resources:
+  - securitygroups
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ec2.aws.wildlife.io
+  resources:
+  - securitygroups/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - ec2.aws.wildlife.io
+  resources:
+  - securitygroups/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - ec2.aws.wildlife.io
+  resources:
   - vpcpeeringconnections
   verbs:
   - create
@@ -454,32 +479,6 @@ rules:
   - get
   - list
   - watch
-- apiGroups:
-  - infrastructure.wildlife.io
-  resources:
-  - securitygroups
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - infrastructure.wildlife.io
-  resources:
-  - securitygroups/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - infrastructure.wildlife.io
-  resources:
-  - securitygroups/status
-  verbs:
-  - get
-  - patch
-  - update
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -641,7 +640,7 @@ spec:
               name: aws-credentials
         - name: AWS_REGION
           value: us-east-1
-        image: tfgco/provider-crossplane:v0.0.4-alpha
+        image: tfgco/provider-crossplane:v0.0.6-alpha
         livenessProbe:
           httpGet:
             path: /healthz
