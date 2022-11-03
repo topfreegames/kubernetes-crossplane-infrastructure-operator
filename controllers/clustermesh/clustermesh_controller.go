@@ -90,12 +90,12 @@ func (r *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			clustermeshHelper := clustermesh.DeepCopy()
 			err := r.Patch(ctx, clustermesh, client.Merge)
 			if err != nil {
-				r.log.Error(err, "error patching clustermesh %s", clustermesh)
+				r.log.Error(err, fmt.Sprintf("error patching clustermesh %v", clustermesh))
 			}
 			clustermesh.Status = clustermeshHelper.Status
 			err = r.Status().Update(ctx, clustermesh)
 			if err != nil {
-				r.log.Error(err, "error updating clustermesh %s status", clustermesh)
+				r.log.Error(err, fmt.Sprintf("error updating clustermesh %v status", clustermesh))
 			}
 		}
 	}()
