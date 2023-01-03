@@ -1,6 +1,6 @@
 module github.com/topfreegames/provider-crossplane
 
-go 1.18
+go 1.19
 
 replace k8s.io/code-generator => k8s.io/code-generator v0.21.0
 
