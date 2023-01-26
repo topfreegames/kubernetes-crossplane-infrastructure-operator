@@ -65,7 +65,6 @@ type SecurityGroupReconciler struct {
 	Recorder                    record.EventRecorder
 	NewEC2ClientFactory         func(cfg aws.Config) ec2.EC2Client
 	NewAutoScalingClientFactory func(cfg aws.Config) autoscaling.AutoScalingClient
-	ManageCrossplaneSGFactory   func(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error
 }
 
 //+kubebuilder:rbac:groups=ec2.aws.wildlife.io,resources=securitygroups,verbs=get;list;watch;create;update;patch;delete
@@ -216,9 +215,44 @@ func (r *SecurityGroupReconciler) reconcileKopsControlPlane(
 
 	asgClient := r.NewAutoScalingClientFactory(cfg)
 
-	csg, err := r.createCrossplaneSecurityGroup(ctx, vpcId, region, sg)
+	csg, err := crossplane.CreateOrUpdateCrossplaneSecurityGroup(ctx, r.Client, vpcId, region, sg)
 	if err != nil {
-		return fmt.Errorf("error creating crossplane securitygroup: %w", err)
+		conditions.MarkFalse(sg,
+			securitygroupv1alpha1.CrossplaneResourceReadyCondition,
+			securitygroupv1alpha1.CrossplaneResourceReconciliationFailedReason,
+			clusterv1beta1.ConditionSeverityError,
+			err.Error(),
+		)
+		return fmt.Errorf("error reconciling crossplane securitygroup: %w", err)
+	}
+
+	err = r.Client.Get(ctx, client.ObjectKeyFromObject(csg), csg)
+	if err != nil {
+		conditions.MarkFalse(sg,
+			securitygroupv1alpha1.CrossplaneResourceReadyCondition,
+			securitygroupv1alpha1.CrossplaneResourceReconciliationFailedReason,
+			clusterv1beta1.ConditionSeverityError,
+			err.Error(),
+		)
+		return err
+	}
+	conditions.MarkTrue(sg, securitygroupv1alpha1.CrossplaneResourceReadyCondition)
+
+	availableCondition := crossplane.GetSecurityGroupReadyCondition(csg)
+	if availableCondition == nil {
+		return ErrSecurityGroupNotAvailable
+	} else {
+		if availableCondition.Status == corev1.ConditionTrue {
+			conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupReadyCondition)
+		} else {
+			conditions.MarkFalse(sg,
+				securitygroupv1alpha1.SecurityGroupReadyCondition,
+				string(availableCondition.Reason),
+				clusterv1beta1.ConditionSeverityError,
+				availableCondition.Message,
+			)
+			return ErrSecurityGroupNotAvailable
+		}
 	}
 
 	kmps, err := kops.GetKopsMachinePoolsWithLabel(ctx, r.Client, "cluster.x-k8s.io/cluster-name", kcp.Name)
@@ -276,9 +310,44 @@ func (r *SecurityGroupReconciler) reconcileKopsMachinePool(
 		return fmt.Errorf("error retrieving aws account: %w", err)
 	}
 
-	csg, err := r.createCrossplaneSecurityGroup(ctx, vpcId, region, sg)
+	csg, err := crossplane.CreateOrUpdateCrossplaneSecurityGroup(ctx, r.Client, vpcId, region, sg)
 	if err != nil {
+		conditions.MarkFalse(sg,
+			securitygroupv1alpha1.CrossplaneResourceReadyCondition,
+			securitygroupv1alpha1.CrossplaneResourceReconciliationFailedReason,
+			clusterv1beta1.ConditionSeverityError,
+			err.Error(),
+		)
 		return fmt.Errorf("error creating crossplane securitygroup: %w", err)
+	}
+
+	err = r.Client.Get(ctx, client.ObjectKeyFromObject(csg), csg)
+	if err != nil {
+		conditions.MarkFalse(sg,
+			securitygroupv1alpha1.CrossplaneResourceReadyCondition,
+			securitygroupv1alpha1.CrossplaneResourceReconciliationFailedReason,
+			clusterv1beta1.ConditionSeverityError,
+			err.Error(),
+		)
+		return err
+	}
+	conditions.MarkTrue(sg, securitygroupv1alpha1.CrossplaneResourceReadyCondition)
+
+	availableCondition := crossplane.GetSecurityGroupReadyCondition(csg)
+	if availableCondition == nil {
+		return ErrSecurityGroupNotAvailable
+	} else {
+		if availableCondition.Status == corev1.ConditionTrue {
+			conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupReadyCondition)
+		} else {
+			conditions.MarkFalse(sg,
+				securitygroupv1alpha1.SecurityGroupReadyCondition,
+				string(availableCondition.Reason),
+				clusterv1beta1.ConditionSeverityError,
+				availableCondition.Message,
+			)
+			return ErrSecurityGroupNotAvailable
+		}
 	}
 
 	asgName, err := kops.GetAutoScalingGroupNameFromKopsMachinePool(*kmp)
@@ -302,50 +371,6 @@ func (r *SecurityGroupReconciler) reconcileKopsMachinePool(
 	conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupReadyCondition)
 
 	return nil
-}
-
-func (r *SecurityGroupReconciler) createCrossplaneSecurityGroup(ctx context.Context, vpcId, region *string, sg *securitygroupv1alpha1.SecurityGroup) (*crossec2v1beta1.SecurityGroup, error) {
-	csg := crossplane.NewCrossplaneSecurityGroup(sg, vpcId, region)
-	err := r.ManageCrossplaneSGFactory(ctx, r.Client, csg)
-	if err != nil {
-		conditions.MarkFalse(sg,
-			securitygroupv1alpha1.CrossplaneResourceReadyCondition,
-			securitygroupv1alpha1.CrossplaneResourceReconciliationFailedReason,
-			clusterv1beta1.ConditionSeverityError,
-			err.Error(),
-		)
-		return &crossec2v1beta1.SecurityGroup{}, err
-	}
-
-	err = r.Client.Get(ctx, client.ObjectKeyFromObject(csg), csg)
-	if err != nil {
-		conditions.MarkFalse(sg,
-			securitygroupv1alpha1.CrossplaneResourceReadyCondition,
-			securitygroupv1alpha1.CrossplaneResourceReconciliationFailedReason,
-			clusterv1beta1.ConditionSeverityError,
-			err.Error(),
-		)
-		return &crossec2v1beta1.SecurityGroup{}, err
-	}
-	conditions.MarkTrue(sg, securitygroupv1alpha1.CrossplaneResourceReadyCondition)
-
-	availableCondition := crossplane.GetSecurityGroupReadyCondition(csg)
-	if availableCondition == nil {
-		return &crossec2v1beta1.SecurityGroup{}, ErrSecurityGroupNotAvailable
-	} else {
-		if availableCondition.Status == corev1.ConditionTrue {
-			conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupReadyCondition)
-		} else {
-			conditions.MarkFalse(sg,
-				securitygroupv1alpha1.SecurityGroupReadyCondition,
-				string(availableCondition.Reason),
-				clusterv1beta1.ConditionSeverityError,
-				availableCondition.Message,
-			)
-			return &crossec2v1beta1.SecurityGroup{}, ErrSecurityGroupNotAvailable
-		}
-	}
-	return csg, nil
 }
 
 func (r *SecurityGroupReconciler) getAwsAccountInfo(ctx context.Context, kcp *kcontrolplanev1alpha1.KopsControlPlane) (*string, *string, aws.Config, ec2.EC2Client, error) {

@@ -6,6 +6,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsautoscaling "github.com/aws/aws-sdk-go-v2/service/autoscaling"
+	autoscalingtypes "github.com/aws/aws-sdk-go-v2/service/autoscaling/types"
+	awsec2 "github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
+	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
 	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
@@ -14,15 +21,6 @@ import (
 	fakeasg "github.com/topfreegames/provider-crossplane/pkg/aws/autoscaling/fake"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
 	fakeec2 "github.com/topfreegames/provider-crossplane/pkg/aws/ec2/fake"
-	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
-
-	"github.com/aws/aws-sdk-go-v2/aws"
-	awsautoscaling "github.com/aws/aws-sdk-go-v2/service/autoscaling"
-	autoscalingtypes "github.com/aws/aws-sdk-go-v2/service/autoscaling/types"
-	awsec2 "github.com/aws/aws-sdk-go-v2/service/ec2"
-	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
-	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -305,9 +303,6 @@ func TestSecurityGroupReconciler(t *testing.T) {
 				NewAutoScalingClientFactory: func(cfg aws.Config) autoscaling.AutoScalingClient {
 					return fakeASGClient
 				},
-				ManageCrossplaneSGFactory: func(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error {
-					return crossplane.ManageCrossplaneSecurityGroupResource(ctx, kubeClient, csg)
-				},
 			}
 			_, err := reconciler.Reconcile(ctx, ctrl.Request{
 				NamespacedName: client.ObjectKey{
@@ -339,49 +334,52 @@ func TestReconcileKopsControlPlane(t *testing.T) {
 
 	testCases := []struct {
 		description     string
+		input           *securitygroupv1alpha1.SecurityGroup
 		k8sObjects      []client.Object
 		isErrorExpected bool
 	}{
 		{
 			description: "should create a Crossplane SecurityGroup",
-			k8sObjects: []client.Object{
-				kmp, cluster, kcp, &securitygroupv1alpha1.SecurityGroup{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "test-security-group",
-					},
-					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						IngressRules: []securitygroupv1alpha1.IngressRule{
-							{
-								IPProtocol: "TCP",
-								FromPort:   40000,
-								ToPort:     60000,
-								AllowedCIDRBlocks: []string{
-									"0.0.0.0/0",
-								},
+			input: &securitygroupv1alpha1.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-security-group",
+				},
+				Spec: securitygroupv1alpha1.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha1.IngressRule{
+						{
+							IPProtocol: "TCP",
+							FromPort:   40000,
+							ToPort:     60000,
+							AllowedCIDRBlocks: []string{
+								"0.0.0.0/0",
 							},
 						},
-						InfrastructureRef: &corev1.ObjectReference{
-							APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
-							Kind:       "KopsControlPlane",
-							Name:       "test-cluster",
-							Namespace:  metav1.NamespaceDefault,
-						},
+					},
+					InfrastructureRef: &corev1.ObjectReference{
+						APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+						Kind:       "KopsControlPlane",
+						Name:       "test-cluster",
+						Namespace:  metav1.NamespaceDefault,
 					},
 				},
 			},
-			isErrorExpected: false,
+			k8sObjects: []client.Object{
+				kmp, cluster, kcp,
+			},
 		},
 		{
 			description: "should fail when not finding Cluster",
+			input:       sg,
 			k8sObjects: []client.Object{
-				kmp, kcp, sg,
+				kmp, kcp,
 			},
 			isErrorExpected: true,
 		},
 		{
 			description: "should fail when not finding KopsControlPlane",
+			input:       sg,
 			k8sObjects: []client.Object{
-				kmp, cluster, sg,
+				kmp, cluster,
 			},
 			isErrorExpected: true,
 		},
@@ -434,12 +432,9 @@ func TestReconcileKopsControlPlane(t *testing.T) {
 					return fakeASGClient
 				},
 				Recorder: recorder,
-				ManageCrossplaneSGFactory: func(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error {
-					return crossplane.ManageCrossplaneSecurityGroupResource(ctx, kubeClient, csg)
-				},
 			}
 
-			err = reconciler.reconcileKopsControlPlane(ctx, sg, kcp)
+			err = reconciler.reconcileKopsControlPlane(ctx, tc.input, kcp)
 
 			if !tc.isErrorExpected {
 				if !errors.Is(err, ErrSecurityGroupNotAvailable) {
@@ -457,6 +452,7 @@ func TestReconcileKopsControlPlane(t *testing.T) {
 			} else {
 				g.Expect(err).ToNot(BeNil())
 			}
+
 		})
 	}
 }
@@ -540,9 +536,6 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 					return fakeEC2Client
 				},
 				Recorder: recorder,
-				ManageCrossplaneSGFactory: func(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error {
-					return crossplane.ManageCrossplaneSecurityGroupResource(ctx, kubeClient, csg)
-				},
 			}
 
 			err = reconciler.reconcileKopsMachinePool(ctx, sg, kmp)
@@ -1302,7 +1295,6 @@ func TestSecurityGroupStatus(t *testing.T) {
 		description                   string
 		k8sObjects                    []client.Object
 		mockDescribeAutoScalingGroups func(ctx context.Context, params *awsautoscaling.DescribeAutoScalingGroupsInput, optFns []func(*awsautoscaling.Options)) (*awsautoscaling.DescribeAutoScalingGroupsOutput, error)
-		mockManageCrossplaneSG        func(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error
 		conditionsToAssert            []*clusterv1beta1.Condition
 		isErrorExpected               bool
 		expectedReadiness             bool
@@ -1319,22 +1311,6 @@ func TestSecurityGroupStatus(t *testing.T) {
 			},
 			isErrorExpected:   false,
 			expectedReadiness: true,
-		},
-		{
-			description: "should mark CrossplaneResourceReadyCondition as false when failing to create the CSG",
-			k8sObjects: []client.Object{
-				kmp, cluster, kcp, sg,
-			},
-			mockManageCrossplaneSG: func(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error {
-				return errors.New("some error creating CSG")
-			},
-			conditionsToAssert: []*clusterv1beta1.Condition{
-				conditions.FalseCondition(securitygroupv1alpha1.CrossplaneResourceReadyCondition,
-					securitygroupv1alpha1.CrossplaneResourceReconciliationFailedReason,
-					clusterv1beta1.ConditionSeverityError,
-					"some error creating CSG"),
-			},
-			isErrorExpected: true,
 		},
 		{
 			description: "should mark SG ready condition as false when not available yet",
@@ -1483,14 +1459,6 @@ func TestSecurityGroupStatus(t *testing.T) {
 				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
 					return fakeEC2Client
 				},
-			}
-
-			if tc.mockManageCrossplaneSG == nil {
-				reconciler.ManageCrossplaneSGFactory = func(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error {
-					return crossplane.ManageCrossplaneSecurityGroupResource(ctx, kubeClient, csg)
-				}
-			} else {
-				reconciler.ManageCrossplaneSGFactory = tc.mockManageCrossplaneSG
 			}
 
 			_, err = reconciler.Reconcile(ctx, ctrl.Request{

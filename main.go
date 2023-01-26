@@ -21,6 +21,8 @@ import (
 	"os"
 	"time"
 
+	crossec2v1alpha1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
+	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	wildlifecrossec2v1alphav1 "github.com/topfreegames/crossplane-provider-aws/apis/ec2/manualv1alpha1"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
@@ -30,10 +32,6 @@ import (
 	sgcontroller "github.com/topfreegames/provider-crossplane/controllers/securitygroup"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/autoscaling"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
-	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
-
-	crossec2v1alpha1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
-	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -115,7 +113,6 @@ func main() {
 		Recorder:                    mgr.GetEventRecorderFor("securityGroup-controller"),
 		NewEC2ClientFactory:         ec2.NewEC2Client,
 		NewAutoScalingClientFactory: autoscaling.NewAutoScalingClient,
-		ManageCrossplaneSGFactory:   crossplane.ManageCrossplaneSecurityGroupResource,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityGroup")
 		os.Exit(1)
