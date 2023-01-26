@@ -3,7 +3,6 @@ package crossplane
 import (
 	"context"
 	"fmt"
-
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
@@ -74,26 +73,6 @@ func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha1.SecurityGroup, vpcId, 
 			},
 		},
 	}
-
-	var ingressRules []crossec2v1beta1.IPPermission
-	for _, ingressRule := range sg.Spec.IngressRules {
-		ipPermission := crossec2v1beta1.IPPermission{
-			FromPort:   &ingressRule.FromPort,
-			ToPort:     &ingressRule.ToPort,
-			IPProtocol: ingressRule.IPProtocol,
-		}
-		var allowedCIDRBlocks []crossec2v1beta1.IPRange
-		for _, allowedCIDR := range ingressRule.AllowedCIDRBlocks {
-			ipRange := crossec2v1beta1.IPRange{
-				CIDRIP: allowedCIDR,
-			}
-			allowedCIDRBlocks = append(allowedCIDRBlocks, ipRange)
-		}
-		ipPermission.IPRanges = allowedCIDRBlocks
-		ingressRules = append(ingressRules, ipPermission)
-	}
-	csg.Spec.ForProvider.Ingress = ingressRules
-
 	return csg
 }
 
@@ -130,17 +109,34 @@ func NewCrossplaneRoute(region, destinationCIDRBlock, routeTable string, vpcPeer
 	return croute
 }
 
-func ManageCrossplaneSecurityGroupResource(ctx context.Context, kubeClient client.Client, csg *crossec2v1beta1.SecurityGroup) error {
-	log := ctrl.LoggerFrom(ctx)
-	res, err := controllerutil.CreateOrUpdate(ctx, kubeClient, csg, func() error {
+func CreateOrUpdateCrossplaneSecurityGroup(ctx context.Context, kubeClient client.Client, vpcId, region *string, sg *securitygroupv1alpha1.SecurityGroup) (*crossec2v1beta1.SecurityGroup, error) {
+	csg := NewCrossplaneSecurityGroup(sg, vpcId, region)
+	_, err := controllerutil.CreateOrUpdate(ctx, kubeClient, csg, func() error {
+		var ingressRules []crossec2v1beta1.IPPermission
+		for _, ingressRule := range sg.Spec.IngressRules {
+			ipPermission := crossec2v1beta1.IPPermission{
+				FromPort:   &ingressRule.FromPort,
+				ToPort:     &ingressRule.ToPort,
+				IPProtocol: ingressRule.IPProtocol,
+			}
+			var allowedCIDRBlocks []crossec2v1beta1.IPRange
+			for _, allowedCIDR := range ingressRule.AllowedCIDRBlocks {
+				ipRange := crossec2v1beta1.IPRange{
+					CIDRIP: allowedCIDR,
+				}
+				allowedCIDRBlocks = append(allowedCIDRBlocks, ipRange)
+			}
+			ipPermission.IPRanges = allowedCIDRBlocks
+			ingressRules = append(ingressRules, ipPermission)
+		}
+		csg.Spec.ForProvider.Ingress = ingressRules
 		return nil
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	log.Info(fmt.Sprintf("crossplane security group %s\n", string(res)))
 
-	return nil
+	return csg, nil
 }
 
 func CreateCrossplaneVPCPeeringConnection(ctx context.Context, kubeClient client.Client, clustermesh *clustermeshv1beta1.ClusterMesh, peeringRequester, peeringAccepter *clustermeshv1beta1.ClusterSpec) error {
