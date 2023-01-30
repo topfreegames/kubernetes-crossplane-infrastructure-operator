@@ -31,6 +31,10 @@ import (
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
 	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
 
+	"github.com/spotinst/spotinst-sdk-go/service/ocean"
+	oceanAws "github.com/spotinst/spotinst-sdk-go/service/ocean/providers/aws"
+	"github.com/spotinst/spotinst-sdk-go/spotinst/session"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
@@ -40,6 +44,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/strings/slices"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
@@ -366,21 +371,63 @@ func (r *SecurityGroupReconciler) reconcileKopsMachinePool(
 		}
 	}
 
-	asgName, err := kops.GetAutoScalingGroupNameFromKopsMachinePool(*kmp)
-	if err != nil {
-		return fmt.Errorf("error retrieving ASG name: %w", err)
-	}
+	if len(kmp.Spec.SpotInstOptions) != 0 {
+		// TODO: spot attach
+		sess := session.New()
+		svc := ocean.New(sess)
 
-	asgClient := r.NewAutoScalingClientFactory(cfg)
-	err = r.attachSGToASG(ctx, ec2Client, asgClient, *asgName, csg.Status.AtProvider.SecurityGroupID)
-	if err != nil {
-		conditions.MarkFalse(sg,
-			securitygroupv1alpha1.SecurityGroupAttachedCondition,
-			securitygroupv1alpha1.SecurityGroupAttachmentFailedReason,
-			clusterv1beta1.ConditionSeverityError,
-			err.Error(),
-		)
-		return err
+		listClusters, err := svc.CloudProviderAWS().ListClusters(ctx, &oceanAws.ListClustersInput{})
+		if err != nil {
+			return fmt.Errorf("error retrieving ocean clusters: %w", err)
+		}
+		for _, cluster := range listClusters.Clusters {
+			if *cluster.ControllerClusterID == kmp.Spec.ClusterName {
+				listLaunchSpecs, err := svc.CloudProviderAWS().ListLaunchSpecs(ctx, &oceanAws.ListLaunchSpecsInput{
+					OceanID: cluster.ID,
+				})
+				if err != nil {
+					return fmt.Errorf("error retrieving ocean cluster launch specs: %w", err)
+				}
+				for _, vng := range listLaunchSpecs.LaunchSpecs {
+					for _, labels := range vng.Labels {
+						if *labels.Key == "kops.k8s.io/instance-group-name" && *labels.Value == kmp.Name {
+							securityGroupsIDs := vng.SecurityGroupIDs
+							if slices.Contains(securityGroupsIDs, csg.Status.AtProvider.SecurityGroupID) {
+								continue
+							}
+							securityGroupsIDs = append(securityGroupsIDs, csg.Status.AtProvider.SecurityGroupID)
+							vng.SetSecurityGroupIDs(securityGroupsIDs)
+							vng.CreatedAt = nil
+							vng.OceanID = nil
+							vng.UpdatedAt = nil
+							_, err := svc.CloudProviderAWS().UpdateLaunchSpec(ctx, &oceanAws.UpdateLaunchSpecInput{
+								LaunchSpec: vng,
+							})
+							return fmt.Errorf("error updating ocean cluster launch spec: %w", err)
+						}
+					}
+				}
+			}
+		}
+
+	} else {
+		asgName, err := kops.GetAutoScalingGroupNameFromKopsMachinePool(*kmp)
+		if err != nil {
+			return fmt.Errorf("error retrieving ASG name: %w", err)
+		}
+
+		asgClient := r.NewAutoScalingClientFactory(cfg)
+		err = r.attachSGToASG(ctx, ec2Client, asgClient, *asgName, csg.Status.AtProvider.SecurityGroupID)
+		if err != nil {
+			conditions.MarkFalse(sg,
+				securitygroupv1alpha1.SecurityGroupAttachedCondition,
+				securitygroupv1alpha1.SecurityGroupAttachmentFailedReason,
+				clusterv1beta1.ConditionSeverityError,
+				err.Error(),
+			)
+			return err
+		}
+
 	}
 
 	conditions.MarkTrue(sg, securitygroupv1alpha1.SecurityGroupAttachedCondition)
