@@ -3,6 +3,7 @@ package crossplane
 import (
 	"context"
 	"fmt"
+
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
@@ -61,7 +62,8 @@ func NewCrossPlaneVPCPeeringConnection(clustermesh *clustermeshv1beta1.ClusterMe
 func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha1.SecurityGroup, vpcId, region *string) *crossec2v1beta1.SecurityGroup {
 	csg := &crossec2v1beta1.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: sg.GetName(),
+			Name:        sg.GetName(),
+			Annotations: sg.Annotations,
 		},
 		Spec: crossec2v1beta1.SecurityGroupSpec{
 			ForProvider: crossec2v1beta1.SecurityGroupParameters{
@@ -130,6 +132,7 @@ func CreateOrUpdateCrossplaneSecurityGroup(ctx context.Context, kubeClient clien
 			ingressRules = append(ingressRules, ipPermission)
 		}
 		csg.Spec.ForProvider.Ingress = ingressRules
+		csg.Annotations = sg.Annotations
 		return nil
 	})
 	if err != nil {
