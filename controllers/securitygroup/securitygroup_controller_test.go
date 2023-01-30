@@ -337,6 +337,7 @@ func TestReconcileKopsControlPlane(t *testing.T) {
 		input           *securitygroupv1alpha1.SecurityGroup
 		k8sObjects      []client.Object
 		isErrorExpected bool
+		validateOutput  func(sg securitygroupv1alpha1.SecurityGroup, crosssg *crossec2v1beta1.SecurityGroup) bool
 	}{
 		{
 			description: "should create a Crossplane SecurityGroup",
@@ -382,6 +383,41 @@ func TestReconcileKopsControlPlane(t *testing.T) {
 				kmp, cluster,
 			},
 			isErrorExpected: true,
+		},
+		{
+			description: "should add the pause annotation in the CSG when the WSG has the pause annotation",
+			input: &securitygroupv1alpha1.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-security-group",
+					Annotations: map[string]string{
+						AnnotationKeyReconciliationPaused: "true",
+					},
+				},
+				Spec: securitygroupv1alpha1.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha1.IngressRule{
+						{
+							IPProtocol: "TCP",
+							FromPort:   40000,
+							ToPort:     60000,
+							AllowedCIDRBlocks: []string{
+								"0.0.0.0/0",
+							},
+						},
+					},
+					InfrastructureRef: &corev1.ObjectReference{
+						APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+						Kind:       "KopsControlPlane",
+						Name:       "test-cluster",
+						Namespace:  metav1.NamespaceDefault,
+					},
+				},
+			},
+			k8sObjects: []client.Object{
+				kmp, cluster, csg,
+			},
+			validateOutput: func(sg securitygroupv1alpha1.SecurityGroup, crosssg *crossec2v1beta1.SecurityGroup) bool {
+				return crosssg.GetAnnotations()[AnnotationKeyReconciliationPaused] == "true"
+			},
 		},
 	}
 	RegisterFailHandler(Fail)
@@ -448,7 +484,9 @@ func TestReconcileKopsControlPlane(t *testing.T) {
 				err = fakeClient.Get(ctx, key, crosssg)
 				g.Expect(err).To(BeNil())
 				g.Expect(crosssg).NotTo(BeNil())
-
+				if tc.validateOutput != nil {
+					g.Expect(tc.validateOutput(*sg, crosssg)).To(BeTrue())
+				}
 			} else {
 				g.Expect(err).ToNot(BeNil())
 			}

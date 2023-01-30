@@ -3,6 +3,7 @@ package crossplane
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"testing"
 
 	wildlifecrossec2v1alphav1 "github.com/topfreegames/crossplane-provider-aws/apis/ec2/manualv1alpha1"
@@ -1305,6 +1306,9 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 			wildlifeSecurityGroup: &securitygroupv1alpha1.SecurityGroup{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-sg",
+					Annotations: map[string]string{
+						securitygroupv1alpha1.ReasonReconcilePaused: "true",
+					},
 				},
 				Spec: securitygroupv1alpha1.SecurityGroupSpec{
 					IngressRules: []securitygroupv1alpha1.IngressRule{
@@ -1332,6 +1336,11 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 					return false
 				}
 				if csg.Name != "test-sg" {
+					return false
+				}
+				if !reflect.DeepEqual(csg.Annotations, map[string]string{
+					securitygroupv1alpha1.ReasonReconcilePaused: "true",
+				}) {
 					return false
 				}
 				return true

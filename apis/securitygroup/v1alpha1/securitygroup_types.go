@@ -39,6 +39,9 @@ const (
 
 	// SecurityGroupAttachmentFailedReason (Severity=Error) indicates that the SecurityGroup couldn´t be attached in the InfrastructureRef.
 	SecurityGroupAttachmentFailedReason = "SecurityGroupAttachmentReconciliationFailed"
+
+	// SecurityGroupAttachmentFailedReason (Severity=Normal) indicates that the reconciliation for the SecurityGroup is paused.
+	ReasonReconcilePaused = "ReconcilePaused"
 )
 
 type IngressRule struct {

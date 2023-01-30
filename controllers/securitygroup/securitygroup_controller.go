@@ -55,7 +55,11 @@ var (
 	ErrSecurityGroupNotAvailable = errors.New("security group not available")
 )
 
-const securityGroupFinalizer = "securitygroup.wildlife.infrastructure.io"
+const (
+	securityGroupFinalizer = "securitygroup.wildlife.infrastructure.io"
+
+	AnnotationKeyReconciliationPaused = "crossplane.io/paused"
+)
 
 // SecurityGroupReconciler reconciles a SecurityGroup object
 type SecurityGroupReconciler struct {
@@ -226,6 +230,12 @@ func (r *SecurityGroupReconciler) reconcileKopsControlPlane(
 		return fmt.Errorf("error reconciling crossplane securitygroup: %w", err)
 	}
 
+	if sg.GetAnnotations()[AnnotationKeyReconciliationPaused] == "true" {
+		r.log.Info("Reconciliation is paused via the pause annotation", "annotation", AnnotationKeyReconciliationPaused, "value", "true")
+		r.Recorder.Eventf(sg, corev1.EventTypeNormal, securitygroupv1alpha1.ReasonReconcilePaused, "Reconciliation is paused via the pause annotation")
+		return nil
+	}
+
 	err = r.Client.Get(ctx, client.ObjectKeyFromObject(csg), csg)
 	if err != nil {
 		conditions.MarkFalse(sg,
@@ -319,6 +329,12 @@ func (r *SecurityGroupReconciler) reconcileKopsMachinePool(
 			err.Error(),
 		)
 		return fmt.Errorf("error creating crossplane securitygroup: %w", err)
+	}
+
+	if sg.GetAnnotations()[AnnotationKeyReconciliationPaused] == "true" {
+		r.log.Info("Reconciliation is paused via the pause annotation", "annotation", AnnotationKeyReconciliationPaused, "value", "true")
+		r.Recorder.Eventf(sg, corev1.EventTypeNormal, securitygroupv1alpha1.ReasonReconcilePaused, "Reconciliation is paused via the pause annotation")
+		return nil
 	}
 
 	err = r.Client.Get(ctx, client.ObjectKeyFromObject(csg), csg)
