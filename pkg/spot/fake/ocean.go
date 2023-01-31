@@ -3,23 +3,23 @@ package fake
 import (
 	"context"
 
-	oceanAws "github.com/spotinst/spotinst-sdk-go/service/ocean/providers/aws"
+	oceanaws "github.com/spotinst/spotinst-sdk-go/service/ocean/providers/aws"
 )
 
 type MockOceanCloudProviderAWS struct {
-	MockListClusters     func(ctx context.Context, listClusterInput *oceanAws.ListClustersInput) (*oceanAws.ListClustersOutput, error)
-	MockListLaunchSpecs  func(ctx context.Context, listLaunchSpecsInput *oceanAws.ListLaunchSpecsInput) (*oceanAws.ListLaunchSpecsOutput, error)
-	MockUpdateLaunchSpec func(ctx context.Context, updateLaunchSpecInput *oceanAws.UpdateLaunchSpecInput) (*oceanAws.UpdateLaunchSpecOutput, error)
+	MockListClusters     func(ctx context.Context, listClusterInput *oceanaws.ListClustersInput) (*oceanaws.ListClustersOutput, error)
+	MockListLaunchSpecs  func(ctx context.Context, listLaunchSpecsInput *oceanaws.ListLaunchSpecsInput) (*oceanaws.ListLaunchSpecsOutput, error)
+	MockUpdateLaunchSpec func(ctx context.Context, updateLaunchSpecInput *oceanaws.UpdateLaunchSpecInput) (*oceanaws.UpdateLaunchSpecOutput, error)
 }
 
-func (m *MockOceanCloudProviderAWS) ListClusters(ctx context.Context, listClusterInput *oceanAws.ListClustersInput) (*oceanAws.ListClustersOutput, error) {
+func (m *MockOceanCloudProviderAWS) ListClusters(ctx context.Context, listClusterInput *oceanaws.ListClustersInput) (*oceanaws.ListClustersOutput, error) {
 	return m.MockListClusters(ctx, listClusterInput)
 }
 
-func (m *MockOceanCloudProviderAWS) ListLaunchSpecs(ctx context.Context, listLaunchSpecsInput *oceanAws.ListLaunchSpecsInput) (*oceanAws.ListLaunchSpecsOutput, error) {
+func (m *MockOceanCloudProviderAWS) ListLaunchSpecs(ctx context.Context, listLaunchSpecsInput *oceanaws.ListLaunchSpecsInput) (*oceanaws.ListLaunchSpecsOutput, error) {
 	return m.MockListLaunchSpecs(ctx, listLaunchSpecsInput)
 }
 
-func (m *MockOceanCloudProviderAWS) UpdateLaunchSpec(ctx context.Context, updateLaunchSpecInput *oceanAws.UpdateLaunchSpecInput) (*oceanAws.UpdateLaunchSpecOutput, error) {
+func (m *MockOceanCloudProviderAWS) UpdateLaunchSpec(ctx context.Context, updateLaunchSpecInput *oceanaws.UpdateLaunchSpecInput) (*oceanaws.UpdateLaunchSpecOutput, error) {
 	return m.MockUpdateLaunchSpec(ctx, updateLaunchSpecInput)
 }

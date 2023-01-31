@@ -7,7 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	oceanAws "github.com/spotinst/spotinst-sdk-go/service/ocean/providers/aws"
+	oceanaws "github.com/spotinst/spotinst-sdk-go/service/ocean/providers/aws"
 	fakeocean "github.com/topfreegames/provider-crossplane/pkg/spot/fake"
 )
 
@@ -15,12 +15,12 @@ func TestListVNGsFromClusterName(t *testing.T) {
 	testCases := []struct {
 		description  string
 		clusterName  string
-		expectedVNGs []*oceanAws.LaunchSpec
+		expectedVNGs []*oceanaws.LaunchSpec
 	}{
 		{
 			description: "Should return all VNGs giving a cluster name",
 			clusterName: "test",
-			expectedVNGs: []*oceanAws.LaunchSpec{
+			expectedVNGs: []*oceanaws.LaunchSpec{
 				{
 					ID:      aws.String("1"),
 					Name:    aws.String("vng-test"),
@@ -38,9 +38,9 @@ func TestListVNGsFromClusterName(t *testing.T) {
 
 			fakeOceanClient := &fakeocean.MockOceanCloudProviderAWS{}
 
-			fakeOceanClient.MockListClusters = func(ctx context.Context, listClusterInput *oceanAws.ListClustersInput) (*oceanAws.ListClustersOutput, error) {
-				return &oceanAws.ListClustersOutput{
-					Clusters: []*oceanAws.Cluster{
+			fakeOceanClient.MockListClusters = func(ctx context.Context, listClusterInput *oceanaws.ListClustersInput) (*oceanaws.ListClustersOutput, error) {
+				return &oceanaws.ListClustersOutput{
+					Clusters: []*oceanaws.Cluster{
 						{
 							ID:                  aws.String("o-1"),
 							ControllerClusterID: aws.String("test"),
@@ -49,9 +49,9 @@ func TestListVNGsFromClusterName(t *testing.T) {
 				}, nil
 			}
 
-			fakeOceanClient.MockListLaunchSpecs = func(ctx context.Context, listLaunchSpecsInput *oceanAws.ListLaunchSpecsInput) (*oceanAws.ListLaunchSpecsOutput, error) {
-				return &oceanAws.ListLaunchSpecsOutput{
-					LaunchSpecs: []*oceanAws.LaunchSpec{
+			fakeOceanClient.MockListLaunchSpecs = func(ctx context.Context, listLaunchSpecsInput *oceanaws.ListLaunchSpecsInput) (*oceanaws.ListLaunchSpecsOutput, error) {
+				return &oceanaws.ListLaunchSpecsOutput{
+					LaunchSpecs: []*oceanaws.LaunchSpec{
 						{
 							ID:      aws.String("1"),
 							Name:    aws.String("vng-test"),

@@ -31,7 +31,7 @@ import (
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
 	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
 
-	oceanAws "github.com/spotinst/spotinst-sdk-go/service/ocean/providers/aws"
+	oceanaws "github.com/spotinst/spotinst-sdk-go/service/ocean/providers/aws"
 	"github.com/topfreegames/provider-crossplane/pkg/spot"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -373,8 +373,8 @@ func (r *SecurityGroupReconciler) reconcileKopsMachinePool(
 
 	if len(kmp.Spec.SpotInstOptions) != 0 {
 		// TODO: spot attach
-		ocenClient := r.NewOceanCloudProviderAWSFactory()
-		launchSpecs, err := spot.ListVNGsFromClusterName(ctx, ocenClient, kmp.Spec.ClusterName)
+		oceanClient := r.NewOceanCloudProviderAWSFactory()
+		launchSpecs, err := spot.ListVNGsFromClusterName(ctx, oceanClient, kmp.Spec.ClusterName)
 		if err != nil {
 			return fmt.Errorf("error retrieving vngs from clusterName: %w", err)
 		}
@@ -391,7 +391,7 @@ func (r *SecurityGroupReconciler) reconcileKopsMachinePool(
 					vng.CreatedAt = nil
 					vng.OceanID = nil
 					vng.UpdatedAt = nil
-					_, err := ocenClient.UpdateLaunchSpec(ctx, &oceanAws.UpdateLaunchSpecInput{
+					_, err := oceanClient.UpdateLaunchSpec(ctx, &oceanaws.UpdateLaunchSpecInput{
 						LaunchSpec: vng,
 					})
 					return fmt.Errorf("error updating ocean cluster launch spec: %w", err)
