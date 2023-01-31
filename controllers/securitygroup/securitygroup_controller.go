@@ -31,9 +31,8 @@ import (
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
 	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
 
-	"github.com/spotinst/spotinst-sdk-go/service/ocean"
 	oceanAws "github.com/spotinst/spotinst-sdk-go/service/ocean/providers/aws"
-	"github.com/spotinst/spotinst-sdk-go/spotinst/session"
+	"github.com/topfreegames/provider-crossplane/pkg/spot"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -69,11 +68,12 @@ const (
 // SecurityGroupReconciler reconciles a SecurityGroup object
 type SecurityGroupReconciler struct {
 	client.Client
-	Scheme                      *runtime.Scheme
-	log                         logr.Logger
-	Recorder                    record.EventRecorder
-	NewEC2ClientFactory         func(cfg aws.Config) ec2.EC2Client
-	NewAutoScalingClientFactory func(cfg aws.Config) autoscaling.AutoScalingClient
+	Scheme                          *runtime.Scheme
+	log                             logr.Logger
+	Recorder                        record.EventRecorder
+	NewEC2ClientFactory             func(cfg aws.Config) ec2.EC2Client
+	NewAutoScalingClientFactory     func(cfg aws.Config) autoscaling.AutoScalingClient
+	NewOceanCloudProviderAWSFactory func() spot.OceanClient
 }
 
 //+kubebuilder:rbac:groups=ec2.aws.wildlife.io,resources=securitygroups,verbs=get;list;watch;create;update;patch;delete
@@ -373,39 +373,28 @@ func (r *SecurityGroupReconciler) reconcileKopsMachinePool(
 
 	if len(kmp.Spec.SpotInstOptions) != 0 {
 		// TODO: spot attach
-		sess := session.New()
-		svc := ocean.New(sess)
-
-		listClusters, err := svc.CloudProviderAWS().ListClusters(ctx, &oceanAws.ListClustersInput{})
+		ocenClient := r.NewOceanCloudProviderAWSFactory()
+		launchSpecs, err := spot.ListVNGsFromClusterName(ctx, ocenClient, kmp.Spec.ClusterName)
 		if err != nil {
-			return fmt.Errorf("error retrieving ocean clusters: %w", err)
+			return fmt.Errorf("error retrieving vngs from clusterName: %w", err)
 		}
-		for _, cluster := range listClusters.Clusters {
-			if *cluster.ControllerClusterID == kmp.Spec.ClusterName {
-				listLaunchSpecs, err := svc.CloudProviderAWS().ListLaunchSpecs(ctx, &oceanAws.ListLaunchSpecsInput{
-					OceanID: cluster.ID,
-				})
-				if err != nil {
-					return fmt.Errorf("error retrieving ocean cluster launch specs: %w", err)
-				}
-				for _, vng := range listLaunchSpecs.LaunchSpecs {
-					for _, labels := range vng.Labels {
-						if *labels.Key == "kops.k8s.io/instance-group-name" && *labels.Value == kmp.Name {
-							securityGroupsIDs := vng.SecurityGroupIDs
-							if slices.Contains(securityGroupsIDs, csg.Status.AtProvider.SecurityGroupID) {
-								continue
-							}
-							securityGroupsIDs = append(securityGroupsIDs, csg.Status.AtProvider.SecurityGroupID)
-							vng.SetSecurityGroupIDs(securityGroupsIDs)
-							vng.CreatedAt = nil
-							vng.OceanID = nil
-							vng.UpdatedAt = nil
-							_, err := svc.CloudProviderAWS().UpdateLaunchSpec(ctx, &oceanAws.UpdateLaunchSpecInput{
-								LaunchSpec: vng,
-							})
-							return fmt.Errorf("error updating ocean cluster launch spec: %w", err)
-						}
+
+		for _, vng := range launchSpecs {
+			for _, labels := range vng.Labels {
+				if *labels.Key == "kops.k8s.io/instance-group-name" && *labels.Value == kmp.Name {
+					securityGroupsIDs := vng.SecurityGroupIDs
+					if slices.Contains(securityGroupsIDs, csg.Status.AtProvider.SecurityGroupID) {
+						continue
 					}
+					securityGroupsIDs = append(securityGroupsIDs, csg.Status.AtProvider.SecurityGroupID)
+					vng.SetSecurityGroupIDs(securityGroupsIDs)
+					vng.CreatedAt = nil
+					vng.OceanID = nil
+					vng.UpdatedAt = nil
+					_, err := ocenClient.UpdateLaunchSpec(ctx, &oceanAws.UpdateLaunchSpecInput{
+						LaunchSpec: vng,
+					})
+					return fmt.Errorf("error updating ocean cluster launch spec: %w", err)
 				}
 			}
 		}

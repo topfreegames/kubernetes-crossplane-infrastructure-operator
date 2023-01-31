@@ -32,6 +32,7 @@ import (
 	sgcontroller "github.com/topfreegames/provider-crossplane/controllers/securitygroup"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/autoscaling"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
+	"github.com/topfreegames/provider-crossplane/pkg/spot"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -108,11 +109,12 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&sgcontroller.SecurityGroupReconciler{
-		Client:                      mgr.GetClient(),
-		Scheme:                      mgr.GetScheme(),
-		Recorder:                    mgr.GetEventRecorderFor("securityGroup-controller"),
-		NewEC2ClientFactory:         ec2.NewEC2Client,
-		NewAutoScalingClientFactory: autoscaling.NewAutoScalingClient,
+		Client:                          mgr.GetClient(),
+		Scheme:                          mgr.GetScheme(),
+		Recorder:                        mgr.GetEventRecorderFor("securityGroup-controller"),
+		NewEC2ClientFactory:             ec2.NewEC2Client,
+		NewAutoScalingClientFactory:     autoscaling.NewAutoScalingClient,
+		NewOceanCloudProviderAWSFactory: spot.NewOceanCloudProviderAWS,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityGroup")
 		os.Exit(1)
