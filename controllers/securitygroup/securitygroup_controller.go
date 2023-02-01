@@ -277,17 +277,31 @@ func (r *SecurityGroupReconciler) reconcileKopsControlPlane(
 
 	var attachErr error
 	for _, kmp := range kmps {
-		asgName, err := kops.GetAutoScalingGroupNameFromKopsMachinePool(kmp)
-		if err != nil {
-			attachErr = multierror.Append(attachErr, err)
-			continue
-		}
+		if len(kmp.Spec.SpotInstOptions) != 0 {
+			oceanClient := r.NewOceanCloudProviderAWSFactory()
+			launchSpecs, err := spot.ListVNGsFromClusterName(ctx, oceanClient, kmp.Spec.ClusterName)
+			if err != nil {
+				return fmt.Errorf("error retrieving vngs from clusterName: %w", err)
+			}
+			err = r.attachSGToVNG(ctx, oceanClient, launchSpecs, kmp.Name, csg)
+			if err != nil {
+				r.Recorder.Eventf(sg, corev1.EventTypeWarning, securitygroupv1alpha1.SecurityGroupAttachmentFailedReason, err.Error())
+				attachErr = multierror.Append(attachErr, err)
+				continue
+			}
+		} else {
+			asgName, err := kops.GetAutoScalingGroupNameFromKopsMachinePool(kmp)
+			if err != nil {
+				attachErr = multierror.Append(attachErr, err)
+				continue
+			}
 
-		err = r.attachSGToASG(ctx, ec2Client, asgClient, *asgName, csg.Status.AtProvider.SecurityGroupID)
-		if err != nil {
-			r.Recorder.Eventf(sg, corev1.EventTypeWarning, securitygroupv1alpha1.SecurityGroupAttachmentFailedReason, err.Error())
-			attachErr = multierror.Append(attachErr, err)
-			continue
+			err = r.attachSGToASG(ctx, ec2Client, asgClient, *asgName, csg.Status.AtProvider.SecurityGroupID)
+			if err != nil {
+				r.Recorder.Eventf(sg, corev1.EventTypeWarning, securitygroupv1alpha1.SecurityGroupAttachmentFailedReason, err.Error())
+				attachErr = multierror.Append(attachErr, err)
+				continue
+			}
 		}
 	}
 
@@ -372,31 +386,20 @@ func (r *SecurityGroupReconciler) reconcileKopsMachinePool(
 	}
 
 	if len(kmp.Spec.SpotInstOptions) != 0 {
-		// TODO: spot attach
 		oceanClient := r.NewOceanCloudProviderAWSFactory()
 		launchSpecs, err := spot.ListVNGsFromClusterName(ctx, oceanClient, kmp.Spec.ClusterName)
 		if err != nil {
 			return fmt.Errorf("error retrieving vngs from clusterName: %w", err)
 		}
-
-		for _, vng := range launchSpecs {
-			for _, labels := range vng.Labels {
-				if *labels.Key == "kops.k8s.io/instance-group-name" && *labels.Value == kmp.Name {
-					securityGroupsIDs := vng.SecurityGroupIDs
-					if slices.Contains(securityGroupsIDs, csg.Status.AtProvider.SecurityGroupID) {
-						continue
-					}
-					securityGroupsIDs = append(securityGroupsIDs, csg.Status.AtProvider.SecurityGroupID)
-					vng.SetSecurityGroupIDs(securityGroupsIDs)
-					vng.CreatedAt = nil
-					vng.OceanID = nil
-					vng.UpdatedAt = nil
-					_, err := oceanClient.UpdateLaunchSpec(ctx, &oceanaws.UpdateLaunchSpecInput{
-						LaunchSpec: vng,
-					})
-					return fmt.Errorf("error updating ocean cluster launch spec: %w", err)
-				}
-			}
+		err = r.attachSGToVNG(ctx, oceanClient, launchSpecs, kmp.Name, csg)
+		if err != nil {
+			conditions.MarkFalse(sg,
+				securitygroupv1alpha1.SecurityGroupAttachedCondition,
+				securitygroupv1alpha1.SecurityGroupAttachmentFailedReason,
+				clusterv1beta1.ConditionSeverityError,
+				err.Error(),
+			)
+			return err
 		}
 
 	} else {
@@ -459,6 +462,29 @@ func (r *SecurityGroupReconciler) getAwsAccountInfo(ctx context.Context, kcp *kc
 	}
 
 	return vpcId, region, cfg, ec2Client, nil
+}
+
+func (r *SecurityGroupReconciler) attachSGToVNG(ctx context.Context, oceanClient spot.OceanClient, launchSpecs []*oceanaws.LaunchSpec, kmpName string, csg *crossec2v1beta1.SecurityGroup) error {
+	for _, vng := range launchSpecs {
+		for _, labels := range vng.Labels {
+			if *labels.Key == "kops.k8s.io/instance-group-name" && *labels.Value == kmpName {
+				securityGroupsIDs := vng.SecurityGroupIDs
+				if slices.Contains(securityGroupsIDs, csg.Status.AtProvider.SecurityGroupID) {
+					continue
+				}
+				securityGroupsIDs = append(securityGroupsIDs, csg.Status.AtProvider.SecurityGroupID)
+				vng.SetSecurityGroupIDs(securityGroupsIDs)
+				vng.CreatedAt = nil
+				vng.OceanID = nil
+				vng.UpdatedAt = nil
+				_, err := oceanClient.UpdateLaunchSpec(ctx, &oceanaws.UpdateLaunchSpecInput{
+					LaunchSpec: vng,
+				})
+				return fmt.Errorf("error updating ocean cluster launch spec: %w", err)
+			}
+		}
+	}
+	return nil
 }
 
 func (r *SecurityGroupReconciler) attachSGToASG(ctx context.Context, ec2Client ec2.EC2Client, asgClient autoscaling.AutoScalingClient, asgName, sgId string) error {
