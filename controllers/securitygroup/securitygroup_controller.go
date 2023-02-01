@@ -470,7 +470,7 @@ func (r *SecurityGroupReconciler) attachSGToVNG(ctx context.Context, oceanClient
 			if *labels.Key == "kops.k8s.io/instance-group-name" && *labels.Value == kmpName {
 				securityGroupsIDs := vng.SecurityGroupIDs
 				if slices.Contains(securityGroupsIDs, csg.Status.AtProvider.SecurityGroupID) {
-					continue
+					return nil
 				}
 				securityGroupsIDs = append(securityGroupsIDs, csg.Status.AtProvider.SecurityGroupID)
 				vng.SetSecurityGroupIDs(securityGroupsIDs)
@@ -480,11 +480,14 @@ func (r *SecurityGroupReconciler) attachSGToVNG(ctx context.Context, oceanClient
 				_, err := oceanClient.UpdateLaunchSpec(ctx, &oceanaws.UpdateLaunchSpecInput{
 					LaunchSpec: vng,
 				})
-				return fmt.Errorf("error updating ocean cluster launch spec: %w", err)
+				if err != nil {
+					return fmt.Errorf("error updating ocean cluster launch spec: %w", err)
+				}
+				return nil
 			}
 		}
 	}
-	return nil
+	return fmt.Errorf("error no vng found with instance group name: %s", kmpName)
 }
 
 func (r *SecurityGroupReconciler) attachSGToASG(ctx context.Context, ec2Client ec2.EC2Client, asgClient autoscaling.AutoScalingClient, asgName, sgId string) error {
