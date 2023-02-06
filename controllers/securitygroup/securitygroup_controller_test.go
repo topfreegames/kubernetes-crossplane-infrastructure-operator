@@ -1356,13 +1356,30 @@ func TestDeleteSGFromASG(t *testing.T) {
 }
 
 func TestDeleteSGFromKopsControlPlaneASGs(t *testing.T) {
-	testCases := []map[string]interface{}{
+	testCases := []struct {
+		description     string
+		k8sObjects      []client.Object
+		kcp             *kcontrolplanev1alpha1.KopsControlPlane
+		csg             *crossec2v1beta1.SecurityGroup
+		launchSpecs     []*oceanaws.LaunchSpec
+		isErrorExpected bool
+		updateMockError bool
+	}{
 		{
-			"description": "should delete kops machine pool SecurityGroup to the ASG",
-			"k8sObjects": []client.Object{
+			description: "should detach kops machine pool SecurityGroup from ASG",
+			kcp:         kcp,
+			k8sObjects: []client.Object{
 				kmp, cluster, kcp, sg, csg,
 			},
-			"isErrorExpected": false,
+			isErrorExpected: false,
+		},
+		{
+			description: "should detach kops machine pool SecurityGroup from VNG",
+			kcp:         kcp,
+			k8sObjects: []client.Object{
+				spotKMP, cluster, kcp, sg, csg,
+			},
+			isErrorExpected: false,
 		},
 	}
 	RegisterFailHandler(Fail)
@@ -1384,12 +1401,10 @@ func TestDeleteSGFromKopsControlPlaneASGs(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
-		t.Run(tc["description"].(string), func(t *testing.T) {
+		t.Run(tc.description, func(t *testing.T) {
 			ctx := context.TODO()
 
-			k8sObjects := tc["k8sObjects"].([]client.Object)
-
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(k8sObjects...).Build()
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
 			fakeEC2Client := &fakeec2.MockEC2Client{}
 			fakeEC2Client.MockDescribeVpcs = func(ctx context.Context, input *awsec2.DescribeVpcsInput, opts []func(*awsec2.Options)) (*awsec2.DescribeVpcsOutput, error) {
 				return &awsec2.DescribeVpcsOutput{
@@ -1447,6 +1462,39 @@ func TestDeleteSGFromKopsControlPlaneASGs(t *testing.T) {
 					},
 				}, nil
 			}
+			fakeOceanClient := &fakeocean.MockOceanCloudProviderAWS{}
+
+			fakeOceanClient.MockListClusters = func(ctx context.Context, listClusterInput *oceanaws.ListClustersInput) (*oceanaws.ListClustersOutput, error) {
+				return &oceanaws.ListClustersOutput{
+					Clusters: []*oceanaws.Cluster{
+						{
+							ID:                  aws.String("o-1"),
+							ControllerClusterID: aws.String("test-cluster"),
+						},
+					},
+				}, nil
+			}
+			fakeOceanClient.MockListLaunchSpecs = func(ctx context.Context, listLaunchSpecsInput *oceanaws.ListLaunchSpecsInput) (*oceanaws.ListLaunchSpecsOutput, error) {
+				return &oceanaws.ListLaunchSpecsOutput{
+					LaunchSpecs: []*oceanaws.LaunchSpec{
+						{
+							ID:      aws.String("1"),
+							Name:    aws.String("vng-test"),
+							OceanID: aws.String("o-1"),
+							Labels: []*oceanaws.Label{
+								{
+									Key:   aws.String("kops.k8s.io/instance-group-name"),
+									Value: aws.String("test-kops-machine-pool"),
+								},
+							},
+						},
+					},
+				}, nil
+			}
+			fakeOceanClient.MockUpdateLaunchSpec = func(ctx context.Context, updateLaunchSpecInput *oceanaws.UpdateLaunchSpecInput) (*oceanaws.UpdateLaunchSpecOutput, error) {
+				return &oceanaws.UpdateLaunchSpecOutput{}, nil
+			}
+
 			reconciler := &SecurityGroupReconciler{
 				Client: fakeClient,
 				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
@@ -1455,10 +1503,13 @@ func TestDeleteSGFromKopsControlPlaneASGs(t *testing.T) {
 				NewAutoScalingClientFactory: func(cfg aws.Config) autoscaling.AutoScalingClient {
 					return fakeASGClient
 				},
+				NewOceanCloudProviderAWSFactory: func() spot.OceanClient {
+					return fakeOceanClient
+				},
 			}
 
-			err = reconciler.deleteSGFromKopsControlPlaneASGs(ctx, sg, csg, kcp)
-			if !tc["isErrorExpected"].(bool) {
+			err = reconciler.deleteSGFromKopsControlPlaneASGs(ctx, sg, csg, tc.kcp)
+			if !tc.isErrorExpected {
 				g.Expect(err).To(BeNil())
 
 			} else {
@@ -1469,13 +1520,40 @@ func TestDeleteSGFromKopsControlPlaneASGs(t *testing.T) {
 }
 
 func TestDeleteSGFromKopsMachinePoolASG(t *testing.T) {
-	testCases := []map[string]interface{}{
+	testCases := []struct {
+		description     string
+		k8sObjects      []client.Object
+		kmp             *kinfrastructurev1alpha1.KopsMachinePool
+		csg             *crossec2v1beta1.SecurityGroup
+		launchSpecs     []*oceanaws.LaunchSpec
+		isErrorExpected bool
+		updateMockError bool
+	}{
 		{
-			"description": "should delete kops machine pool SecurityGroup to the ASG",
-			"k8sObjects": []client.Object{
-				kmp, cluster, kcp, sg, csg,
+			description: "should detach SG from ASG",
+			kmp:         kmp,
+			csg:         csg,
+			k8sObjects: []client.Object{
+				cluster,
+				kmp,
+				csg,
+				sg,
+				kcp,
 			},
-			"isErrorExpected": false,
+			isErrorExpected: false,
+		},
+		{
+			description: "should detach SG from VNG",
+			kmp:         spotKMP,
+			csg:         csg,
+			k8sObjects: []client.Object{
+				cluster,
+				spotKMP,
+				csg,
+				sg,
+				kcp,
+			},
+			isErrorExpected: false,
 		},
 	}
 	RegisterFailHandler(Fail)
@@ -1497,12 +1575,10 @@ func TestDeleteSGFromKopsMachinePoolASG(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
-		t.Run(tc["description"].(string), func(t *testing.T) {
+		t.Run(tc.description, func(t *testing.T) {
 			ctx := context.TODO()
 
-			k8sObjects := tc["k8sObjects"].([]client.Object)
-
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(k8sObjects...).Build()
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
 			fakeEC2Client := &fakeec2.MockEC2Client{}
 			fakeEC2Client.MockDescribeVpcs = func(ctx context.Context, input *awsec2.DescribeVpcsInput, opts []func(*awsec2.Options)) (*awsec2.DescribeVpcsOutput, error) {
 				return &awsec2.DescribeVpcsOutput{
@@ -1560,6 +1636,39 @@ func TestDeleteSGFromKopsMachinePoolASG(t *testing.T) {
 					},
 				}, nil
 			}
+			fakeOceanClient := &fakeocean.MockOceanCloudProviderAWS{}
+
+			fakeOceanClient.MockListClusters = func(ctx context.Context, listClusterInput *oceanaws.ListClustersInput) (*oceanaws.ListClustersOutput, error) {
+				return &oceanaws.ListClustersOutput{
+					Clusters: []*oceanaws.Cluster{
+						{
+							ID:                  aws.String("o-1"),
+							ControllerClusterID: aws.String("test-cluster"),
+						},
+					},
+				}, nil
+			}
+			fakeOceanClient.MockListLaunchSpecs = func(ctx context.Context, listLaunchSpecsInput *oceanaws.ListLaunchSpecsInput) (*oceanaws.ListLaunchSpecsOutput, error) {
+				return &oceanaws.ListLaunchSpecsOutput{
+					LaunchSpecs: []*oceanaws.LaunchSpec{
+						{
+							ID:      aws.String("1"),
+							Name:    aws.String("vng-test"),
+							OceanID: aws.String("o-1"),
+							Labels: []*oceanaws.Label{
+								{
+									Key:   aws.String("kops.k8s.io/instance-group-name"),
+									Value: aws.String("test-kops-machine-pool"),
+								},
+							},
+						},
+					},
+				}, nil
+			}
+			fakeOceanClient.MockUpdateLaunchSpec = func(ctx context.Context, updateLaunchSpecInput *oceanaws.UpdateLaunchSpecInput) (*oceanaws.UpdateLaunchSpecOutput, error) {
+				return &oceanaws.UpdateLaunchSpecOutput{}, nil
+			}
+
 			reconciler := &SecurityGroupReconciler{
 				Client: fakeClient,
 				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
@@ -1568,14 +1677,139 @@ func TestDeleteSGFromKopsMachinePoolASG(t *testing.T) {
 				NewAutoScalingClientFactory: func(cfg aws.Config) autoscaling.AutoScalingClient {
 					return fakeASGClient
 				},
+				NewOceanCloudProviderAWSFactory: func() spot.OceanClient {
+					return fakeOceanClient
+				},
 			}
 
-			err = reconciler.deleteSGFromKopsMachinePoolASG(ctx, sg, csg, kmp)
-			if !tc["isErrorExpected"].(bool) {
+			err = reconciler.deleteSGFromKopsMachinePoolASG(ctx, sg, tc.csg, tc.kmp)
+			if !tc.isErrorExpected {
 				g.Expect(err).To(BeNil())
 
 			} else {
 				g.Expect(err).ToNot(BeNil())
+			}
+		})
+	}
+}
+
+func TestDettachSGFromVNG(t *testing.T) {
+	testCases := []struct {
+		description     string
+		kmp             *kinfrastructurev1alpha1.KopsMachinePool
+		csg             *crossec2v1beta1.SecurityGroup
+		launchSpecs     []*oceanaws.LaunchSpec
+		isErrorExpected bool
+		updateMockError bool
+	}{
+		{
+			description: "should detach SG-1 from VNG",
+			kmp:         spotKMP,
+			csg:         csg,
+			launchSpecs: []*oceanaws.LaunchSpec{
+				{
+					ID:   aws.String("1"),
+					Name: aws.String("test-vng"),
+					Labels: []*oceanaws.Label{
+						{
+							Key:   aws.String("kops.k8s.io/instance-group-name"),
+							Value: aws.String(spotKMP.Name),
+						},
+					},
+					SecurityGroupIDs: []string{
+						"sg-1",
+						"sg-2",
+					},
+				},
+			},
+			isErrorExpected: false,
+		},
+		{
+			description: "should return nil if sg is not attached",
+			kmp:         spotKMP,
+			csg:         csg,
+			launchSpecs: []*oceanaws.LaunchSpec{
+				{
+					ID:   aws.String("1"),
+					Name: aws.String("test-vng"),
+					Labels: []*oceanaws.Label{
+						{
+							Key:   aws.String("kops.k8s.io/instance-group-name"),
+							Value: aws.String(spotKMP.Name),
+						},
+					},
+					SecurityGroupIDs: []string{
+						"sg-2",
+					},
+				},
+			},
+			isErrorExpected: false,
+		},
+		{
+			description:     "should fail if cant match vng with kmp name",
+			kmp:             spotKMP,
+			csg:             csg,
+			launchSpecs:     []*oceanaws.LaunchSpec{},
+			isErrorExpected: true,
+		},
+		{
+			description: "should fail if update return an error",
+			kmp:         spotKMP,
+			csg:         csg,
+			launchSpecs: []*oceanaws.LaunchSpec{
+				{
+					ID:   aws.String("1"),
+					Name: aws.String("test-vng"),
+					Labels: []*oceanaws.Label{
+						{
+							Key:   aws.String("kops.k8s.io/instance-group-name"),
+							Value: aws.String(spotKMP.Name),
+						},
+					},
+					SecurityGroupIDs: []string{
+						"sg-1",
+						"sg-2",
+					},
+				},
+			},
+			updateMockError: true,
+			isErrorExpected: true,
+		},
+	}
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	err := crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			ctx := context.TODO()
+
+			fakeOceanClient := &fakeocean.MockOceanCloudProviderAWS{}
+			if tc.updateMockError {
+				fakeOceanClient.MockUpdateLaunchSpec = func(ctx context.Context, updateLaunchSpecInput *oceanaws.UpdateLaunchSpecInput) (*oceanaws.UpdateLaunchSpecOutput, error) {
+					return nil, fmt.Errorf("error")
+				}
+			} else {
+				fakeOceanClient.MockUpdateLaunchSpec = func(ctx context.Context, updateLaunchSpecInput *oceanaws.UpdateLaunchSpecInput) (*oceanaws.UpdateLaunchSpecOutput, error) {
+					return &oceanaws.UpdateLaunchSpecOutput{}, nil
+				}
+			}
+			reconciler := &SecurityGroupReconciler{
+				NewOceanCloudProviderAWSFactory: func() spot.OceanClient {
+					return fakeOceanClient
+				},
+			}
+
+			err = reconciler.detachSGFromVNG(ctx, fakeOceanClient, tc.launchSpecs, tc.kmp.Name, csg)
+			if tc.isErrorExpected {
+				g.Expect(err).ToNot(BeNil())
+			} else {
+				g.Expect(err).To(BeNil())
 			}
 		})
 	}

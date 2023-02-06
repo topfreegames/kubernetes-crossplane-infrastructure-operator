@@ -490,6 +490,33 @@ func (r *SecurityGroupReconciler) attachSGToVNG(ctx context.Context, oceanClient
 	return fmt.Errorf("error no vng found with instance group name: %s", kmpName)
 }
 
+func (r *SecurityGroupReconciler) detachSGFromVNG(ctx context.Context, oceanClient spot.OceanClient, launchSpecs []*oceanaws.LaunchSpec, kmpName string, csg *crossec2v1beta1.SecurityGroup) error {
+	for _, vng := range launchSpecs {
+		for _, labels := range vng.Labels {
+			if *labels.Key == "kops.k8s.io/instance-group-name" && *labels.Value == kmpName {
+				securityGroupsIDs := vng.SecurityGroupIDs
+				if !slices.Contains(securityGroupsIDs, csg.Status.AtProvider.SecurityGroupID) {
+					return nil
+				}
+				index := slices.Index(securityGroupsIDs, csg.Status.AtProvider.SecurityGroupID)
+				securityGroupsIDs = append(securityGroupsIDs[:index], securityGroupsIDs[index+1:]...)
+				vng.SetSecurityGroupIDs(securityGroupsIDs)
+				vng.CreatedAt = nil
+				vng.OceanID = nil
+				vng.UpdatedAt = nil
+				_, err := oceanClient.UpdateLaunchSpec(ctx, &oceanaws.UpdateLaunchSpecInput{
+					LaunchSpec: vng,
+				})
+				if err != nil {
+					return fmt.Errorf("error updating ocean cluster launch spec: %w", err)
+				}
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("error no vng found with instance group name: %s", kmpName)
+}
+
 func (r *SecurityGroupReconciler) attachSGToASG(ctx context.Context, ec2Client ec2.EC2Client, asgClient autoscaling.AutoScalingClient, asgName, sgId string) error {
 
 	asg, err := autoscaling.GetAutoScalingGroupByName(ctx, asgClient, asgName)
@@ -572,16 +599,29 @@ func (r *SecurityGroupReconciler) deleteSGFromKopsControlPlaneASGs(ctx context.C
 
 	var attachErr error
 	for _, kmp := range kmps {
-		asgName, err := kops.GetAutoScalingGroupNameFromKopsMachinePool(kmp)
-		if err != nil {
-			attachErr = multierror.Append(attachErr, err)
-			continue
-		}
+		if len(kmp.Spec.SpotInstOptions) != 0 {
+			oceanClient := r.NewOceanCloudProviderAWSFactory()
+			launchSpecs, err := spot.ListVNGsFromClusterName(ctx, oceanClient, kmp.Spec.ClusterName)
+			if err != nil {
+				return fmt.Errorf("error retrieving vngs from clusterName: %w", err)
+			}
+			err = r.detachSGFromVNG(ctx, oceanClient, launchSpecs, kmp.Name, csg)
+			if err != nil {
+				attachErr = multierror.Append(attachErr, err)
+				continue
+			}
+		} else {
+			asgName, err := kops.GetAutoScalingGroupNameFromKopsMachinePool(kmp)
+			if err != nil {
+				attachErr = multierror.Append(attachErr, err)
+				continue
+			}
 
-		err = r.detachSGFromASG(ctx, ec2Client, asgClient, *asgName, csg.Status.AtProvider.SecurityGroupID)
-		if err != nil {
-			attachErr = multierror.Append(attachErr, err)
-			continue
+			err = r.detachSGFromASG(ctx, ec2Client, asgClient, *asgName, csg.Status.AtProvider.SecurityGroupID)
+			if err != nil {
+				attachErr = multierror.Append(attachErr, err)
+				continue
+			}
 		}
 	}
 
@@ -602,19 +642,29 @@ func (r *SecurityGroupReconciler) deleteSGFromKopsMachinePoolASG(ctx context.Con
 		return err
 	}
 
-	_, _, cfg, ec2Client, err := r.getAwsAccountInfo(ctx, kcp)
-	if err != nil {
-		return err
+	if len(kmp.Spec.SpotInstOptions) != 0 {
+		oceanClient := r.NewOceanCloudProviderAWSFactory()
+		launchSpecs, err := spot.ListVNGsFromClusterName(ctx, oceanClient, kmp.Spec.ClusterName)
+		if err != nil {
+			return fmt.Errorf("error retrieving vngs from clusterName: %w", err)
+		}
+
+		return r.detachSGFromVNG(ctx, oceanClient, launchSpecs, kmp.Name, csg)
+
+	} else {
+		_, _, cfg, ec2Client, err := r.getAwsAccountInfo(ctx, kcp)
+		if err != nil {
+			return err
+		}
+		asgClient := r.NewAutoScalingClientFactory(cfg)
+
+		asgName, err := kops.GetAutoScalingGroupNameFromKopsMachinePool(*kmp)
+		if err != nil {
+			return err
+		}
+
+		return r.detachSGFromASG(ctx, ec2Client, asgClient, *asgName, csg.Status.AtProvider.SecurityGroupID)
 	}
-
-	asgClient := r.NewAutoScalingClientFactory(cfg)
-
-	asgName, err := kops.GetAutoScalingGroupNameFromKopsMachinePool(*kmp)
-	if err != nil {
-		return err
-	}
-
-	return r.detachSGFromASG(ctx, ec2Client, asgClient, *asgName, csg.Status.AtProvider.SecurityGroupID)
 }
 
 func (r *SecurityGroupReconciler) detachSGFromASG(ctx context.Context, ec2Client ec2.EC2Client, asgClient autoscaling.AutoScalingClient, asgName, sgId string) error {
