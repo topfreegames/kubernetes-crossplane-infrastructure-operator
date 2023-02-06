@@ -89,7 +89,7 @@ func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	sg := &securitygroupv1alpha1.SecurityGroup{}
 	if err := r.Get(ctx, req.NamespacedName, sg); err != nil {
-		return resultError, err
+		return resultError, client.IgnoreNotFound(err)
 	}
 
 	if sg.Spec.InfrastructureRef == nil {
