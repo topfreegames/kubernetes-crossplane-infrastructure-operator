@@ -30,6 +30,8 @@ require (
 	sigs.k8s.io/controller-runtime v0.13.1
 )
 
+require gopkg.in/ini.v1 v1.67.0 // indirect
+
 require (
 	cloud.google.com/go/compute v1.12.1 // indirect
 	cloud.google.com/go/compute/metadata v0.2.1 // indirect
@@ -128,6 +130,7 @@ require (
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/spf13/afero v1.9.2 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/spotinst/spotinst-sdk-go v1.334.0
 	go.opencensus.io v0.24.0 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.8.0 // indirect

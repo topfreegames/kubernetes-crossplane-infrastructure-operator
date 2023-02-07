@@ -34,6 +34,18 @@ spec:
         image: controller:latest
         name: manager
         env:
+        - name: SPOTINST_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: spotinst-credentials
+              key: token
+              optional: true
+        - name: SPOTINST_ACCOUNT
+          valueFrom:
+            secretKeyRef:
+              name: spotinst-credentials
+              key: account
+              optional: true
           - name: AWS_ACCESS_KEY_ID
             valueFrom:
               secretKeyRef:
