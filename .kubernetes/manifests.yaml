@@ -628,6 +628,18 @@ spec:
         command:
         - /manager
         env:
+        - name: SPOTINST_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: token
+              name: spotinst-credentials
+              optional: true
+        - name: SPOTINST_ACCOUNT
+          valueFrom:
+            secretKeyRef:
+              key: account
+              name: spotinst-credentials
+              optional: true
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
@@ -640,7 +652,7 @@ spec:
               name: aws-credentials
         - name: AWS_REGION
           value: us-east-1
-        image: tfgco/provider-crossplane:v0.0.9-alpha
+        image: tfgco/provider-crossplane:v0.0.10-alpha
         livenessProbe:
           httpGet:
             path: /healthz
