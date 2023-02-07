@@ -474,6 +474,7 @@ func (r *SecurityGroupReconciler) attachSGToVNG(ctx context.Context, oceanClient
 				}
 				securityGroupsIDs = append(securityGroupsIDs, csg.Status.AtProvider.SecurityGroupID)
 				vng.SetSecurityGroupIDs(securityGroupsIDs)
+				// We need to clean these values because of the spot update API
 				vng.CreatedAt = nil
 				vng.OceanID = nil
 				vng.UpdatedAt = nil
@@ -501,6 +502,7 @@ func (r *SecurityGroupReconciler) detachSGFromVNG(ctx context.Context, oceanClie
 				index := slices.Index(securityGroupsIDs, csg.Status.AtProvider.SecurityGroupID)
 				securityGroupsIDs = append(securityGroupsIDs[:index], securityGroupsIDs[index+1:]...)
 				vng.SetSecurityGroupIDs(securityGroupsIDs)
+				// We need to clean these values because of the spot update API
 				vng.CreatedAt = nil
 				vng.OceanID = nil
 				vng.UpdatedAt = nil
