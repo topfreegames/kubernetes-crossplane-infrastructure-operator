@@ -34,4 +34,6 @@ rules:
   - events
   verbs:
   - create
+  - update
   - patch
+  - delete
