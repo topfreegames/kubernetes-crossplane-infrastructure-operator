@@ -36,6 +36,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
@@ -50,6 +51,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
 var (
@@ -82,6 +84,17 @@ type SecurityGroupReconciler struct {
 //+kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kopsmachinepools,verbs=get;list;watch
 //+kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=kopscontrolplanes,verbs=get;list;watch
 //+kubebuilder:rbac:groups=ec2.aws.crossplane.io,resources=securitygroups,verbs=get;list;watch;create;update;patch;delete
+
+func DefaultReconciler(mgr manager.Manager) *SecurityGroupReconciler {
+	return &SecurityGroupReconciler{
+		Client:                          mgr.GetClient(),
+		Scheme:                          mgr.GetScheme(),
+		Recorder:                        mgr.GetEventRecorderFor("securityGroup-controller"),
+		NewEC2ClientFactory:             ec2.NewEC2Client,
+		NewAutoScalingClientFactory:     autoscaling.NewAutoScalingClient,
+		NewOceanCloudProviderAWSFactory: spot.NewOceanCloudProviderAWS,
+	}
+}
 
 func (r *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
 	start := time.Now()
@@ -222,9 +235,10 @@ func (r *SecurityGroupReconciler) reconcileKopsControlPlane(
 		return err
 	}
 
+	// TODO correct config
 	asgClient := r.NewAutoScalingClientFactory(cfg)
 
-	csg, err := crossplane.CreateOrUpdateCrossplaneSecurityGroup(ctx, r.Client, vpcId, region, sg)
+	csg, err := crossplane.CreateOrUpdateCrossplaneSecurityGroup(ctx, r.Client, vpcId, region, sg, kcp.Spec.IdentityRef.Name)
 	if err != nil {
 		conditions.MarkFalse(sg,
 			securitygroupv1alpha1.CrossplaneResourceReadyCondition,
@@ -408,6 +422,7 @@ func (r *SecurityGroupReconciler) reconcileKopsMachinePool(
 			return fmt.Errorf("error retrieving ASG name: %w", err)
 		}
 
+		// TODO correct config
 		asgClient := r.NewAutoScalingClientFactory(cfg)
 		err = r.attachSGToASG(ctx, ec2Client, asgClient, *asgName, csg.Status.AtProvider.SecurityGroupID)
 		if err != nil {
@@ -443,13 +458,28 @@ func (r *SecurityGroupReconciler) getAwsAccountInfo(ctx context.Context, kcp *kc
 		return aws.String(""), aws.String(""), aws.Config{}, nil, fmt.Errorf("region not defined")
 	}
 
+	var secretName string
+	if kcp.Spec.IdentityRef != nil {
+		secretName = kcp.Spec.IdentityRef.Name
+	} else {
+		secretName = "default"
+	}
+
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(*region),
+		config.WithCredentialsProvider(credentials.StaticCredentialsProvider{
+			Value: aws.Credentials{
+				AccessKeyID:     accessKey,
+				SecretAccessKey: secretAccessKey,
+				Source:          fmt.Sprintf("secret %s", secretName),
+			},
+		}),
 	)
 	if err != nil {
 		return aws.String(""), aws.String(""), aws.Config{}, nil, err
 	}
 
+	// TODO correct config
 	ec2Client := r.NewEC2ClientFactory(cfg)
 
 	vpcId, err := ec2.GetVPCIdFromCIDR(ctx, ec2Client, kcp.Spec.KopsClusterSpec.NetworkCIDR)
@@ -592,6 +622,7 @@ func (r *SecurityGroupReconciler) deleteSGFromKopsControlPlaneASGs(ctx context.C
 		return err
 	}
 
+	// TODO correct config
 	asgClient := r.NewAutoScalingClientFactory(cfg)
 
 	kmps, err := kops.GetKopsMachinePoolsWithLabel(ctx, r.Client, "cluster.x-k8s.io/cluster-name", kcp.Name)
@@ -658,6 +689,7 @@ func (r *SecurityGroupReconciler) deleteSGFromKopsMachinePoolASG(ctx context.Con
 		if err != nil {
 			return err
 		}
+		// TODO correct config
 		asgClient := r.NewAutoScalingClientFactory(cfg)
 
 		asgName, err := kops.GetAutoScalingGroupNameFromKopsMachinePool(*kmp)
