@@ -131,6 +131,8 @@ func CreateOrUpdateCrossplaneSecurityGroup(ctx context.Context, kubeClient clien
 	_, err := controllerutil.CreateOrUpdate(ctx, kubeClient, csg, func() error {
 		var ingressRules []crossec2v1beta1.IPPermission
 		for _, ingressRule := range sg.Spec.IngressRules {
+			// https://github.com/golang/go/discussions/56010
+			ingressRule := ingressRule
 			ipPermission := crossec2v1beta1.IPPermission{
 				FromPort:   &ingressRule.FromPort,
 				ToPort:     &ingressRule.ToPort,
@@ -149,6 +151,9 @@ func CreateOrUpdateCrossplaneSecurityGroup(ctx context.Context, kubeClient clien
 		csg.Spec.ForProvider.Ingress = ingressRules
 		csg.Annotations = sg.Annotations
 		csg.Spec.ResourceSpec.ProviderConfigReference = &crossplanev1.Reference{Name: providerConfigName}
+		csg.Spec.ForProvider.VPCID = vpcId
+
+		// varias propriedades não váo ser atualizadas se o csg já existir...
 
 		return nil
 	})
@@ -159,9 +164,9 @@ func CreateOrUpdateCrossplaneSecurityGroup(ctx context.Context, kubeClient clien
 	return csg, nil
 }
 
-func CreateCrossplaneVPCPeeringConnection(ctx context.Context, kubeClient client.Client, clustermesh *clustermeshv1beta1.ClusterMesh, peeringRequester, peeringAccepter *clustermeshv1beta1.ClusterSpec) error {
+func CreateCrossplaneVPCPeeringConnection(ctx context.Context, kubeClient client.Client, clustermesh *clustermeshv1beta1.ClusterMesh, peeringRequester, peeringAccepter *clustermeshv1beta1.ClusterSpec, providerConfigName string) error {
 	log := ctrl.LoggerFrom(ctx)
-	crossplaneVPCPeeringConnection := NewCrossPlaneVPCPeeringConnection(clustermesh, peeringRequester, peeringAccepter)
+	crossplaneVPCPeeringConnection := NewCrossPlaneVPCPeeringConnection(clustermesh, peeringRequester, peeringAccepter, providerConfigName)
 
 	err := kubeClient.Create(ctx, crossplaneVPCPeeringConnection)
 	if err != nil && !apierrors.IsAlreadyExists(err) {
@@ -177,9 +182,9 @@ func CreateCrossplaneVPCPeeringConnection(ctx context.Context, kubeClient client
 	return nil
 }
 
-func CreateCrossplaneRoute(ctx context.Context, kubeClient client.Client, region, destinationCIDRBlock, routeTable string, vpcPeeringConnection wildlifecrossec2v1alphav1.VPCPeeringConnection) error {
+func CreateCrossplaneRoute(ctx context.Context, kubeClient client.Client, region string, destinationCIDRBlock, providerConfigName string, routeTable string, vpcPeeringConnection wildlifecrossec2v1alphav1.VPCPeeringConnection) error {
 	log := ctrl.LoggerFrom(ctx)
-	crossplaneRoute := NewCrossplaneRoute(region, destinationCIDRBlock, routeTable, vpcPeeringConnection)
+	crossplaneRoute := NewCrossplaneRoute(region, destinationCIDRBlock, providerConfigName, routeTable, vpcPeeringConnection)
 
 	err := kubeClient.Create(ctx, crossplaneRoute)
 	if err != nil {
