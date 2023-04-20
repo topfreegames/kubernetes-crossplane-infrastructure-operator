@@ -116,6 +116,8 @@ func CreateOrUpdateCrossplaneSecurityGroup(ctx context.Context, kubeClient clien
 	_, err := controllerutil.CreateOrUpdate(ctx, kubeClient, csg, func() error {
 		var ingressRules []crossec2v1beta1.IPPermission
 		for _, ingressRule := range sg.Spec.IngressRules {
+			// https://github.com/golang/go/discussions/56010
+			ingressRule := ingressRule
 			ipPermission := crossec2v1beta1.IPPermission{
 				FromPort:   &ingressRule.FromPort,
 				ToPort:     &ingressRule.ToPort,
