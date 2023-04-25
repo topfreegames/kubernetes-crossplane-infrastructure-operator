@@ -658,7 +658,7 @@ spec:
               name: aws-credentials
         - name: AWS_REGION
           value: us-east-1
-        image: tfgco/provider-crossplane:v0.0.10-alpha
+        image: tfgco/provider-crossplane:v0.0.11-alpha
         livenessProbe:
           httpGet:
             path: /healthz
