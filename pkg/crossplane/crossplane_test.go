@@ -1255,7 +1255,7 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 		description           string
 		k8sObjects            []client.Object
 		wildlifeSecurityGroup *securitygroupv1alpha1.SecurityGroup
-		validateOutput        func(csg *crossec2v1beta1.SecurityGroup) bool
+		validateOutput        func(sg *securitygroupv1alpha1.SecurityGroup, csg *crossec2v1beta1.SecurityGroup) bool
 	}{
 		{
 			description: "should create crossplane security group object",
@@ -1276,7 +1276,7 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 					},
 				},
 			},
-			validateOutput: func(csg *crossec2v1beta1.SecurityGroup) bool {
+			validateOutput: func(_ *securitygroupv1alpha1.SecurityGroup, csg *crossec2v1beta1.SecurityGroup) bool {
 				if len(csg.Spec.ForProvider.Ingress) != 1 {
 					return false
 				}
@@ -1331,7 +1331,7 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 					},
 				},
 			},
-			validateOutput: func(csg *crossec2v1beta1.SecurityGroup) bool {
+			validateOutput: func(_ *securitygroupv1alpha1.SecurityGroup, csg *crossec2v1beta1.SecurityGroup) bool {
 				if len(csg.Spec.ForProvider.Ingress) != 2 {
 					return false
 				}
@@ -1344,6 +1344,56 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 					return false
 				}
 				return true
+			},
+		},
+		{
+			description: "should correctly deal with different port numbers",
+			wildlifeSecurityGroup: &securitygroupv1alpha1.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-sg",
+					Annotations: map[string]string{
+						securitygroupv1alpha1.ReasonReconcilePaused: "true",
+					},
+				},
+				Spec: securitygroupv1alpha1.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha1.IngressRule{
+						{
+							IPProtocol: "TCP",
+							FromPort:   40000,
+							ToPort:     60000,
+							AllowedCIDRBlocks: []string{
+								"0.0.0.0/0",
+							},
+						},
+						{
+							IPProtocol: "TCP",
+							FromPort:   20000,
+							ToPort:     40000,
+							AllowedCIDRBlocks: []string{
+								"0.0.0.0/0",
+							},
+						},
+					},
+				},
+			},
+			validateOutput: func(sg *securitygroupv1alpha1.SecurityGroup, csg *crossec2v1beta1.SecurityGroup) bool {
+				if len(csg.Spec.ForProvider.Ingress) != len(sg.Spec.IngressRules) {
+					return false
+				}
+				if csg.Name != "test-sg" {
+					return false
+				}
+				for i, csgRule := range csg.Spec.ForProvider.Ingress {
+					sgRule := sg.Spec.IngressRules[i]
+					if *csgRule.FromPort != sgRule.FromPort ||
+						*csgRule.ToPort != sgRule.ToPort ||
+						csgRule.IPProtocol != sgRule.IPProtocol {
+						return false
+					}
+				}
+				return reflect.DeepEqual(csg.Annotations, map[string]string{
+					securitygroupv1alpha1.ReasonReconcilePaused: "true",
+				})
 			},
 		},
 	}
@@ -1370,7 +1420,7 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 			g.Expect(err).To(BeNil())
 			g.Expect(csg).NotTo(BeNil())
 			if tc.validateOutput != nil {
-				g.Expect(tc.validateOutput(csg)).To(BeTrue())
+				g.Expect(tc.validateOutput(tc.wildlifeSecurityGroup, csg)).To(BeTrue())
 			}
 
 		})
