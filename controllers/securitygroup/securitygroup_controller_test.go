@@ -160,6 +160,17 @@ var (
 			},
 		},
 	}
+
+	defaultSecret = &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "kubernetes-kops-operator-system",
+			Name:      "default",
+		},
+		Data: map[string][]byte{
+			"AccessKeyID":     []byte("AK"),
+			"SecretAccessKey": []byte("SAK"),
+		},
+	}
 )
 
 func TestSecurityGroupReconciler(t *testing.T) {
@@ -197,7 +208,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 		{
 			description: "should create a SecurityGroup with KopsControlPlane infrastructureRef",
 			k8sObjects: []client.Object{
-				kmp, cluster, kcp,
+				kmp, cluster, kcp, defaultSecret,
 				&securitygroupv1alpha1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-security-group",
@@ -487,9 +498,8 @@ func TestReconcileKopsControlPlane(t *testing.T) {
 
 			recorder := record.NewFakeRecorder(5)
 
-			reconciler := &SecurityGroupReconciler{
+			reconciler := SecurityGroupReconciler{
 				Client: fakeClient,
-				log:    ctrl.LoggerFrom(ctx),
 				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
 					return fakeEC2Client
 				},
@@ -499,7 +509,15 @@ func TestReconcileKopsControlPlane(t *testing.T) {
 				Recorder: recorder,
 			}
 
-			err = reconciler.reconcileKopsControlPlane(ctx, tc.input, kcp)
+			reconciliation := SecurityGroupReconciliation{
+				SecurityGroupReconciler: reconciler,
+				sg:                      tc.input,
+				kcp:                     kcp,
+				ec2Client:               reconciler.NewEC2ClientFactory(aws.Config{}),
+				log:                     ctrl.LoggerFrom(ctx),
+			}
+
+			err = reconciliation.reconcileKopsControlPlane(ctx)
 
 			if !tc.isErrorExpected {
 				if !errors.Is(err, ErrSecurityGroupNotAvailable) {
@@ -803,9 +821,8 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 
 			recorder := record.NewFakeRecorder(5)
 
-			reconciler := &SecurityGroupReconciler{
+			reconciler := SecurityGroupReconciler{
 				Client: fakeClient,
-				log:    ctrl.LoggerFrom(ctx),
 				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
 					return fakeEC2Client
 				},
@@ -815,7 +832,15 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 				Recorder: recorder,
 			}
 
-			err = reconciler.reconcileKopsMachinePool(ctx, sg, tc.kmp)
+			reconciliation := &SecurityGroupReconciliation{
+				SecurityGroupReconciler: reconciler,
+				log:                     ctrl.LoggerFrom(ctx),
+				sg:                      sg,
+				kmp:                     tc.kmp,
+				ec2Client:               reconciler.NewEC2ClientFactory(aws.Config{}),
+			}
+
+			err = reconciliation.reconcileKopsMachinePool(ctx)
 
 			if !tc.isErrorExpected {
 				if !errors.Is(err, ErrSecurityGroupNotAvailable) {
@@ -885,13 +910,22 @@ func TestReconcileDelete(t *testing.T) {
 		},
 	}
 
-	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	err := clusterv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = clustermeshv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = kcontrolplanev1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
@@ -924,9 +958,8 @@ func TestReconcileDelete(t *testing.T) {
 				}, nil
 			}
 
-			reconciler := &SecurityGroupReconciler{
+			reconciler := SecurityGroupReconciler{
 				Client: fakeClient,
-				log:    ctrl.LoggerFrom(ctx),
 				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
 					return fakeEC2Client
 				},
@@ -935,7 +968,15 @@ func TestReconcileDelete(t *testing.T) {
 				},
 			}
 
-			_, err = reconciler.reconcileDelete(ctx, &tc.wsg)
+			reconciliation := SecurityGroupReconciliation{
+				SecurityGroupReconciler: reconciler,
+				log:                     ctrl.LoggerFrom(ctx),
+				ec2Client:               reconciler.NewEC2ClientFactory(aws.Config{}),
+				asgClient:               reconciler.NewAutoScalingClientFactory(aws.Config{}),
+				sg:                      &tc.wsg,
+			}
+
+			_, err = reconciliation.reconcileDelete(ctx, &tc.wsg)
 			g.Expect(err).ToNot(HaveOccurred())
 
 			deletedCSG := &crossec2v1beta1.SecurityGroup{}
@@ -1031,14 +1072,17 @@ func TestAttachSGToASG(t *testing.T) {
 					},
 				}, nil
 			}
-			reconciler := &SecurityGroupReconciler{
+			reconciler := SecurityGroupReconciler{
 				Client: fakeClient,
-				NewAutoScalingClientFactory: func(cfg aws.Config) autoscaling.AutoScalingClient {
-					return fakeASGClient
-				},
 			}
 
-			err = reconciler.attachSGToASG(ctx, fakeEC2Client, fakeASGClient, "asgName", "sg-yyyy")
+			reconciliation := &SecurityGroupReconciliation{
+				SecurityGroupReconciler: reconciler,
+				asgClient:               fakeASGClient,
+				ec2Client:               fakeEC2Client,
+			}
+
+			err = reconciliation.attachSGToASG(ctx, "asgName", "sg-yyyy")
 			if !tc["isErrorExpected"].(bool) {
 				g.Expect(err).To(BeNil())
 
@@ -1148,13 +1192,18 @@ func TestAttachSGToVNG(t *testing.T) {
 					return &oceanaws.UpdateLaunchSpecOutput{}, nil
 				}
 			}
-			reconciler := &SecurityGroupReconciler{
+			reconciler := SecurityGroupReconciler{
 				NewOceanCloudProviderAWSFactory: func() spot.OceanClient {
 					return fakeOceanClient
 				},
 			}
 
-			err = reconciler.attachSGToVNG(ctx, fakeOceanClient, tc.launchSpecs, tc.kmp.Name, csg)
+			reconciliation := &SecurityGroupReconciliation{
+				SecurityGroupReconciler: reconciler,
+				log:                     ctrl.LoggerFrom(ctx),
+			}
+
+			err = reconciliation.attachSGToVNG(ctx, fakeOceanClient, tc.launchSpecs, tc.kmp.Name, csg)
 			if tc.isErrorExpected {
 				g.Expect(err).ToNot(BeNil())
 			} else {
@@ -1333,7 +1382,7 @@ func TestDeleteSGFromASG(t *testing.T) {
 					},
 				}, nil
 			}
-			reconciler := &SecurityGroupReconciler{
+			reconciler := SecurityGroupReconciler{
 				Client: fakeClient,
 				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
 					return fakeEC2Client
@@ -1344,7 +1393,14 @@ func TestDeleteSGFromASG(t *testing.T) {
 			}
 			tc["mutateFn"].(func(sgi *securitygroupv1alpha1.SecurityGroup, kmpi *kinfrastructurev1alpha1.KopsMachinePool, kcpi *kcontrolplanev1alpha1.KopsControlPlane))(sg, kmp, kcp)
 
-			err = reconciler.deleteSGFromASG(ctx, sg, csg)
+			reconciliation := &SecurityGroupReconciliation{
+				SecurityGroupReconciler: reconciler,
+				log:                     ctrl.LoggerFrom(ctx),
+				asgClient:               fakeASGClient,
+				ec2Client:               fakeEC2Client,
+			}
+
+			err = reconciliation.deleteSGFromASG(ctx, sg, csg)
 			if !tc["isErrorExpected"].(bool) {
 				g.Expect(err).To(BeNil())
 
@@ -1495,20 +1551,20 @@ func TestDeleteSGFromKopsControlPlaneASGs(t *testing.T) {
 				return &oceanaws.UpdateLaunchSpecOutput{}, nil
 			}
 
-			reconciler := &SecurityGroupReconciler{
+			reconciler := SecurityGroupReconciler{
 				Client: fakeClient,
-				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
-					return fakeEC2Client
-				},
-				NewAutoScalingClientFactory: func(cfg aws.Config) autoscaling.AutoScalingClient {
-					return fakeASGClient
-				},
 				NewOceanCloudProviderAWSFactory: func() spot.OceanClient {
 					return fakeOceanClient
 				},
 			}
 
-			err = reconciler.deleteSGFromKopsControlPlaneASGs(ctx, sg, csg, tc.kcp)
+			reconciliation := &SecurityGroupReconciliation{
+				SecurityGroupReconciler: reconciler,
+				ec2Client:               fakeEC2Client,
+				asgClient:               fakeASGClient,
+			}
+
+			err = reconciliation.deleteSGFromKopsControlPlaneASGs(ctx, sg, csg, tc.kcp)
 			if !tc.isErrorExpected {
 				g.Expect(err).To(BeNil())
 
@@ -1669,7 +1725,7 @@ func TestDeleteSGFromKopsMachinePoolASG(t *testing.T) {
 				return &oceanaws.UpdateLaunchSpecOutput{}, nil
 			}
 
-			reconciler := &SecurityGroupReconciler{
+			reconciler := SecurityGroupReconciler{
 				Client: fakeClient,
 				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
 					return fakeEC2Client
@@ -1682,7 +1738,14 @@ func TestDeleteSGFromKopsMachinePoolASG(t *testing.T) {
 				},
 			}
 
-			err = reconciler.deleteSGFromKopsMachinePoolASG(ctx, sg, tc.csg, tc.kmp)
+			reconciliation := &SecurityGroupReconciliation{
+				SecurityGroupReconciler: reconciler,
+				log:                     ctrl.LoggerFrom(ctx),
+				asgClient:               fakeASGClient,
+				ec2Client:               fakeEC2Client,
+			}
+
+			err = reconciliation.deleteSGFromKopsMachinePoolASG(ctx, sg, tc.csg, tc.kmp)
 			if !tc.isErrorExpected {
 				g.Expect(err).To(BeNil())
 
@@ -1799,13 +1862,18 @@ func TestDettachSGFromVNG(t *testing.T) {
 					return &oceanaws.UpdateLaunchSpecOutput{}, nil
 				}
 			}
-			reconciler := &SecurityGroupReconciler{
+			reconciler := SecurityGroupReconciler{
 				NewOceanCloudProviderAWSFactory: func() spot.OceanClient {
 					return fakeOceanClient
 				},
 			}
 
-			err = reconciler.detachSGFromVNG(ctx, fakeOceanClient, tc.launchSpecs, tc.kmp.Name, csg)
+			reconciliation := SecurityGroupReconciliation{
+				SecurityGroupReconciler: reconciler,
+				log:                     ctrl.LoggerFrom(ctx),
+			}
+
+			err = reconciliation.detachSGFromVNG(ctx, fakeOceanClient, tc.launchSpecs, tc.kmp.Name, csg)
 			if tc.isErrorExpected {
 				g.Expect(err).ToNot(BeNil())
 			} else {
@@ -1898,14 +1966,21 @@ func TestDettachSGFromASG(t *testing.T) {
 					},
 				}, nil
 			}
-			reconciler := &SecurityGroupReconciler{
+			reconciler := SecurityGroupReconciler{
 				Client: fakeClient,
 				NewAutoScalingClientFactory: func(cfg aws.Config) autoscaling.AutoScalingClient {
 					return fakeASGClient
 				},
 			}
 
-			err = reconciler.detachSGFromASG(ctx, fakeEC2Client, fakeASGClient, "testASG", "sg-yyyy")
+			reconciliation := SecurityGroupReconciliation{
+				SecurityGroupReconciler: reconciler,
+				log:                     ctrl.LoggerFrom(ctx),
+				asgClient:               fakeASGClient,
+				ec2Client:               fakeEC2Client,
+			}
+
+			err = reconciliation.detachSGFromASG(ctx, "testASG", "sg-yyyy")
 			if !tc["isErrorExpected"].(bool) {
 				g.Expect(err).To(BeNil())
 
@@ -1928,7 +2003,7 @@ func TestSecurityGroupStatus(t *testing.T) {
 		{
 			description: "should successfully patch SecurityGroup",
 			k8sObjects: []client.Object{
-				kmp, cluster, kcp, sg, csg,
+				kmp, cluster, kcp, sg, csg, defaultSecret,
 			},
 			conditionsToAssert: []*clusterv1beta1.Condition{
 				conditions.TrueCondition(securitygroupv1alpha1.SecurityGroupReadyCondition),
@@ -1941,7 +2016,7 @@ func TestSecurityGroupStatus(t *testing.T) {
 		{
 			description: "should mark SG ready condition as false when not available yet",
 			k8sObjects: []client.Object{
-				kmp, cluster, kcp, sg, &crossec2v1beta1.SecurityGroup{
+				kmp, cluster, kcp, sg, defaultSecret, &crossec2v1beta1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-security-group",
 					},
@@ -1974,7 +2049,7 @@ func TestSecurityGroupStatus(t *testing.T) {
 		{
 			description: "should mark attach condition as false when failed to attach",
 			k8sObjects: []client.Object{
-				kmp, cluster, kcp, sg, csg,
+				kmp, cluster, kcp, sg, csg, defaultSecret,
 			},
 			mockDescribeAutoScalingGroups: func(ctx context.Context, params *awsautoscaling.DescribeAutoScalingGroupsInput, optFns []func(*awsautoscaling.Options)) (*awsautoscaling.DescribeAutoScalingGroupsOutput, error) {
 				return nil, errors.New("some error when attaching asg")

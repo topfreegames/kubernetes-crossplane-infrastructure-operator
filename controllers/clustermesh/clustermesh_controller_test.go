@@ -40,6 +40,34 @@ var (
 	vpcPeeringConnectionAPIVersion = "ec2.aws.wildlife.io/v1alpha1"
 )
 
+var defaultSecret = &corev1.Secret{
+	ObjectMeta: metav1.ObjectMeta{
+		Name:      "default",
+		Namespace: "kubernetes-kops-operator-system",
+	},
+	Data: map[string][]byte{
+		"AccessKeyID":     []byte("AK"),
+		"SecretAccessKey": []byte("SAK"),
+	},
+}
+
+var defaultKcp = &kcontrolplanev1alpha1.KopsControlPlane{
+	ObjectMeta: metav1.ObjectMeta{
+		Name:      "kcp-test",
+		Namespace: metav1.NamespaceDefault,
+	},
+	Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
+		KopsClusterSpec: kopsapi.ClusterSpec{
+			Subnets: []kopsapi.ClusterSubnetSpec{
+				{
+					Name: "us-east-1a",
+					Zone: "us-east-1a",
+				},
+			},
+		},
+	},
+}
+
 func TestClusterMeshReconciler(t *testing.T) {
 	testCases := []struct {
 		description                    string
@@ -50,6 +78,8 @@ func TestClusterMeshReconciler(t *testing.T) {
 		{
 			description: "should do nothing if cluster don't have the clustermesh annotation",
 			k8sObjects: []client.Object{
+				defaultSecret,
+				defaultKcp,
 				&clusterv1beta1.Cluster{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: metav1.NamespaceDefault,
@@ -60,12 +90,20 @@ func TestClusterMeshReconciler(t *testing.T) {
 							"region":       "us-east-1",
 						},
 					},
+					Spec: clusterv1beta1.ClusterSpec{
+						ControlPlaneRef: &corev1.ObjectReference{
+							Namespace: metav1.NamespaceDefault,
+							Name:      "kcp-test",
+						},
+					},
 				},
 			},
 		},
 		{
 			description: "should do nothing if cluster don't have the label with clusterGroup",
 			k8sObjects: []client.Object{
+				defaultSecret,
+				defaultKcp,
 				&clusterv1beta1.Cluster{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: metav1.NamespaceDefault,
@@ -78,12 +116,20 @@ func TestClusterMeshReconciler(t *testing.T) {
 							"region":      "us-east-1",
 						},
 					},
+					Spec: clusterv1beta1.ClusterSpec{
+						ControlPlaneRef: &corev1.ObjectReference{
+							Namespace: metav1.NamespaceDefault,
+							Name:      "kcp-test",
+						},
+					},
 				},
 			},
 		},
 		{
 			description: "should create clustermesh when cluster has correct annotations and is the only cluster in mesh",
 			k8sObjects: []client.Object{
+				defaultSecret,
+				defaultKcp,
 				&clusterv1beta1.Cluster{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: metav1.NamespaceDefault,
@@ -95,6 +141,12 @@ func TestClusterMeshReconciler(t *testing.T) {
 							"environment":  "prod",
 							"region":       "us-east-1",
 							"clusterGroup": "test-mesh",
+						},
+					},
+					Spec: clusterv1beta1.ClusterSpec{
+						ControlPlaneRef: &corev1.ObjectReference{
+							Namespace: metav1.NamespaceDefault,
+							Name:      "kcp-test",
 						},
 					},
 				},
@@ -120,6 +172,8 @@ func TestClusterMeshReconciler(t *testing.T) {
 		{
 			description: "should delete clustermesh when cluster belong to a clustermesh, but don't have the correct annotations",
 			k8sObjects: []client.Object{
+				defaultSecret,
+				defaultKcp,
 				&securitygroupv1alpha1.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: clmesh.GetClusterMeshSecurityGroupName("test-cluster"),
@@ -151,6 +205,12 @@ func TestClusterMeshReconciler(t *testing.T) {
 							"environment":  "prod",
 							"region":       "us-east-1",
 							"clusterGroup": "test-mesh",
+						},
+					},
+					Spec: clusterv1beta1.ClusterSpec{
+						ControlPlaneRef: &corev1.ObjectReference{
+							Namespace: metav1.NamespaceDefault,
+							Name:      "kcp-test",
 						},
 					},
 				},
@@ -190,14 +250,18 @@ func TestClusterMeshReconciler(t *testing.T) {
 	err = wildlifecrossec2v1alphav1.SchemeBuilder.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = kcontrolplanev1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
 			ctx := context.TODO()
 
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
+
 			reconciler := &ClusterMeshReconciler{
 				Client: fakeClient,
-				PopulateClusterSpecFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error) {
+				PopulateClusterSpecFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error) {
 					return &clustermeshv1beta1.ClusterSpec{
 						Name:   cluster.Name,
 						VPCID:  "xxx",
@@ -206,6 +270,9 @@ func TestClusterMeshReconciler(t *testing.T) {
 				},
 				ReconcilePeeringsFactory: ReconcilePeerings,
 				ReconcileRoutesFactory:   ReconcileRoutes,
+				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
+					return &fakeec2.MockEC2Client{}
+				},
 			}
 
 			_, err := reconciler.Reconcile(ctx, ctrl.Request{
@@ -375,42 +442,6 @@ func TestPopulateClusterSpec(t *testing.T) {
 			},
 		},
 		{
-			description: "should fail when not finding kcp",
-			cluster: &clusterv1beta1.Cluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "cluster-test",
-					Namespace: metav1.NamespaceDefault,
-				},
-				Spec: clusterv1beta1.ClusterSpec{
-					ControlPlaneRef: &corev1.ObjectReference{
-						Namespace: metav1.NamespaceDefault,
-						Name:      "kcp-test",
-					},
-				},
-			},
-			mockDescribeVPCOutput: &mockDescribeVPCOutput{
-				&awsec2.DescribeVpcsOutput{
-					Vpcs: []ec2types.Vpc{
-						{
-							VpcId: aws.String("xxx"),
-						},
-					},
-				}, nil,
-			},
-			mockDescribeRouteTableOutput: &mockDescribeRouteTableOutput{
-				&awsec2.DescribeRouteTablesOutput{
-					RouteTables: []ec2types.RouteTable{
-						{
-							RouteTableId: aws.String("rt-xxxxx"),
-						},
-					},
-				}, nil,
-			},
-			errorValidation: func(err error) bool {
-				return apierrors.IsNotFound(err)
-			},
-		},
-		{
 			description: "should fail when VPC isn't found",
 			k8sObjects: []client.Object{
 				&kcontrolplanev1alpha1.KopsControlPlane{
@@ -471,14 +502,26 @@ func TestPopulateClusterSpec(t *testing.T) {
 				},
 			}
 
-			reconciler := &ClusterMeshReconciler{
+			kcpKey := client.ObjectKeyFromObject(defaultKcp)
+
+			kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+
+			err := fakeClient.Get(context.TODO(), kcpKey, kcp)
+
+			reconciler := ClusterMeshReconciler{
 				Client: fakeClient,
 				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
 					return fakeEC2Client
 				},
 			}
 
-			clSpec, err := PopulateClusterSpec(reconciler, context.TODO(), tc.cluster)
+			reconciliation := &ClusterMeshReconciliation{
+				ClusterMeshReconciler: reconciler,
+				kcp:                   kcp,
+				ec2Client:             reconciler.NewEC2ClientFactory(aws.Config{}),
+			}
+
+			clSpec, err := PopulateClusterSpec(reconciliation, context.TODO(), tc.cluster)
 			if tc.errorValidation != nil {
 				g.Expect(tc.errorValidation(err)).To(BeTrue())
 			} else {
@@ -570,11 +613,15 @@ func TestIsClusterBelongToAnyMesh(t *testing.T) {
 
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
 
-			reconciler := &ClusterMeshReconciler{
+			reconciler := ClusterMeshReconciler{
 				Client: fakeClient,
 			}
 
-			belong, meshName, err := reconciler.isClusterBelongToAnyMesh("A")
+			reconciliation := &ClusterMeshReconciliation{
+				ClusterMeshReconciler: reconciler,
+			}
+
+			belong, meshName, err := reconciliation.isClusterBelongToAnyMesh("A")
 			if tc.errorValidation != nil {
 				g.Expect(tc.errorValidation(err)).To(BeTrue())
 			} else {
@@ -583,7 +630,6 @@ func TestIsClusterBelongToAnyMesh(t *testing.T) {
 			}
 		})
 	}
-
 }
 
 func TestReconcileNormal(t *testing.T) {
@@ -766,26 +812,32 @@ func TestReconcileNormal(t *testing.T) {
 			ctx := context.TODO()
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
 
-			reconciler := &ClusterMeshReconciler{
+			reconciler := ClusterMeshReconciler{
 				Client: fakeClient,
-				log:    ctrl.LoggerFrom(ctx),
-				PopulateClusterSpecFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error) {
+				PopulateClusterSpecFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error) {
 					return &clustermeshv1beta1.ClusterSpec{
 						Name: cluster.Name,
 					}, nil
 				},
-				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+				ReconcilePeeringsFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec) error {
 					return nil
 				},
-				ReconcileRoutesFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) (ctrl.Result, error) {
+				ReconcileRoutesFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec) (ctrl.Result, error) {
 					return ctrl.Result{}, nil
 				},
-				ReconcileSecurityGroupsFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+				ReconcileSecurityGroupsFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec) error {
 					return nil
 				},
 			}
 
-			_, _ = reconciler.reconcileNormal(ctx, tc.cluster, tc.clustermesh)
+			reconciliation := &ClusterMeshReconciliation{
+				ClusterMeshReconciler: reconciler,
+				cluster:               tc.cluster,
+				log:                   ctrl.LoggerFrom(ctx),
+				clustermesh:           &clustermeshv1beta1.ClusterMesh{},
+			}
+
+			_, _ = reconciliation.reconcileNormal(ctx)
 			clustermesh := &clustermeshv1beta1.ClusterMesh{}
 			err = fakeClient.Get(ctx, client.ObjectKey{Name: "test-clustermesh"}, clustermesh)
 			g.Expect(clustermesh.GetName()).To(BeEquivalentTo(tc.expectedOutput.GetName()))
@@ -1528,12 +1580,18 @@ func TestReconcileDelete(t *testing.T) {
 			ctx := context.TODO()
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
 
-			reconciler := &ClusterMeshReconciler{
+			reconciler := ClusterMeshReconciler{
 				Client: fakeClient,
-				log:    ctrl.LoggerFrom(ctx),
 			}
 
-			err = reconciler.reconcileDelete(ctx, tc.cluster, tc.clustermesh)
+			reconciliation := &ClusterMeshReconciliation{
+				ClusterMeshReconciler: reconciler,
+				clustermesh:           tc.clustermesh,
+				cluster:               tc.cluster,
+				log:                   ctrl.LoggerFrom(ctx),
+			}
+
+			err = reconciliation.reconcileDelete(ctx)
 			g.Expect(err).ToNot(HaveOccurred())
 
 			clustermesh := &clustermeshv1beta1.ClusterMesh{}
@@ -1789,15 +1847,19 @@ func TestReconcilePeerings(t *testing.T) {
 			ctx := context.TODO()
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
 
-			reconciler := &ClusterMeshReconciler{
+			reconciler := ClusterMeshReconciler{
 				Client: fakeClient,
-				log:    ctrl.LoggerFrom(ctx),
-				ReconcilePeeringsFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+				ReconcilePeeringsFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec) error {
 					return nil
 				},
 			}
 
-			_ = ReconcilePeerings(reconciler, ctx, tc.clSpec, tc.clustermesh)
+			reconciliation := &ClusterMeshReconciliation{
+				ClusterMeshReconciler: reconciler,
+				clustermesh:           tc.clustermesh,
+			}
+
+			_ = ReconcilePeerings(reconciliation, ctx, tc.clSpec)
 			for _, vpcPeeringConnectionName := range tc.expectedVpcPeeringConnections {
 				vpcPeeringConnection := &wildlifecrossec2v1alphav1.VPCPeeringConnection{}
 				key := client.ObjectKey{
@@ -2148,12 +2210,17 @@ func TestReconcileRoutes(t *testing.T) {
 			ctx := context.TODO()
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
 
-			reconciler := &ClusterMeshReconciler{
+			reconciler := ClusterMeshReconciler{
 				Client: fakeClient,
-				log:    ctrl.LoggerFrom(ctx),
 			}
 
-			_, err = ReconcileRoutes(reconciler, ctx, tc.clSpec, &clustermesh)
+			reconciliation := &ClusterMeshReconciliation{
+				ClusterMeshReconciler: reconciler,
+				log:                   ctrl.LoggerFrom(ctx),
+				clustermesh:           &clustermesh,
+			}
+
+			_, err = ReconcileRoutes(reconciliation, ctx, tc.clSpec)
 			g.Expect(err).To(BeNil())
 
 			routes := &crossec2v1alpha1.RouteList{}
@@ -2364,17 +2431,22 @@ func TestReconcileSecurityGroups(t *testing.T) {
 			ctx := context.TODO()
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
 
-			reconciler := &ClusterMeshReconciler{
+			reconciler := ClusterMeshReconciler{
 				Client: fakeClient,
-				log:    ctrl.LoggerFrom(ctx),
-				ReconcileSecurityGroupsFactory: func(r *ClusterMeshReconciler, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec, clustermesh *clustermeshv1beta1.ClusterMesh) error {
+				ReconcileSecurityGroupsFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec) error {
 					return nil
 				},
 				Scheme: scheme.Scheme,
 			}
 
+			reconciliation := &ClusterMeshReconciliation{
+				ClusterMeshReconciler: reconciler,
+				log:                   ctrl.LoggerFrom(ctx),
+				clustermesh:           tc.clustermesh,
+			}
+
 			for _, cluster := range tc.clustermesh.Spec.Clusters {
-				err = ReconcileSecurityGroups(reconciler, ctx, cluster, tc.clustermesh)
+				err = ReconcileSecurityGroups(reconciliation, ctx, cluster)
 				g.Expect(err).ToNot(HaveOccurred())
 			}
 			for _, esg := range tc.expectedSecurityGroups {
@@ -2468,13 +2540,10 @@ func TestClusterToClustersMapFunc(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-
-			ctx := context.TODO()
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
 
 			reconciler := &ClusterMeshReconciler{
 				Client: fakeClient,
-				log:    ctrl.LoggerFrom(ctx),
 			}
 
 			defer func() {
@@ -2710,6 +2779,9 @@ func TestValidateClusterMesh(t *testing.T) {
 	err = crossec2v1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
 	err = clustermeshv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
@@ -2719,15 +2791,21 @@ func TestValidateClusterMesh(t *testing.T) {
 			ctx := context.TODO()
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
 
-			reconciler := &ClusterMeshReconciler{
-				Client: fakeClient,
-				log:    ctrl.LoggerFrom(ctx),
-			}
 			clustermesh := &clustermeshv1beta1.ClusterMesh{}
 			err := fakeClient.Get(ctx, client.ObjectKeyFromObject(clustermeshBase), clustermesh)
 			g.Expect(err).To(BeNil())
 
-			err = reconciler.validateClusterMesh(ctx, clustermesh)
+			reconciler := ClusterMeshReconciler{
+				Client: fakeClient,
+			}
+
+			reconciliation := &ClusterMeshReconciliation{
+				ClusterMeshReconciler: reconciler,
+				log:                   ctrl.LoggerFrom(ctx),
+				clustermesh:           clustermesh,
+			}
+
+			err = reconciliation.validateClusterMesh(ctx)
 			g.Expect(err).To(BeNil())
 
 			if tc.vpcNotReady {
