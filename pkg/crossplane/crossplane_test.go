@@ -31,8 +31,9 @@ import (
 )
 
 var (
-	testVPCId  = "vpc-xxxxx"
-	testRegion = "us-east-1"
+	testVPCId                 = "vpc-xxxxx"
+	testRegion                = "us-east-1"
+	defaultProviderConfigName = "default"
 )
 
 func TestGetOwnedVPCPeeringConnectionsRef(t *testing.T) {
@@ -960,7 +961,7 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 			ctx := context.TODO()
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.vpcPeeringConnections...).Build()
 			clustermesh.Status = tc.clustermeshStatus
-			err = CreateCrossplaneVPCPeeringConnection(ctx, fakeClient, clustermesh, tc.peeringRequester, tc.peeringAccepter)
+			err = CreateCrossplaneVPCPeeringConnection(ctx, fakeClient, clustermesh, tc.peeringRequester, tc.peeringAccepter, defaultProviderConfigName)
 			key := client.ObjectKey{
 				Name: fmt.Sprintf("%s-%s", tc.peeringRequester.Name, tc.peeringAccepter.Name),
 			}
@@ -1244,7 +1245,7 @@ func TestNewCrossplaneSecurityGroup(t *testing.T) {
 					IngressRules: tc.ingressRules,
 				},
 			}
-			csg := NewCrossplaneSecurityGroup(sg, &testVPCId, &testRegion)
+			csg := NewCrossplaneSecurityGroup(sg, &testVPCId, &testRegion, defaultProviderConfigName)
 			g.Expect(csg.Spec.ForProvider.Description).To(Equal(fmt.Sprintf("sg %s managed by provider-crossplane", sg.GetName())))
 		})
 	}
@@ -1360,7 +1361,7 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
 
-			_, err := CreateOrUpdateCrossplaneSecurityGroup(ctx, fakeClient, aws.String("vpc-xxx"), aws.String("us-east-1"), tc.wildlifeSecurityGroup)
+			_, err := CreateOrUpdateCrossplaneSecurityGroup(ctx, fakeClient, aws.String("vpc-xxx"), aws.String("us-east-1"), defaultProviderConfigName, tc.wildlifeSecurityGroup)
 			g.Expect(err).To(BeNil())
 			csg := &crossec2v1beta1.SecurityGroup{}
 			key := client.ObjectKey{
@@ -1632,7 +1633,7 @@ func TestCreateCrossplaneRoute(t *testing.T) {
 			ctx := context.TODO()
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
 
-			err := CreateCrossplaneRoute(ctx, fakeClient, tc.clusterSpec.Region, tc.clusterSpec.CIDR, tc.routeTable, *vpcPeeringConnection)
+			err := CreateCrossplaneRoute(ctx, fakeClient, tc.clusterSpec.Region, tc.clusterSpec.CIDR, defaultProviderConfigName, tc.routeTable, *vpcPeeringConnection)
 			g.Expect(err).To(BeNil())
 			route := crossec2v1alpha1.Route{}
 			err = fakeClient.Get(ctx, client.ObjectKey{Name: tc.routeTable + "-" + vpcPeeringConnection.ObjectMeta.Annotations["crossplane.io/external-name"]}, &route)
