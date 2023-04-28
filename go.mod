@@ -6,9 +6,9 @@ replace k8s.io/code-generator => k8s.io/code-generator v0.21.0
 
 require (
 	github.com/aws/aws-sdk-go v1.44.158
-	github.com/aws/aws-sdk-go-v2 v1.16.16
+	github.com/aws/aws-sdk-go-v2 v1.17.8
 	github.com/aws/aws-sdk-go-v2/config v1.11.1
-	github.com/aws/aws-sdk-go-v2/service/autoscaling v1.22.1
+	github.com/aws/aws-sdk-go-v2/service/autoscaling v1.28.3
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.26.0
 	github.com/crossplane-contrib/provider-aws v0.35.0-rc.0.0.20221220103156-b59bf4223ff4
 	github.com/crossplane/crossplane-runtime v0.19.0-rc.0.0.20220930073209-84e629b95898
@@ -19,7 +19,7 @@ require (
 	github.com/onsi/gomega v1.24.0
 	github.com/pkg/errors v0.9.1
 	github.com/topfreegames/crossplane-provider-aws v0.27.0-vpcpeering-only
-	github.com/topfreegames/kubernetes-kops-operator v0.3.7-alpha
+	github.com/topfreegames/kubernetes-kops-operator v0.3.10-alpha
 	go.uber.org/zap v1.23.0
 	k8s.io/api v0.25.5
 	k8s.io/apimachinery v0.25.5
@@ -116,15 +116,15 @@ require (
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/armon/go-radix v1.0.0 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.6.5 // indirect
-	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.8.2 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.1.23 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.4.17 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/ini v1.3.2 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.13.2 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.1.32 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.4.26 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/ini v1.3.33 // indirect
 	github.com/aws/aws-sdk-go-v2/service/acmpca v1.12.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.5.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.7.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sts v1.12.0 // indirect
-	github.com/aws/smithy-go v1.13.3 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.9.26 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.12.8 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.18.9 // indirect
+	github.com/aws/smithy-go v1.13.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver v3.5.1+incompatible // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
