@@ -161,6 +161,39 @@ var (
 		},
 	}
 
+	kcpWithIdentityRef = &kcontrolplanev1alpha1.KopsControlPlane{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: metav1.NamespaceDefault,
+			Name:      "test-cluster",
+		},
+		Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
+			KopsClusterSpec: kopsapi.ClusterSpec{
+				Subnets: []kopsapi.ClusterSubnetSpec{
+					{
+						Name: "test-subnet",
+						CIDR: "0.0.0.0/26",
+						Zone: "us-east-1d",
+					},
+				},
+			},
+			IdentityRef: &corev1.ObjectReference{
+				Name:      "test-secret",
+				Namespace: "kubernetes-kops-operator-system",
+			},
+		},
+	}
+
+	secretForIdentityRef = &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "kubernetes-kops-operator-system",
+			Name:      "test-secret",
+		},
+		Data: map[string][]byte{
+			"AccessKeyID":     []byte("AK"),
+			"SecretAccessKey": []byte("SAK"),
+		},
+	}
+
 	defaultSecret = &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "kubernetes-kops-operator-system",
@@ -176,10 +209,11 @@ var (
 func TestSecurityGroupReconciler(t *testing.T) {
 
 	testCases := []struct {
-		description      string
-		k8sObjects       []client.Object
-		isErrorExpected  bool
-		expectedDeletion bool
+		description               string
+		k8sObjects                []client.Object
+		isErrorExpected           bool
+		expectedDeletion          bool
+		expectedProviderConfigRef *string
 	}{
 		{
 			description: "should fail without InfrastructureRef defined",
@@ -299,6 +333,37 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			isErrorExpected:  false,
 			expectedDeletion: true,
 		},
+		{
+			description: "should create a SecurityGroup with the same providerConfigName",
+			k8sObjects: []client.Object{
+				kmp, cluster, kcpWithIdentityRef, secretForIdentityRef,
+				&securitygroupv1alpha1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-security-group",
+					},
+					Spec: securitygroupv1alpha1.SecurityGroupSpec{
+						IngressRules: []securitygroupv1alpha1.IngressRule{
+							{
+								IPProtocol: "TCP",
+								FromPort:   40000,
+								ToPort:     60000,
+								AllowedCIDRBlocks: []string{
+									"0.0.0.0/0",
+								},
+							},
+						},
+						InfrastructureRef: &corev1.ObjectReference{
+							APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsControlPlane",
+							Name:       "test-cluster",
+							Namespace:  metav1.NamespaceDefault,
+						},
+					},
+				},
+			},
+			isErrorExpected:           false,
+			expectedProviderConfigRef: &kcpWithIdentityRef.Spec.IdentityRef.Name,
+		},
 	}
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
@@ -363,6 +428,9 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 				}
 
+				if tc.expectedProviderConfigRef != nil {
+					g.Expect(crosssg.Spec.ProviderConfigReference.Name).To(Equal(*tc.expectedProviderConfigRef))
+				}
 			} else {
 				g.Expect(err).To(HaveOccurred())
 			}
