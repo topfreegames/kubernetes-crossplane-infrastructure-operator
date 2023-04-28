@@ -757,6 +757,13 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "A-B",
 					},
+					Spec: wildlifecrossec2v1alphav1.VPCPeeringConnectionSpec{
+						ResourceSpec: crossplanev1.ResourceSpec{
+							ProviderConfigReference: &crossplanev1.Reference{
+								Name: "default",
+							},
+						},
+					},
 				},
 				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
@@ -766,6 +773,13 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "A-C",
 					},
+					Spec: wildlifecrossec2v1alphav1.VPCPeeringConnectionSpec{
+						ResourceSpec: crossplanev1.ResourceSpec{
+							ProviderConfigReference: &crossplanev1.Reference{
+								Name: "default",
+							},
+						},
+					},
 				},
 				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
@@ -774,6 +788,13 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "B-C",
+					},
+					Spec: wildlifecrossec2v1alphav1.VPCPeeringConnectionSpec{
+						ResourceSpec: crossplanev1.ResourceSpec{
+							ProviderConfigReference: &crossplanev1.Reference{
+								Name: "default",
+							},
+						},
 					},
 				},
 			},
