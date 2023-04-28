@@ -184,7 +184,7 @@ func CreateCrossplaneVPCPeeringConnection(ctx context.Context, kubeClient client
 
 func CreateCrossplaneRoute(ctx context.Context, kubeClient client.Client, region string, destinationCIDRBlock, providerConfigName string, routeTable string, vpcPeeringConnection wildlifecrossec2v1alphav1.VPCPeeringConnection) error {
 	log := ctrl.LoggerFrom(ctx)
-	crossplaneRoute := NewCrossplaneRoute(region, destinationCIDRBlock, providerConfigName, routeTable, vpcPeeringConnection)
+	crossplaneRoute := NewCrossplaneRoute(region, destinationCIDRBlock, routeTable, providerConfigName, vpcPeeringConnection)
 
 	err := kubeClient.Create(ctx, crossplaneRoute)
 	if err != nil {
