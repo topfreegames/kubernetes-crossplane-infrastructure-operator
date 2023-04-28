@@ -133,7 +133,7 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	if r.sg.Spec.InfrastructureRef == nil {
-		return resultError, fmt.Errorf("infrastructureRef isn't defined")
+		return resultDefault, fmt.Errorf("infrastructureRef not supported")
 	}
 
 	switch r.sg.Spec.InfrastructureRef.Kind {
