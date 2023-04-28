@@ -241,33 +241,31 @@ func (r *ClusterMeshReconciliation) Reconcile(ctx context.Context, req ctrl.Requ
 }
 
 func (r *ClusterMeshReconciliation) reconcileNormal(ctx context.Context) (ctrl.Result, error) {
-	cluster := r.cluster
+	r.log.Info(fmt.Sprintf("starting reconcile clustermesh loop for %s\n", r.cluster.ObjectMeta.Name))
 
-	r.log.Info(fmt.Sprintf("starting reconcile clustermesh loop for %s\n", cluster.ObjectMeta.Name))
-
-	clSpec, err := r.PopulateClusterSpecFactory(r, ctx, cluster)
+	clSpec, err := r.PopulateClusterSpecFactory(r, ctx, r.cluster)
 	if err != nil {
 		return resultError, fmt.Errorf("error populating cluster spec: %w", err)
 	}
 
 	key := client.ObjectKey{
-		Name: cluster.Labels[clmesh.Label],
+		Name: r.cluster.Labels[clmesh.Label],
 	}
 
 	if err := r.Get(ctx, key, r.clustermesh); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return resultError, err
 		}
-		meshName := cluster.Labels[clmesh.Label]
+		meshName := r.cluster.Labels[clmesh.Label]
 		ccm := clmesh.New(meshName, clSpec)
 		r.log.Info(fmt.Sprintf("creating clustermesh %s\n", ccm.ObjectMeta.GetName()))
 		if err := r.Create(ctx, ccm); err != nil {
 			return resultError, err
 		}
 		return resultDefault, nil
-	} else if !r.isClusterBelongToMesh(cluster.Name) {
+	} else if !r.isClusterBelongToMesh(r.cluster.Name) {
 		r.clustermesh.Spec.Clusters = append(r.clustermesh.Spec.Clusters, clSpec)
-		r.log.Info(fmt.Sprintf("adding %s to clustermesh %s\n", cluster.ObjectMeta.Name, r.clustermesh.Name))
+		r.log.Info(fmt.Sprintf("adding %s to clustermesh %s\n", r.cluster.ObjectMeta.Name, r.clustermesh.Name))
 		// TODO: Verify if we need this with Patch
 		if err := r.Update(ctx, r.clustermesh); err != nil {
 			return resultError, err
