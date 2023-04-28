@@ -125,7 +125,7 @@ func (c *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	if cluster.Spec.ControlPlaneRef == nil || cluster.Spec.ControlPlaneRef.Kind != "KopsControlPlane" {
-		return resultDefault, fmt.Errorf("controlPlaneRef not supported")
+		return resultDefault, fmt.Errorf("controlPlaneRef not specified or not supported")
 	}
 
 	r.kcp = &kcontrolplanev1alpha1.KopsControlPlane{}
