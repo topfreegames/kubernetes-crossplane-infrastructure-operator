@@ -398,7 +398,7 @@ func (r *SecurityGroupReconciliation) reconcileKopsControlPlane(ctx context.Cont
 				continue
 			}
 
-			err = r.attachSGToASG(ctx, *asgName, csg.Status.AtProvider.SecurityGroupID)
+			err = r.attachSGToASG(ctx, asgName, csg.Status.AtProvider.SecurityGroupID)
 			if err != nil {
 				r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha1.SecurityGroupAttachmentFailedReason, err.Error())
 				attachErr = multierror.Append(attachErr, err)
@@ -506,7 +506,7 @@ func (r *SecurityGroupReconciliation) reconcileKopsMachinePool(ctx context.Conte
 			return fmt.Errorf("error retrieving ASG name: %w", err)
 		}
 
-		err = r.attachSGToASG(ctx, *asgName, csg.Status.AtProvider.SecurityGroupID)
+		err = r.attachSGToASG(ctx, asgName, csg.Status.AtProvider.SecurityGroupID)
 		if err != nil {
 			conditions.MarkFalse(r.sg,
 				securitygroupv1alpha1.SecurityGroupAttachedCondition,
@@ -704,7 +704,7 @@ func (r *SecurityGroupReconciliation) deleteSGFromKopsControlPlaneASGs(ctx conte
 				continue
 			}
 
-			err = r.detachSGFromASG(ctx, *asgName, csg.Status.AtProvider.SecurityGroupID)
+			err = r.detachSGFromASG(ctx, asgName, csg.Status.AtProvider.SecurityGroupID)
 			if err != nil {
 				attachErr = multierror.Append(attachErr, err)
 				continue
@@ -744,7 +744,7 @@ func (r *SecurityGroupReconciliation) deleteSGFromKopsMachinePoolASG(ctx context
 			return err
 		}
 
-		return r.detachSGFromASG(ctx, *asgName, csg.Status.AtProvider.SecurityGroupID)
+		return r.detachSGFromASG(ctx, asgName, csg.Status.AtProvider.SecurityGroupID)
 	}
 }
 
