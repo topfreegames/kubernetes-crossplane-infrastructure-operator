@@ -130,7 +130,7 @@ func (c *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		Name:      cluster.Spec.ControlPlaneRef.Name,
 	}
 	if err := c.Get(ctx, key, r.kcp); err != nil {
-		r.kcp = nil
+		return requeue1min, err
 	}
 	subnet, err := kops.GetSubnetFromKopsControlPlane(r.kcp)
 	if err != nil {
