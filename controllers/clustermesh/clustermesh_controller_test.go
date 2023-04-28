@@ -92,6 +92,7 @@ func TestClusterMeshReconciler(t *testing.T) {
 					},
 					Spec: clusterv1beta1.ClusterSpec{
 						ControlPlaneRef: &corev1.ObjectReference{
+							Kind:      "KopsControlPlane",
 							Namespace: metav1.NamespaceDefault,
 							Name:      "kcp-test",
 						},
@@ -118,6 +119,7 @@ func TestClusterMeshReconciler(t *testing.T) {
 					},
 					Spec: clusterv1beta1.ClusterSpec{
 						ControlPlaneRef: &corev1.ObjectReference{
+							Kind:      "KopsControlPlane",
 							Namespace: metav1.NamespaceDefault,
 							Name:      "kcp-test",
 						},
@@ -145,6 +147,7 @@ func TestClusterMeshReconciler(t *testing.T) {
 					},
 					Spec: clusterv1beta1.ClusterSpec{
 						ControlPlaneRef: &corev1.ObjectReference{
+							Kind:      "KopsControlPlane",
 							Namespace: metav1.NamespaceDefault,
 							Name:      "kcp-test",
 						},
@@ -209,6 +212,7 @@ func TestClusterMeshReconciler(t *testing.T) {
 					},
 					Spec: clusterv1beta1.ClusterSpec{
 						ControlPlaneRef: &corev1.ObjectReference{
+							Kind:      "KopsControlPlane",
 							Namespace: metav1.NamespaceDefault,
 							Name:      "kcp-test",
 						},
@@ -412,6 +416,7 @@ func TestPopulateClusterSpec(t *testing.T) {
 				},
 				Spec: clusterv1beta1.ClusterSpec{
 					ControlPlaneRef: &corev1.ObjectReference{
+						Kind:      "KopsControlPlane",
 						Namespace: metav1.NamespaceDefault,
 						Name:      "kcp-test",
 					},
@@ -468,6 +473,7 @@ func TestPopulateClusterSpec(t *testing.T) {
 				},
 				Spec: clusterv1beta1.ClusterSpec{
 					ControlPlaneRef: &corev1.ObjectReference{
+						Kind:      "KopsControlPlane",
 						Namespace: metav1.NamespaceDefault,
 						Name:      "kcp-test",
 					},
