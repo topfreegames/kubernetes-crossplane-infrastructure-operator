@@ -149,8 +149,8 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 		r.kcp = &kcontrolplanev1alpha1.KopsControlPlane{}
 		key = client.ObjectKey{
-			Name:      r.sg.Spec.InfrastructureRef.Name,
-			Namespace: r.kmp.Spec.ClusterName,
+			Name:      r.kmp.Spec.ClusterName,
+			Namespace: r.kmp.ObjectMeta.Namespace,
 		}
 		if err := r.Client.Get(ctx, key, r.kcp); err != nil {
 			return resultError, err
