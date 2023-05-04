@@ -138,13 +138,13 @@ func (c *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	subnet, err := kops.GetSubnetFromKopsControlPlane(r.kcp)
 	if err != nil {
-		r.log.Error(err, fmt.Sprintf("failed to get subnet from kcp"))
+		r.log.Error(err, "failed to get subnet from kcp")
 		return requeue1min, err
 	}
 
 	region, err := kops.GetRegionFromKopsSubnet(*subnet)
 	if err != nil {
-		r.log.Error(err, fmt.Sprintf("failed to get region from kcp"))
+		r.log.Error(err, "failed to get region from kcp")
 		return requeue1min, err
 	}
 
@@ -170,23 +170,27 @@ func (c *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		Name:      secretName,
 	}
 	if err := c.Get(ctx, key, awsCreds); err != nil {
-		r.log.Error(err, fmt.Sprintf("failed to get secret"))
+		r.log.Error(err, "failed to get secret")
 		return requeue1min, err
 	}
 
 	accessKeyBytes, ok := awsCreds.Data["AccessKeyID"]
 	if !ok {
-
+		return resultError, fmt.Errorf("AWS secret %s in namespace %s does not contain AccessKeyID", secretName, namespace)
 	}
 	accessKey := string(accessKeyBytes)
 
 	secretAccessKeyBytes, ok := awsCreds.Data["SecretAccessKey"]
 	if !ok {
-
+		return resultError, fmt.Errorf("AWS secret %s in namespace %s does not contain SecretAccessKey", secretName, namespace)
 	}
 	secretAccessKey := string(secretAccessKeyBytes)
 
 	cfg, err := awsConfigForCredential(ctx, *region, accessKey, secretAccessKey)
+	if err != nil {
+		r.log.Error(err, "failed to generate AWS config")
+		return resultError, err
+	}
 
 	r.ec2Client = r.NewEC2ClientFactory(cfg)
 

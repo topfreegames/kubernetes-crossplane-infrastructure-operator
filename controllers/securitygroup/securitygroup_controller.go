@@ -81,7 +81,6 @@ type SecurityGroupReconciliation struct {
 	SecurityGroupReconciler
 	log                logr.Logger
 	start              time.Time
-	awsConfig          aws.Config
 	ec2Client          ec2.EC2Client
 	asgClient          autoscaling.AutoScalingClient
 	sg                 *securitygroupv1alpha1.SecurityGroup
@@ -170,13 +169,13 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	subnet, err := kops.GetSubnetFromKopsControlPlane(r.kcp)
 	if err != nil {
-		r.log.Error(err, fmt.Sprintf("failed to get subnet from kcp"))
+		r.log.Error(err, "failed to get subnet from kcp")
 		return resultError, err
 	}
 
 	region, err := kops.GetRegionFromKopsSubnet(*subnet)
 	if err != nil {
-		r.log.Error(err, fmt.Sprintf("failed to get region from kcp"))
+		r.log.Error(err, "failed to get region from kcp")
 		return resultError, err
 	}
 
@@ -202,23 +201,27 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		Name:      secretName,
 	}
 	if err := c.Get(ctx, key, awsCreds); err != nil {
-		r.log.Error(err, fmt.Sprintf("failed to get secret"))
+		r.log.Error(err, "failed to get secret")
 		return resultError, err
 	}
 
 	accessKeyBytes, ok := awsCreds.Data["AccessKeyID"]
 	if !ok {
-
+		return resultError, fmt.Errorf("AWS secret %s in namespace %s does not contain AccessKeyID", secretName, namespace)
 	}
 	accessKey := string(accessKeyBytes)
 
 	secretAccessKeyBytes, ok := awsCreds.Data["SecretAccessKey"]
 	if !ok {
-
+		return resultError, fmt.Errorf("AWS secret %s in namespace %s does not contain SecretAccessKey", secretName, namespace)
 	}
 	secretAccessKey := string(secretAccessKeyBytes)
 
 	cfg, err := awsConfigForCredential(ctx, *region, accessKey, secretAccessKey)
+	if err != nil {
+		r.log.Error(err, "failed to generate AWS config")
+		return resultError, err
+	}
 
 	r.ec2Client = r.NewEC2ClientFactory(cfg)
 	r.asgClient = r.NewAutoScalingClientFactory(cfg)

@@ -512,7 +512,7 @@ func TestPopulateClusterSpec(t *testing.T) {
 
 			kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
 
-			err := fakeClient.Get(context.TODO(), kcpKey, kcp)
+			_ = fakeClient.Get(context.TODO(), kcpKey, kcp)
 
 			reconciler := ClusterMeshReconciler{
 				Client: fakeClient,
