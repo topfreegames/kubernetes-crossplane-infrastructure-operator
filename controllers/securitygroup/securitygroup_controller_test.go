@@ -158,6 +158,10 @@ var (
 					},
 				},
 			},
+			IdentityRef: &corev1.ObjectReference{
+				Name:      "default",
+				Namespace: "kubernetes-kops-operator-system",
+			},
 		},
 	}
 

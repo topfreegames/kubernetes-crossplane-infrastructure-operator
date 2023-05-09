@@ -65,6 +65,10 @@ var defaultKcp = &kcontrolplanev1alpha1.KopsControlPlane{
 				},
 			},
 		},
+		IdentityRef: &corev1.ObjectReference{
+			Name:      "default",
+			Namespace: "kubernetes-kops-operator-system",
+		},
 	},
 }
 
