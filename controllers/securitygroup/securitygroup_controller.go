@@ -30,13 +30,12 @@ import (
 	"github.com/topfreegames/provider-crossplane/pkg/aws/autoscaling"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
 	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
+	"github.com/topfreegames/provider-crossplane/pkg/util"
 
 	oceanaws "github.com/spotinst/spotinst-sdk-go/service/ocean/providers/aws"
 	"github.com/topfreegames/provider-crossplane/pkg/spot"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
@@ -107,18 +106,6 @@ func DefaultReconciler(mgr manager.Manager) *SecurityGroupReconciler {
 	}
 }
 
-func awsConfigForCredential(ctx context.Context, region string, accessKey string, secretAccessKey string) (aws.Config, error) {
-	return config.LoadDefaultConfig(ctx,
-		config.WithRegion(region),
-		config.WithCredentialsProvider(credentials.StaticCredentialsProvider{
-			Value: aws.Credentials{
-				AccessKeyID:     accessKey,
-				SecretAccessKey: secretAccessKey,
-			},
-		}),
-	)
-}
-
 func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
 	r := &SecurityGroupReconciliation{
 		SecurityGroupReconciler: *c,
@@ -167,64 +154,15 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return resultError, fmt.Errorf("infrastructureRef not supported")
 	}
 
-	subnet, err := kops.GetSubnetFromKopsControlPlane(r.kcp)
+	providerConfigName, cfg, err := util.AwsCredentialsFromKcp(ctx, c.Client, r.kcp)
 	if err != nil {
-		r.log.Error(err, "failed to get subnet from kcp")
 		return resultError, err
 	}
 
-	region, err := kops.GetRegionFromKopsSubnet(*subnet)
-	if err != nil {
-		r.log.Error(err, "failed to get region from kcp")
-		return resultError, err
-	}
+	r.providerConfigName = providerConfigName
 
-	var secretName, namespace string
-	if r.kcp.Spec.IdentityRef != nil {
-		secretName = r.kcp.Spec.IdentityRef.Name
-		// gambiarra??
-		if r.kcp.Spec.IdentityRef.Namespace == "" {
-			namespace = "kubernetes-kops-operator-system"
-		} else {
-			namespace = r.kcp.Spec.IdentityRef.Namespace
-		}
-	} else {
-		secretName = "default"
-		namespace = "kubernetes-kops-operator-system"
-	}
-
-	r.providerConfigName = secretName
-
-	awsCreds := &corev1.Secret{}
-	key := client.ObjectKey{
-		Namespace: namespace,
-		Name:      secretName,
-	}
-	if err := c.Get(ctx, key, awsCreds); err != nil {
-		r.log.Error(err, "failed to get secret")
-		return resultError, err
-	}
-
-	accessKeyBytes, ok := awsCreds.Data["AccessKeyID"]
-	if !ok {
-		return resultError, fmt.Errorf("AWS secret %s in namespace %s does not contain AccessKeyID", secretName, namespace)
-	}
-	accessKey := string(accessKeyBytes)
-
-	secretAccessKeyBytes, ok := awsCreds.Data["SecretAccessKey"]
-	if !ok {
-		return resultError, fmt.Errorf("AWS secret %s in namespace %s does not contain SecretAccessKey", secretName, namespace)
-	}
-	secretAccessKey := string(secretAccessKeyBytes)
-
-	cfg, err := awsConfigForCredential(ctx, *region, accessKey, secretAccessKey)
-	if err != nil {
-		r.log.Error(err, "failed to generate AWS config")
-		return resultError, err
-	}
-
-	r.ec2Client = r.NewEC2ClientFactory(cfg)
-	r.asgClient = r.NewAutoScalingClientFactory(cfg)
+	r.ec2Client = r.NewEC2ClientFactory(*cfg)
+	r.asgClient = r.NewAutoScalingClientFactory(*cfg)
 
 	r.log.Info(fmt.Sprintf("starting reconcile loop for %s", r.sg.ObjectMeta.GetName()))
 

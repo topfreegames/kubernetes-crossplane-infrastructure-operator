@@ -32,11 +32,10 @@ import (
 	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
 	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
+	"github.com/topfreegames/provider-crossplane/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -100,18 +99,6 @@ func DefaultReconciler(mgr manager.Manager) *ClusterMeshReconciler {
 	return r
 }
 
-func awsConfigForCredential(ctx context.Context, region string, accessKey string, secretAccessKey string) (aws.Config, error) {
-	return config.LoadDefaultConfig(ctx,
-		config.WithRegion(region),
-		config.WithCredentialsProvider(credentials.StaticCredentialsProvider{
-			Value: aws.Credentials{
-				AccessKeyID:     accessKey,
-				SecretAccessKey: secretAccessKey,
-			},
-		}),
-	)
-}
-
 func (c *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r := &ClusterMeshReconciliation{
 		ClusterMeshReconciler: *c,
@@ -136,63 +123,15 @@ func (c *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err := c.Get(ctx, key, r.kcp); err != nil {
 		return requeue1min, err
 	}
-	subnet, err := kops.GetSubnetFromKopsControlPlane(r.kcp)
+
+	providerConfigName, cfg, err := util.AwsCredentialsFromKcp(ctx, c.Client, r.kcp)
 	if err != nil {
-		r.log.Error(err, "failed to get subnet from kcp")
-		return requeue1min, err
-	}
-
-	region, err := kops.GetRegionFromKopsSubnet(*subnet)
-	if err != nil {
-		r.log.Error(err, "failed to get region from kcp")
-		return requeue1min, err
-	}
-
-	var secretName, namespace string
-	if r.kcp.Spec.IdentityRef != nil {
-		secretName = r.kcp.Spec.IdentityRef.Name
-		// gambiarra??
-		if r.kcp.Spec.IdentityRef.Namespace == "" {
-			namespace = "kubernetes-kops-operator-system"
-		} else {
-			namespace = r.kcp.Spec.IdentityRef.Namespace
-		}
-	} else {
-		secretName = "default"
-		namespace = "kubernetes-kops-operator-system"
-	}
-
-	r.providerConfigName = secretName
-
-	awsCreds := &corev1.Secret{}
-	key = client.ObjectKey{
-		Namespace: namespace,
-		Name:      secretName,
-	}
-	if err := c.Get(ctx, key, awsCreds); err != nil {
-		r.log.Error(err, "failed to get secret")
-		return requeue1min, err
-	}
-
-	accessKeyBytes, ok := awsCreds.Data["AccessKeyID"]
-	if !ok {
-		return resultError, fmt.Errorf("AWS secret %s in namespace %s does not contain AccessKeyID", secretName, namespace)
-	}
-	accessKey := string(accessKeyBytes)
-
-	secretAccessKeyBytes, ok := awsCreds.Data["SecretAccessKey"]
-	if !ok {
-		return resultError, fmt.Errorf("AWS secret %s in namespace %s does not contain SecretAccessKey", secretName, namespace)
-	}
-	secretAccessKey := string(secretAccessKeyBytes)
-
-	cfg, err := awsConfigForCredential(ctx, *region, accessKey, secretAccessKey)
-	if err != nil {
-		r.log.Error(err, "failed to generate AWS config")
 		return resultError, err
 	}
 
-	r.ec2Client = r.NewEC2ClientFactory(cfg)
+	r.providerConfigName = providerConfigName
+
+	r.ec2Client = r.NewEC2ClientFactory(*cfg)
 
 	r.clustermesh = &clustermeshv1beta1.ClusterMesh{}
 	r.cluster = cluster
@@ -554,7 +493,6 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciliation, ctx context.Context, 
 	}
 	r.log.Info(fmt.Sprintf("successfully %s security group %s for cluster %s in clustermesh %s\n", string(operationResult), sg.Name, cluster.Name, r.clustermesh.Name))
 
-	// TODO: por que náo é feito no createorupdate?
 	err = controllerutil.SetOwnerReference(r.clustermesh, sg, r.ClusterMeshReconciler.Scheme)
 	if err != nil {
 		return err
