@@ -31,8 +31,9 @@ import (
 )
 
 var (
-	testVPCId  = "vpc-xxxxx"
-	testRegion = "us-east-1"
+	testVPCId                 = "vpc-xxxxx"
+	testRegion                = "us-east-1"
+	defaultProviderConfigName = "default"
 )
 
 func TestGetOwnedVPCPeeringConnectionsRef(t *testing.T) {
@@ -691,6 +692,7 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 		peeringAccepter               *clustermeshv1beta1.ClusterSpec
 		expectedVPCPeeringConnection  *wildlifecrossec2v1alphav1.VPCPeeringConnection
 		expectedVPCPeeringConnections []*corev1.ObjectReference
+		providerConfigName            string
 	}{
 		{
 			description: "should create vpcPeeringConnection",
@@ -755,6 +757,13 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "A-B",
 					},
+					Spec: wildlifecrossec2v1alphav1.VPCPeeringConnectionSpec{
+						ResourceSpec: crossplanev1.ResourceSpec{
+							ProviderConfigReference: &crossplanev1.Reference{
+								Name: "default",
+							},
+						},
+					},
 				},
 				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
@@ -764,6 +773,13 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "A-C",
 					},
+					Spec: wildlifecrossec2v1alphav1.VPCPeeringConnectionSpec{
+						ResourceSpec: crossplanev1.ResourceSpec{
+							ProviderConfigReference: &crossplanev1.Reference{
+								Name: "default",
+							},
+						},
+					},
 				},
 				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
@@ -772,6 +788,13 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "B-C",
+					},
+					Spec: wildlifecrossec2v1alphav1.VPCPeeringConnectionSpec{
+						ResourceSpec: crossplanev1.ResourceSpec{
+							ProviderConfigReference: &crossplanev1.Reference{
+								Name: "default",
+							},
+						},
 					},
 				},
 			},
@@ -944,6 +967,59 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 				},
 			},
 		},
+		{
+			description: "should create vpcPeeringConnection with ProviderCOnfigReference",
+			clustermeshStatus: clustermeshv1beta1.ClusterMeshStatus{
+				CrossplanePeeringRef: []*corev1.ObjectReference{},
+			},
+			peeringRequester: &clustermeshv1beta1.ClusterSpec{
+				Name:   "A",
+				Region: "us-east-1",
+				VPCID:  "xxx",
+			},
+			peeringAccepter: &clustermeshv1beta1.ClusterSpec{
+				Name:   "B",
+				Region: "eu-central-1",
+				VPCID:  "yyy",
+			},
+			expectedVPCPeeringConnection: &wildlifecrossec2v1alphav1.VPCPeeringConnection{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: "ec2.aws.wildlife.io/v1alpha1",
+					Kind:       "VPCPeeringConnection",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "A-B",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name:       clustermesh.ObjectMeta.Name,
+							APIVersion: clustermesh.TypeMeta.APIVersion,
+							Kind:       clustermesh.TypeMeta.Kind,
+							UID:        clustermesh.ObjectMeta.UID,
+						},
+					},
+					ResourceVersion: "1",
+				},
+				Spec: wildlifecrossec2v1alphav1.VPCPeeringConnectionSpec{
+					ForProvider: wildlifecrossec2v1alphav1.VPCPeeringConnectionParameters{
+						Region:     "us-east-1",
+						PeerRegion: aws.String("eu-central-1"),
+						CustomVPCPeeringConnectionParameters: wildlifecrossec2v1alphav1.CustomVPCPeeringConnectionParameters{
+							VPCID:         aws.String("xxx"),
+							PeerVPCID:     aws.String("yyy"),
+							AcceptRequest: true,
+						},
+					},
+				},
+			},
+			expectedVPCPeeringConnections: []*corev1.ObjectReference{
+				{
+					Name:       "A-B",
+					APIVersion: "ec2.aws.wildlife.io/v1alpha1",
+					Kind:       "VPCPeeringConnection",
+				},
+			},
+			providerConfigName: "test",
+		},
 	}
 
 	RegisterFailHandler(Fail)
@@ -955,12 +1031,24 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 	err = crossec2v1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = wildlifecrossec2v1alphav1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
 			ctx := context.TODO()
+
+			var providerConfigName string
+			if tc.providerConfigName != "" {
+				providerConfigName = tc.providerConfigName
+			} else {
+				providerConfigName = defaultProviderConfigName
+			}
+
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.vpcPeeringConnections...).Build()
 			clustermesh.Status = tc.clustermeshStatus
-			err = CreateCrossplaneVPCPeeringConnection(ctx, fakeClient, clustermesh, tc.peeringRequester, tc.peeringAccepter)
+			err = CreateCrossplaneVPCPeeringConnection(ctx, fakeClient, clustermesh, tc.peeringRequester, tc.peeringAccepter, providerConfigName)
+			g.Expect(err).ToNot(HaveOccurred())
 			key := client.ObjectKey{
 				Name: fmt.Sprintf("%s-%s", tc.peeringRequester.Name, tc.peeringAccepter.Name),
 			}
@@ -969,6 +1057,7 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 			g.Expect(err).To(BeNil())
 			g.Expect(vpcPeeringConnection).ToNot(BeNil())
 			g.Expect(cmp.Equal(vpcPeeringConnection.Status, tc.expectedVPCPeeringConnection.Status)).To(BeTrue())
+			g.Expect(vpcPeeringConnection.Spec.ProviderConfigReference.Name).To(Equal(providerConfigName))
 		})
 	}
 }
@@ -1084,6 +1173,13 @@ func TestDeleteCrossplaneVPCPeeringConnection(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "A-C",
 					},
+					Spec: wildlifecrossec2v1alphav1.VPCPeeringConnectionSpec{
+						ResourceSpec: crossplanev1.ResourceSpec{
+							ProviderConfigReference: &crossplanev1.Reference{
+								Name: "default",
+							},
+						},
+					},
 				},
 				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
@@ -1092,6 +1188,13 @@ func TestDeleteCrossplaneVPCPeeringConnection(t *testing.T) {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "B-C",
+					},
+					Spec: wildlifecrossec2v1alphav1.VPCPeeringConnectionSpec{
+						ResourceSpec: crossplanev1.ResourceSpec{
+							ProviderConfigReference: &crossplanev1.Reference{
+								Name: "default",
+							},
+						},
 					},
 				},
 			},
@@ -1223,12 +1326,18 @@ func TestCrossPlaneClusterMeshResource(t *testing.T) {
 
 func TestNewCrossplaneSecurityGroup(t *testing.T) {
 	testCases := []struct {
-		description  string
-		ingressRules []securitygroupv1alpha1.IngressRule
+		description        string
+		ingressRules       []securitygroupv1alpha1.IngressRule
+		providerConfigName string
 	}{
 		{
 			description:  "should return a Crossplane SecurityGroup",
 			ingressRules: []securitygroupv1alpha1.IngressRule{},
+		},
+		{
+			description:        "should create a crossplane sg with the provided providerConfigName",
+			ingressRules:       []securitygroupv1alpha1.IngressRule{},
+			providerConfigName: "test",
 		},
 	}
 	RegisterFailHandler(Fail)
@@ -1244,8 +1353,16 @@ func TestNewCrossplaneSecurityGroup(t *testing.T) {
 					IngressRules: tc.ingressRules,
 				},
 			}
-			csg := NewCrossplaneSecurityGroup(sg, &testVPCId, &testRegion)
+
+			var expectedProviderConfigName string
+			if tc.providerConfigName != "" {
+				expectedProviderConfigName = tc.providerConfigName
+			} else {
+				expectedProviderConfigName = defaultProviderConfigName
+			}
+			csg := NewCrossplaneSecurityGroup(sg, &testVPCId, &testRegion, expectedProviderConfigName)
 			g.Expect(csg.Spec.ForProvider.Description).To(Equal(fmt.Sprintf("sg %s managed by provider-crossplane", sg.GetName())))
+			g.Expect(csg.Spec.ProviderConfigReference.Name).To(Equal(expectedProviderConfigName))
 		})
 	}
 }
@@ -1410,7 +1527,7 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
 
-			_, err := CreateOrUpdateCrossplaneSecurityGroup(ctx, fakeClient, aws.String("vpc-xxx"), aws.String("us-east-1"), tc.wildlifeSecurityGroup)
+			_, err := CreateOrUpdateCrossplaneSecurityGroup(ctx, fakeClient, aws.String("vpc-xxx"), aws.String("us-east-1"), defaultProviderConfigName, tc.wildlifeSecurityGroup)
 			g.Expect(err).To(BeNil())
 			csg := &crossec2v1beta1.SecurityGroup{}
 			key := client.ObjectKey{
@@ -1653,10 +1770,11 @@ func TestCreateCrossplaneRoute(t *testing.T) {
 	}
 
 	testCases := []struct {
-		description    string
-		routeTable     string
-		clusterSpec    *clustermeshv1beta1.ClusterSpec
-		expectedResult bool
+		description        string
+		routeTable         string
+		clusterSpec        *clustermeshv1beta1.ClusterSpec
+		expectedResult     bool
+		providerConfigName string
 	}{
 		{
 			description: "should create route",
@@ -1668,6 +1786,18 @@ func TestCreateCrossplaneRoute(t *testing.T) {
 				CIDR:   "aaaa",
 			},
 			expectedResult: true,
+		},
+		{
+			description: "should create route with providerConfigReference",
+			routeTable:  "rt-xxx",
+			clusterSpec: &clustermeshv1beta1.ClusterSpec{
+				Name:   "A",
+				Region: "us-east-1",
+				VPCID:  "xxx",
+				CIDR:   "aaaa",
+			},
+			expectedResult:     true,
+			providerConfigName: "test",
 		},
 	}
 
@@ -1682,7 +1812,14 @@ func TestCreateCrossplaneRoute(t *testing.T) {
 			ctx := context.TODO()
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
 
-			err := CreateCrossplaneRoute(ctx, fakeClient, tc.clusterSpec.Region, tc.clusterSpec.CIDR, tc.routeTable, *vpcPeeringConnection)
+			var providerConfigName string
+			if tc.providerConfigName != "" {
+				providerConfigName = tc.providerConfigName
+			} else {
+				providerConfigName = defaultProviderConfigName
+			}
+
+			err := CreateCrossplaneRoute(ctx, fakeClient, tc.clusterSpec.Region, tc.clusterSpec.CIDR, providerConfigName, tc.routeTable, *vpcPeeringConnection)
 			g.Expect(err).To(BeNil())
 			route := crossec2v1alpha1.Route{}
 			err = fakeClient.Get(ctx, client.ObjectKey{Name: tc.routeTable + "-" + vpcPeeringConnection.ObjectMeta.Annotations["crossplane.io/external-name"]}, &route)
@@ -1690,6 +1827,7 @@ func TestCreateCrossplaneRoute(t *testing.T) {
 			g.Expect(route.Spec.ForProvider.RouteTableID).To(BeEquivalentTo(aws.String(tc.routeTable)))
 			g.Expect(route.Spec.ForProvider.DestinationCIDRBlock).To(BeEquivalentTo(aws.String(tc.clusterSpec.CIDR)))
 			g.Expect(route.Spec.ForProvider.VPCPeeringConnectionID).To(BeEquivalentTo(aws.String(vpcPeeringConnection.ObjectMeta.Annotations["crossplane.io/external-name"])))
+			g.Expect(route.Spec.ProviderConfigReference.Name).To(Equal(providerConfigName))
 		})
 	}
 }

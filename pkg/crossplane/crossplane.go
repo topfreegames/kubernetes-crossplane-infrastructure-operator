@@ -27,7 +27,7 @@ var (
 	vpcPeeringConnectionAPIVersion = "ec2.aws.wildlife.io/v1alpha1"
 )
 
-func NewCrossPlaneVPCPeeringConnection(clustermesh *clustermeshv1beta1.ClusterMesh, peeringRequester, peeringAccepter *clustermeshv1beta1.ClusterSpec) *wildlifecrossec2v1alphav1.VPCPeeringConnection {
+func NewCrossPlaneVPCPeeringConnection(clustermesh *clustermeshv1beta1.ClusterMesh, peeringRequester, peeringAccepter *clustermeshv1beta1.ClusterSpec, providerConfigName string) *wildlifecrossec2v1alphav1.VPCPeeringConnection {
 	crossplaneVPCPeeringConnection := &wildlifecrossec2v1alphav1.VPCPeeringConnection{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: vpcPeeringConnectionAPIVersion,
@@ -54,12 +54,17 @@ func NewCrossPlaneVPCPeeringConnection(clustermesh *clustermeshv1beta1.ClusterMe
 					AcceptRequest: true,
 				},
 			},
+			ResourceSpec: crossplanev1.ResourceSpec{
+				ProviderConfigReference: &crossplanev1.Reference{
+					Name: providerConfigName,
+				},
+			},
 		},
 	}
 	return crossplaneVPCPeeringConnection
 }
 
-func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha1.SecurityGroup, vpcId, region *string) *crossec2v1beta1.SecurityGroup {
+func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha1.SecurityGroup, vpcId, region *string, providerConfigName string) *crossec2v1beta1.SecurityGroup {
 	csg := &crossec2v1beta1.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        sg.GetName(),
@@ -73,12 +78,17 @@ func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha1.SecurityGroup, vpcId, 
 				VPCID:       vpcId,
 				Region:      region,
 			},
+			ResourceSpec: crossplanev1.ResourceSpec{
+				ProviderConfigReference: &crossplanev1.Reference{
+					Name: providerConfigName,
+				},
+			},
 		},
 	}
 	return csg
 }
 
-func NewCrossplaneRoute(region, destinationCIDRBlock, routeTable string, vpcPeeringConnection wildlifecrossec2v1alphav1.VPCPeeringConnection) *crossec2v1alphav1.Route {
+func NewCrossplaneRoute(region, destinationCIDRBlock, routeTable string, providerConfigName string, vpcPeeringConnection wildlifecrossec2v1alphav1.VPCPeeringConnection) *crossec2v1alphav1.Route {
 	vpcPeeringConnectionID := vpcPeeringConnection.ObjectMeta.Annotations["crossplane.io/external-name"]
 	croute := &crossec2v1alphav1.Route{
 		TypeMeta: metav1.TypeMeta{
@@ -105,14 +115,19 @@ func NewCrossplaneRoute(region, destinationCIDRBlock, routeTable string, vpcPeer
 					VPCPeeringConnectionID: &vpcPeeringConnectionID,
 				},
 			},
+			ResourceSpec: crossplanev1.ResourceSpec{
+				ProviderConfigReference: &crossplanev1.Reference{
+					Name: providerConfigName,
+				},
+			},
 		},
 	}
 
 	return croute
 }
 
-func CreateOrUpdateCrossplaneSecurityGroup(ctx context.Context, kubeClient client.Client, vpcId, region *string, sg *securitygroupv1alpha1.SecurityGroup) (*crossec2v1beta1.SecurityGroup, error) {
-	csg := NewCrossplaneSecurityGroup(sg, vpcId, region)
+func CreateOrUpdateCrossplaneSecurityGroup(ctx context.Context, kubeClient client.Client, vpcId, region *string, providerConfigName string, sg *securitygroupv1alpha1.SecurityGroup) (*crossec2v1beta1.SecurityGroup, error) {
+	csg := NewCrossplaneSecurityGroup(sg, vpcId, region, providerConfigName)
 	_, err := controllerutil.CreateOrUpdate(ctx, kubeClient, csg, func() error {
 		var ingressRules []crossec2v1beta1.IPPermission
 		for _, ingressRule := range sg.Spec.IngressRules {
@@ -135,6 +150,11 @@ func CreateOrUpdateCrossplaneSecurityGroup(ctx context.Context, kubeClient clien
 		}
 		csg.Spec.ForProvider.Ingress = ingressRules
 		csg.Annotations = sg.Annotations
+		csg.Spec.ResourceSpec.ProviderConfigReference = &crossplanev1.Reference{Name: providerConfigName}
+		csg.Spec.ForProvider.VPCID = vpcId
+
+		// varias propriedades não váo ser atualizadas se o csg já existir...
+
 		return nil
 	})
 	if err != nil {
@@ -144,9 +164,9 @@ func CreateOrUpdateCrossplaneSecurityGroup(ctx context.Context, kubeClient clien
 	return csg, nil
 }
 
-func CreateCrossplaneVPCPeeringConnection(ctx context.Context, kubeClient client.Client, clustermesh *clustermeshv1beta1.ClusterMesh, peeringRequester, peeringAccepter *clustermeshv1beta1.ClusterSpec) error {
+func CreateCrossplaneVPCPeeringConnection(ctx context.Context, kubeClient client.Client, clustermesh *clustermeshv1beta1.ClusterMesh, peeringRequester, peeringAccepter *clustermeshv1beta1.ClusterSpec, providerConfigName string) error {
 	log := ctrl.LoggerFrom(ctx)
-	crossplaneVPCPeeringConnection := NewCrossPlaneVPCPeeringConnection(clustermesh, peeringRequester, peeringAccepter)
+	crossplaneVPCPeeringConnection := NewCrossPlaneVPCPeeringConnection(clustermesh, peeringRequester, peeringAccepter, providerConfigName)
 
 	err := kubeClient.Create(ctx, crossplaneVPCPeeringConnection)
 	if err != nil && !apierrors.IsAlreadyExists(err) {
@@ -162,9 +182,9 @@ func CreateCrossplaneVPCPeeringConnection(ctx context.Context, kubeClient client
 	return nil
 }
 
-func CreateCrossplaneRoute(ctx context.Context, kubeClient client.Client, region, destinationCIDRBlock, routeTable string, vpcPeeringConnection wildlifecrossec2v1alphav1.VPCPeeringConnection) error {
+func CreateCrossplaneRoute(ctx context.Context, kubeClient client.Client, region string, destinationCIDRBlock, providerConfigName string, routeTable string, vpcPeeringConnection wildlifecrossec2v1alphav1.VPCPeeringConnection) error {
 	log := ctrl.LoggerFrom(ctx)
-	crossplaneRoute := NewCrossplaneRoute(region, destinationCIDRBlock, routeTable, vpcPeeringConnection)
+	crossplaneRoute := NewCrossplaneRoute(region, destinationCIDRBlock, routeTable, providerConfigName, vpcPeeringConnection)
 
 	err := kubeClient.Create(ctx, crossplaneRoute)
 	if err != nil {

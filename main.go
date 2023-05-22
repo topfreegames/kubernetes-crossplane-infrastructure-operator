@@ -30,9 +30,6 @@ import (
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
 	clustermeshcontrollers "github.com/topfreegames/provider-crossplane/controllers/clustermesh"
 	sgcontroller "github.com/topfreegames/provider-crossplane/controllers/securitygroup"
-	"github.com/topfreegames/provider-crossplane/pkg/aws/autoscaling"
-	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
-	"github.com/topfreegames/provider-crossplane/pkg/spot"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -96,26 +93,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&clustermeshcontrollers.ClusterMeshReconciler{
-		Client:                         mgr.GetClient(),
-		Scheme:                         mgr.GetScheme(),
-		NewEC2ClientFactory:            ec2.NewEC2Client,
-		PopulateClusterSpecFactory:     clustermeshcontrollers.PopulateClusterSpec,
-		ReconcilePeeringsFactory:       clustermeshcontrollers.ReconcilePeerings,
-		ReconcileSecurityGroupsFactory: clustermeshcontrollers.ReconcileSecurityGroups,
-		ReconcileRoutesFactory:         clustermeshcontrollers.ReconcileRoutes,
-	}).SetupWithManager(mgr); err != nil {
+	if err = clustermeshcontrollers.DefaultReconciler(mgr).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterMesh")
 		os.Exit(1)
 	}
-	if err = (&sgcontroller.SecurityGroupReconciler{
-		Client:                          mgr.GetClient(),
-		Scheme:                          mgr.GetScheme(),
-		Recorder:                        mgr.GetEventRecorderFor("securityGroup-controller"),
-		NewEC2ClientFactory:             ec2.NewEC2Client,
-		NewAutoScalingClientFactory:     autoscaling.NewAutoScalingClient,
-		NewOceanCloudProviderAWSFactory: spot.NewOceanCloudProviderAWS,
-	}).SetupWithManager(mgr); err != nil {
+	if err = sgcontroller.DefaultReconciler(mgr).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityGroup")
 		os.Exit(1)
 	}
