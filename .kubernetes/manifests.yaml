@@ -377,6 +377,13 @@ metadata:
   name: provider-crossplane-manager-role
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+- apiGroups:
   - cluster.x-k8s.io
   resources:
   - clusters
@@ -658,7 +665,7 @@ spec:
               name: aws-credentials
         - name: AWS_REGION
           value: us-east-1
-        image: tfgco/provider-crossplane:v0.0.11-alpha
+        image: tfgco/provider-crossplane:v0.0.12-alpha
         livenessProbe:
           httpGet:
             path: /healthz

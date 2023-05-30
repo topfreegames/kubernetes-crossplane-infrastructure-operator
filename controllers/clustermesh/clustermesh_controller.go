@@ -84,6 +84,7 @@ type ClusterMeshReconciliation struct {
 //+kubebuilder:rbac:groups=clustermesh.infrastructure.wildlife.io,resources=clustermeshes,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=clustermesh.infrastructure.wildlife.io,resources=clustermeshes/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=clustermesh.infrastructure.wildlife.io,resources=clustermeshes/finalizers,verbs=update
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list
 
 func DefaultReconciler(mgr manager.Manager) *ClusterMeshReconciler {
 	r := &ClusterMeshReconciler{
