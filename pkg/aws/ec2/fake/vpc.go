@@ -7,18 +7,17 @@ import (
 )
 
 type MockEC2Client struct {
-	MockDescribeVpcs                   func(ctx context.Context, input *ec2.DescribeVpcsInput, opts []func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error)
-	MockDescribeLaunchTemplateVersions func(ctx context.Context, params *ec2.DescribeLaunchTemplateVersionsInput, optFns []func(*ec2.Options)) (*ec2.DescribeLaunchTemplateVersionsOutput, error)
-	MockCreateLaunchTemplateVersion    func(ctx context.Context, params *ec2.CreateLaunchTemplateVersionInput, optFns []func(*ec2.Options)) (*ec2.CreateLaunchTemplateVersionOutput, error)
-	MockModifyLaunchTemplate           func(ctx context.Context, params *ec2.ModifyLaunchTemplateInput, optFns []func(*ec2.Options)) (*ec2.ModifyLaunchTemplateOutput, error)
-	MockDescribeSecurityGroups         func(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns []func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error)
-	MockDescribeRouteTables            func(ctx context.Context, params *ec2.DescribeRouteTablesInput, optFns []func(*ec2.Options)) (*ec2.DescribeRouteTablesOutput, error)
+	// MockDescribeLaunchTemplates        func(ctx context.Context, params *ec2.DescribeLaunchTemplatesInput, optFns []func(*ec2.Options)) (*ec2.DescribeLaunchTemplatesOutput, error)
 }
 
 func (m *MockEC2Client) DescribeVpcs(ctx context.Context, input *ec2.DescribeVpcsInput, opts ...func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error) {
 	return m.MockDescribeVpcs(ctx, input, opts)
 }
 
+
+// func (m *MockEC2Client) DescribeLaunchTemplates(ctx context.Context, params *ec2.DescribeLaunchTemplatesInput, opts ...func(*ec2.Options)) (*ec2.DescribeLaunchTemplatesOutput, error) {
+// 	return m.MockDescribeLaunchTemplates(ctx, params, opts)
+// }
 func (m *MockEC2Client) DescribeLaunchTemplateVersions(ctx context.Context, params *ec2.DescribeLaunchTemplateVersionsInput, opts ...func(*ec2.Options)) (*ec2.DescribeLaunchTemplateVersionsOutput, error) {
 	return m.MockDescribeLaunchTemplateVersions(ctx, params, opts)
 }

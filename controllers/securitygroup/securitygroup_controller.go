@@ -332,6 +332,19 @@ func (r *SecurityGroupReconciliation) reconcileKopsControlPlane(ctx context.Cont
 				attachErr = multierror.Append(attachErr, err)
 				continue
 			}
+			// } else if kmp.Spec.KopsInstanceGroupSpec.Manager == "Karpenter" {
+			// 	launchTemplateName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
+			// 	if err != nil {
+			// 		attachErr = multierror.Append(attachErr, err)
+			// 		continue
+			// 	}
+
+			// 	err = r.attachSGToLaunchTemplate(ctx, kcp.Name, launchTemplateName, csg.Status.AtProvider.SecurityGroupID)
+			// 	if err != nil {
+			// 		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha1.SecurityGroupAttachmentFailedReason, err.Error())
+			// 		attachErr = multierror.Append(attachErr, err)
+			// 		continue
+			// 	}
 		} else {
 			asgName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
 			if err != nil {
@@ -552,7 +565,42 @@ func (r *SecurityGroupReconciliation) detachSGFromVNG(ctx context.Context, ocean
 	return fmt.Errorf("error no vng found with instance group name: %s", kmpName)
 }
 
-func (r *SecurityGroupReconciliation) attachSGToASG(ctx context.Context, asgName, sgId string) error {
+// func (r *SecurityGroupReconciliation) attachSGToLaunchTemplate(ctx context.Context, kubernetesClusterName, launchTemplateName, sgID string) error {
+
+// 	launchTemplate, err := ec2.GetLaunchTemplateFromInstanceGroup(ctx, r.ec2Client, kubernetesClusterName, launchTemplateName)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	launchTemplateVersion, err := ec2.GetLastLaunchTemplateVersion(ctx, r.ec2Client, *launchTemplate.LaunchTemplateId)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	_, err = ec2.AttachSecurityGroupToLaunchTemplate(ctx, r.ec2Client, sgID, launchTemplateVersion)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	reservations, err := ec2.GetReservationsUsingLaunchTemplate(ctx, r.ec2Client, *launchTemplate.LaunchTemplateId)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	instanceIDs := []string{}
+// 	for _, reservation := range reservations {
+// 		for _, instance := range reservation.Instances {
+// 			instanceIDs = append(instanceIDs, *instance.InstanceId)
+// 		}
+// 	}
+
+// 	err = ec2.AttachSecurityGroupToInstances(ctx, r.ec2Client, instanceIDs, sgID)
+// 	if err != nil {
+// 		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesAttachmentFailed", err.Error())
+// 	}
+
+// 	return nil
+// }
 
 	asg, err := autoscaling.GetAutoScalingGroupByName(ctx, r.asgClient, asgName)
 	if err != nil {
@@ -638,6 +686,20 @@ func (r *SecurityGroupReconciliation) deleteSGFromKopsControlPlaneASGs(ctx conte
 				attachErr = multierror.Append(attachErr, err)
 				continue
 			}
+			// } else if kmp.Spec.KopsInstanceGroupSpec.Manager == "Karpenter" {
+			// 	launchTemplateName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
+			// 	if err != nil {
+			// 		detachErr = multierror.Append(detachErr, err)
+			// 		continue
+			// 	}
+
+			// 	err = r.detachSGFromLaunchTemplate(ctx, kmp.Spec.ClusterName, launchTemplateName, csg.Status.AtProvider.SecurityGroupID)
+			// 	if err != nil {
+			// 		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha1.SecurityGroupAttachmentFailedReason, err.Error())
+			// 		detachErr = multierror.Append(detachErr, err)
+			// 		continue
+			// 	}
+			// 	// TODO: Do we want to detach the SGs from the instances as well?
 		} else {
 			asgName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
 			if err != nil {
@@ -670,24 +732,25 @@ func (r *SecurityGroupReconciliation) deleteSGFromKopsMachinePoolASG(ctx context
 		return err
 	}
 
-	if len(kmp.Spec.SpotInstOptions) != 0 {
-		oceanClient := r.NewOceanCloudProviderAWSFactory()
-		launchSpecs, err := spot.ListVNGsFromClusterName(ctx, oceanClient, kmp.Spec.ClusterName)
-		if err != nil {
-			return fmt.Errorf("error retrieving vngs from clusterName: %w", err)
-		}
+// func (r *SecurityGroupReconciliation) detachSGFromLaunchTemplate(ctx context.Context, kubernetesClusterName, launchTemplateName, sgID string) error {
 
-		return r.detachSGFromVNG(ctx, oceanClient, launchSpecs, kmp.Name, csg)
+// 	launchTemplate, err := ec2.GetLaunchTemplateFromInstanceGroup(ctx, r.ec2Client, kubernetesClusterName, launchTemplateName)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	} else {
-		asgName, err := kops.GetCloudResourceNameFromKopsMachinePool(*kmp)
-		if err != nil {
-			return err
-		}
+// 	launchTemplateVersion, err := ec2.GetLastLaunchTemplateVersion(ctx, r.ec2Client, *launchTemplate.LaunchTemplateId)
+// 	if err != nil {
+// 		return err
+// 	}
 
-		return r.detachSGFromASG(ctx, asgName, csg.Status.AtProvider.SecurityGroupID)
-	}
-}
+// 	_, err = ec2.DetachSecurityGroupFromLaunchTemplate(ctx, r.ec2Client, sgID, launchTemplateVersion)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	return nil
+// }
 
 func (r *SecurityGroupReconciliation) detachSGFromASG(ctx context.Context, asgName, sgId string) error {
 	asg, err := autoscaling.GetAutoScalingGroupByName(ctx, r.asgClient, asgName)

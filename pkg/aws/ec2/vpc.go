@@ -14,6 +14,7 @@ import (
 
 type EC2Client interface {
 	DescribeVpcs(ctx context.Context, input *ec2.DescribeVpcsInput, opts ...func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error)
+	// DescribeLaunchTemplates(ctx context.Context, params *ec2.DescribeLaunchTemplatesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeLaunchTemplatesOutput, error)
 	DescribeLaunchTemplateVersions(ctx context.Context, params *ec2.DescribeLaunchTemplateVersionsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeLaunchTemplateVersionsOutput, error)
 	CreateLaunchTemplateVersion(ctx context.Context, params *ec2.CreateLaunchTemplateVersionInput, optFns ...func(*ec2.Options)) (*ec2.CreateLaunchTemplateVersionOutput, error)
 	ModifyLaunchTemplate(ctx context.Context, params *ec2.ModifyLaunchTemplateInput, optFns ...func(*ec2.Options)) (*ec2.ModifyLaunchTemplateOutput, error)
@@ -25,6 +26,45 @@ func NewEC2Client(cfg aws.Config) EC2Client {
 	return ec2.NewFromConfig(cfg)
 }
 
+// func GetLaunchTemplateFromInstanceGroup(ctx context.Context, ec2Client EC2Client, kubernetesClusterName, launchTemplateName string) (*ec2types.LaunchTemplate, error) {
+// 	launchTemplate, err := ec2Client.DescribeLaunchTemplates(ctx, &ec2.DescribeLaunchTemplatesInput{
+// 		Filters: []ec2types.Filter{
+// 			{
+// 				Name:   aws.String("tag:KubernetesCluster"),
+// 				Values: []string{kubernetesClusterName},
+// 			},
+// 			{
+// 				Name:   aws.String("tag:Name"),
+// 				Values: []string{launchTemplateName},
+// 			},
+// 		},
+// 	})
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	if len(launchTemplate.LaunchTemplates) == 0 {
+// 		return nil, fmt.Errorf("failed to get launch template")
+// 	}
+
+// 	return &launchTemplate.LaunchTemplates[0], nil
+// }
+
+// func GetReservationsUsingLaunchTemplate(ctx context.Context, ec2Client EC2Client, launchTemplateID string) ([]ec2types.Reservation, error) {
+// 	instances, err := ec2Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+// 		Filters: []ec2types.Filter{
+// 			{
+// 				Name:   aws.String("tag:aws:ec2launchtemplate:id"),
+// 				Values: []string{launchTemplateID},
+// 			},
+// 		},
+// 	})
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	return instances.Reservations, nil
+// }
 func GetVPCIdFromCIDR(ctx context.Context, ec2Client EC2Client, CIDR string) (*string, error) {
 
 	filter := "cidr"
