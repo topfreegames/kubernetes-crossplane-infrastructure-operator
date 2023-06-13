@@ -26,7 +26,7 @@ func awsConfigForCredential(ctx context.Context, region string, accessKey string
 }
 
 // returns (secretName, awsConfig, err)
-func AwsCredentialsFromKcp(ctx context.Context, c client.Client, kcp *kcontrolplanev1alpha1.KopsControlPlane) (string, *aws.Config, error) {
+func AWSCredentialsFromKCP(ctx context.Context, c client.Client, kcp *kcontrolplanev1alpha1.KopsControlPlane) (string, *aws.Config, error) {
 	subnet, err := kops.GetSubnetFromKopsControlPlane(kcp)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to get subnet from kcp: %w", err)
