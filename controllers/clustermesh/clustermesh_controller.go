@@ -125,7 +125,7 @@ func (c *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return requeue1min, err
 	}
 
-	providerConfigName, cfg, err := util.AwsCredentialsFromKcp(ctx, c.Client, r.kcp)
+	providerConfigName, cfg, err := util.AWSCredentialsFromKCP(ctx, c.Client, r.kcp)
 	if err != nil {
 		return resultError, err
 	}

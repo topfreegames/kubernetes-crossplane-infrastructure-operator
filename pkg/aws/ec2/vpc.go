@@ -14,15 +14,91 @@ import (
 
 type EC2Client interface {
 	DescribeVpcs(ctx context.Context, input *ec2.DescribeVpcsInput, opts ...func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error)
+	DescribeInstances(ctx context.Context, input *ec2.DescribeInstancesInput, opts ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error)
 	DescribeLaunchTemplateVersions(ctx context.Context, params *ec2.DescribeLaunchTemplateVersionsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeLaunchTemplateVersionsOutput, error)
 	CreateLaunchTemplateVersion(ctx context.Context, params *ec2.CreateLaunchTemplateVersionInput, optFns ...func(*ec2.Options)) (*ec2.CreateLaunchTemplateVersionOutput, error)
-	ModifyLaunchTemplate(ctx context.Context, params *ec2.ModifyLaunchTemplateInput, optFns ...func(*ec2.Options)) (*ec2.ModifyLaunchTemplateOutput, error)
+	ModifyInstanceAttribute(ctx context.Context, params *ec2.ModifyInstanceAttributeInput, optFns ...func(*ec2.Options)) (*ec2.ModifyInstanceAttributeOutput, error)
 	DescribeSecurityGroups(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error)
 	DescribeRouteTables(ctx context.Context, input *ec2.DescribeRouteTablesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeRouteTablesOutput, error)
 }
 
 func NewEC2Client(cfg aws.Config) EC2Client {
 	return ec2.NewFromConfig(cfg)
+}
+
+func isSGAttached(sgs []ec2types.GroupIdentifier, sgID string) bool {
+	for _, sg := range sgs {
+		if *sg.GroupId == sgID {
+			return true
+		}
+	}
+
+	return false
+}
+
+func AttachSecurityGroupToInstances(ctx context.Context, ec2Client EC2Client, instanceIDs []string, securityGroupID string) error {
+
+	if len(instanceIDs) == 0 {
+		return nil
+	}
+
+	var instances []*ec2types.Instance
+
+	params := &ec2.DescribeInstancesInput{
+		InstanceIds: instanceIDs,
+	}
+
+	paginator := ec2.NewDescribeInstancesPaginator(ec2Client, params)
+
+	for paginator.HasMorePages() {
+		output, err := paginator.NextPage(ctx)
+		if err != nil {
+			return err
+		}
+
+		for _, reservation := range output.Reservations {
+			for _, instance := range reservation.Instances {
+				instances = append(instances, &instance)
+			}
+		}
+	}
+
+	if len(instances) == 0 {
+		return fmt.Errorf("failed to retrieve instances")
+	}
+
+	for _, instance := range instances {
+		if isSGAttached(instance.SecurityGroups, securityGroupID) {
+			continue
+		}
+
+		sgIDs := []string{}
+		for _, sg := range instance.SecurityGroups {
+			sgIDs = append(sgIDs, *sg.GroupId)
+		}
+
+		sgIDs = append(sgIDs, securityGroupID)
+
+		_, err := ec2Client.ModifyInstanceAttribute(ctx, &ec2.ModifyInstanceAttributeInput{
+			InstanceId: instance.InstanceId,
+			Groups:     sgIDs,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to add security group %s to instance %s: %v", securityGroupID, *instance.InstanceId, err)
+		}
+	}
+	return nil
+}
+
+func GetReservationsUsingFilters(ctx context.Context, ec2Client EC2Client, filters []ec2types.Filter) ([]ec2types.Reservation, error) {
+	instances, err := ec2Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+		Filters: filters,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return instances.Reservations, nil
 }
 
 func GetVPCIdFromCIDR(ctx context.Context, ec2Client EC2Client, CIDR string) (*string, error) {

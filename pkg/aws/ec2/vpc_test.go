@@ -3,6 +3,8 @@ package ec2
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sort"
 	"strconv"
 	"testing"
 
@@ -405,7 +407,7 @@ func TestAttachSecurityGroupToLaunchTemplate(t *testing.T) {
 	}
 }
 
-func TestDettachSecurityGroupToLaunchTemplate(t *testing.T) {
+func TestDetachSecurityGroupToLaunchTemplate(t *testing.T) {
 
 	testCases := []struct {
 		description                     string
@@ -417,7 +419,7 @@ func TestDettachSecurityGroupToLaunchTemplate(t *testing.T) {
 		expectedErrorMessage            string
 	}{
 		{
-			description: "should dettach the securityGroup to LT",
+			description: "should detach the securityGroup to LT",
 			launchTemplateVersion: &ec2types.LaunchTemplateVersion{
 				LaunchTemplateId: aws.String("lt-xxxx"),
 				VersionNumber:    aws.Int64(1),
@@ -447,7 +449,7 @@ func TestDettachSecurityGroupToLaunchTemplate(t *testing.T) {
 			},
 		},
 		{
-			description: "should not return error if SG already dettached from launch template",
+			description: "should not return error if SG already detached from launch template",
 			launchTemplateVersion: &ec2types.LaunchTemplateVersion{
 				LaunchTemplateId: aws.String("lt-xxxx"),
 				VersionNumber:    aws.Int64(1),
@@ -565,7 +567,6 @@ func TestDettachSecurityGroupToLaunchTemplate(t *testing.T) {
 				}
 			} else {
 				fakeEC2Client.MockCreateLaunchTemplateVersion = tc.mockCreateLaunchTemplateVersion
-
 			}
 
 			if tc.mockDescribeSecurityGroups == nil {
@@ -633,6 +634,157 @@ func TestRouteTableIDsFromVPCId(t *testing.T) {
 			} else {
 				g.Expect(err).ToNot(BeNil())
 				g.Expect(err.Error()).To(ContainSubstring(tc["expectedErrorMessage"].(string)))
+			}
+		})
+	}
+}
+
+func TestIsSGAttached(t *testing.T) {
+	testCases := []struct {
+		description string
+		input       []ec2types.GroupIdentifier
+		expected    bool
+	}{
+		{
+			description: "should return true when the sg is already attached",
+			input: []ec2types.GroupIdentifier{
+				{
+					GroupId: aws.String("sg-xxx"),
+				},
+			},
+			expected: true,
+		},
+		{
+			description: "should return true when the sg is already attached alongside with other sgs",
+			input: []ec2types.GroupIdentifier{
+				{
+					GroupId: aws.String("sg-yyy"),
+				},
+				{
+					GroupId: aws.String("sg-xxx"),
+				},
+			},
+			expected: true,
+		},
+		{
+			description: "should return false when the sg isn't attached",
+			input: []ec2types.GroupIdentifier{
+				{
+					GroupId: aws.String("sg-yyy"),
+				},
+				{
+					GroupId: aws.String("sg-zzz"),
+				},
+			},
+			expected: false,
+		},
+		{
+			description: "should return false when the sg list is empty",
+			input:       []ec2types.GroupIdentifier{},
+			expected:    false,
+		},
+	}
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			output := isSGAttached(tc.input, "sg-xxx")
+			g.Expect(output).To(BeEquivalentTo(tc.expected))
+		})
+	}
+}
+
+func TestAttachSecurityGroupToInstances(t *testing.T) {
+	testCases := []struct {
+		description   string
+		instances     []ec2types.Instance
+		input         []string
+		expected      []string
+		expectedError error
+	}{
+		{
+			description: "should attach sg-xxx to instance i-xxx",
+			input:       []string{"i-xxx"},
+			instances: []ec2types.Instance{
+				{
+					InstanceId: aws.String("i-xxx"),
+					SecurityGroups: []ec2types.GroupIdentifier{
+						{
+							GroupId: aws.String("sg-yyy"),
+						},
+					},
+				},
+			},
+			expected: []string{"sg-xxx", "sg-yyy"},
+		},
+		{
+			description: "should do nothing if list of instance ids is empty",
+			input:       []string{},
+			instances: []ec2types.Instance{
+				{
+					InstanceId: aws.String("i-xxx"),
+					SecurityGroups: []ec2types.GroupIdentifier{
+						{
+							GroupId: aws.String("sg-yyy"),
+						},
+					},
+				},
+			},
+		},
+		{
+			description: "should return error when can't find any instances",
+			input:       []string{"i-zzz"},
+			instances: []ec2types.Instance{
+				{
+					InstanceId: aws.String("i-xxx"),
+					SecurityGroups: []ec2types.GroupIdentifier{
+						{
+							GroupId: aws.String("sg-yyy"),
+						},
+					},
+				},
+			},
+			expectedError: fmt.Errorf("failed to retrieve instances"),
+		},
+	}
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			ctx := context.TODO()
+			fakeEC2Client := &fake.MockEC2Client{}
+			fakeEC2Client.MockDescribeInstances = func(ctx context.Context, input *ec2.DescribeInstancesInput, opts []func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error) {
+				var instances []ec2types.Instance
+				for _, instanceID := range tc.input {
+					for _, instance := range tc.instances {
+						if *instance.InstanceId == instanceID {
+							instances = append(instances, instance)
+						}
+					}
+				}
+				return &ec2.DescribeInstancesOutput{
+					Reservations: []ec2types.Reservation{
+						{
+							Instances: instances,
+						},
+					},
+				}, nil
+			}
+
+			fakeEC2Client.MockModifyInstanceAttribute = func(ctx context.Context, params *ec2.ModifyInstanceAttributeInput, opts []func(*ec2.Options)) (*ec2.ModifyInstanceAttributeOutput, error) {
+				sort.Strings(tc.expected)
+				sort.Strings(params.Groups)
+				g.Expect(params.Groups).To(BeEquivalentTo(tc.expected))
+				return &ec2.ModifyInstanceAttributeOutput{}, nil
+			}
+
+			err := AttachSecurityGroupToInstances(ctx, fakeEC2Client, tc.input, "sg-xxx")
+			if tc.expectedError != nil {
+				g.Expect(err).To(MatchError(tc.expectedError))
+			} else {
+				g.Expect(err).To(BeNil())
 			}
 		})
 	}
