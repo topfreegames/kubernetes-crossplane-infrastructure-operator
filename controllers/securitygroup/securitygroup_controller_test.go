@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsautoscaling "github.com/aws/aws-sdk-go-v2/service/autoscaling"
@@ -63,6 +62,30 @@ var (
 				APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
 				Kind:       "KopsMachinePool",
 				Name:       "test-kops-machine-pool",
+				Namespace:  metav1.NamespaceDefault,
+			},
+		},
+	}
+
+	sgKCP = &securitygroupv1alpha1.SecurityGroup{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-security-group",
+		},
+		Spec: securitygroupv1alpha1.SecurityGroupSpec{
+			IngressRules: []securitygroupv1alpha1.IngressRule{
+				{
+					IPProtocol: "TCP",
+					FromPort:   40000,
+					ToPort:     60000,
+					AllowedCIDRBlocks: []string{
+						"0.0.0.0/0",
+					},
+				},
+			},
+			InfrastructureRef: &corev1.ObjectReference{
+				APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+				Kind:       "KopsControlPlane",
+				Name:       "test-cluster",
 				Namespace:  metav1.NamespaceDefault,
 			},
 		},
@@ -221,6 +244,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 		expectedDeletion          bool
 		expectedProviderConfigRef *string
 	}{
+
 		{
 			description: "should fail without InfrastructureRef defined",
 			k8sObjects: []client.Object{
@@ -248,30 +272,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 		{
 			description: "should create a SecurityGroup with KopsControlPlane infrastructureRef",
 			k8sObjects: []client.Object{
-				kmp, cluster, kcp, defaultSecret,
-				&securitygroupv1alpha1.SecurityGroup{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "test-security-group",
-					},
-					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						IngressRules: []securitygroupv1alpha1.IngressRule{
-							{
-								IPProtocol: "TCP",
-								FromPort:   40000,
-								ToPort:     60000,
-								AllowedCIDRBlocks: []string{
-									"0.0.0.0/0",
-								},
-							},
-						},
-						InfrastructureRef: &corev1.ObjectReference{
-							APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
-							Kind:       "KopsControlPlane",
-							Name:       "test-cluster",
-							Namespace:  metav1.NamespaceDefault,
-						},
-					},
-				},
+				kmp, cluster, kcp, defaultSecret, sgKCP,
 			},
 		},
 		{
@@ -307,63 +308,14 @@ func TestSecurityGroupReconciler(t *testing.T) {
 		{
 			description: "should remove SecurityGroup with DeletionTimestamp",
 			k8sObjects: []client.Object{
-				kmp, cluster, kcp,
-				&securitygroupv1alpha1.SecurityGroup{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "test-security-group",
-						DeletionTimestamp: &metav1.Time{
-							Time: time.Now().UTC(),
-						},
-					},
-					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						IngressRules: []securitygroupv1alpha1.IngressRule{
-							{
-								IPProtocol: "TCP",
-								FromPort:   40000,
-								ToPort:     60000,
-								AllowedCIDRBlocks: []string{
-									"0.0.0.0/0",
-								},
-							},
-						},
-						InfrastructureRef: &corev1.ObjectReference{
-							APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
-							Kind:       "KopsControlPlane",
-							Name:       "test-cluster",
-							Namespace:  metav1.NamespaceDefault,
-						},
-					},
-				},
+				kmp, cluster, kcp, sgKCP,
 			},
 			expectedDeletion: true,
 		},
 		{
 			description: "should create a SecurityGroup with the same providerConfigName",
 			k8sObjects: []client.Object{
-				kmp, cluster, kcpWithIdentityRef, secretForIdentityRef,
-				&securitygroupv1alpha1.SecurityGroup{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "test-security-group",
-					},
-					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						IngressRules: []securitygroupv1alpha1.IngressRule{
-							{
-								IPProtocol: "TCP",
-								FromPort:   40000,
-								ToPort:     60000,
-								AllowedCIDRBlocks: []string{
-									"0.0.0.0/0",
-								},
-							},
-						},
-						InfrastructureRef: &corev1.ObjectReference{
-							APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
-							Kind:       "KopsControlPlane",
-							Name:       "test-cluster",
-							Namespace:  metav1.NamespaceDefault,
-						},
-					},
-				},
+				kmp, cluster, kcpWithIdentityRef, secretForIdentityRef, sgKCP,
 			},
 			expectedProviderConfigRef: &kcpWithIdentityRef.Spec.IdentityRef.Name,
 		},
@@ -475,11 +427,11 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 		{
 			description: "should fail getting AWS account info",
 			k8sObjects: []client.Object{
-				kmp, cluster, sg, defaultSecret,
+				kmp, cluster, sg, defaultSecret, kcp,
 				&kcontrolplanev1alpha1.KopsControlPlane{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: metav1.NamespaceDefault,
-						Name:      "test-cluster",
+						Name:      "test-kops-control-plane",
 					},
 					Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
 						KopsClusterSpec: kopsapi.ClusterSpec{},
@@ -621,7 +573,7 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 				&kcontrolplanev1alpha1.KopsControlPlane{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: metav1.NamespaceDefault,
-						Name:      "test-cluster",
+						Name:      "test-kops-control-plane",
 					},
 					Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
 						KopsClusterSpec: kopsapi.ClusterSpec{
@@ -1205,11 +1157,25 @@ func TestReconcileDelete(t *testing.T) {
 		expectedError error
 	}{
 		{
-			description: "should remove the crossplane security group",
+			description: "should remove the crossplane security group referencing kmp",
 			k8sObjects: []client.Object{
 				sg, csg, kcp, kmp, cluster,
 			},
 			sg: sg,
+		},
+		{
+			description: "should remove the crossplane security group referencing kmp using kops",
+			k8sObjects: []client.Object{
+				sg, csg, kcp, spotKMP, cluster,
+			},
+			sg: sg,
+		},
+		{
+			description: "should remove the crossplane security group referencing kcp",
+			k8sObjects: []client.Object{
+				sgKCP, csg, kcp, kmp, cluster,
+			},
+			sg: sgKCP,
 		},
 		{
 			description: "should fail with infrastructureRef not supported",
@@ -1273,6 +1239,36 @@ func TestReconcileDelete(t *testing.T) {
 					},
 				}, nil
 			}
+
+			fakeOceanClient := &fakeocean.MockOceanCloudProviderAWS{}
+			fakeOceanClient.MockListClusters = func(ctx context.Context, listClusterInput *oceanaws.ListClustersInput) (*oceanaws.ListClustersOutput, error) {
+				return &oceanaws.ListClustersOutput{
+					Clusters: []*oceanaws.Cluster{
+						{
+							ID:                  aws.String("o-1"),
+							ControllerClusterID: aws.String("test-cluster"),
+						},
+					},
+				}, nil
+			}
+			fakeOceanClient.MockListLaunchSpecs = func(ctx context.Context, listLaunchSpecsInput *oceanaws.ListLaunchSpecsInput) (*oceanaws.ListLaunchSpecsOutput, error) {
+				return &oceanaws.ListLaunchSpecsOutput{
+					LaunchSpecs: []*oceanaws.LaunchSpec{
+						{
+							ID:      aws.String("1"),
+							Name:    aws.String("vng-test"),
+							OceanID: aws.String("o-1"),
+							Labels: []*oceanaws.Label{
+								{
+									Key:   aws.String("kops.k8s.io/instance-group-name"),
+									Value: aws.String("test-kops-machine-pool"),
+								},
+							},
+						},
+					},
+				}, nil
+			}
+
 			fakeEC2Client.MockDescribeLaunchTemplateVersions = func(ctx context.Context, params *awsec2.DescribeLaunchTemplateVersionsInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplateVersionsOutput, error) {
 				return &awsec2.DescribeLaunchTemplateVersionsOutput{
 					LaunchTemplateVersions: []ec2types.LaunchTemplateVersion{
@@ -1322,6 +1318,9 @@ func TestReconcileDelete(t *testing.T) {
 				},
 				NewAutoScalingClientFactory: func(cfg aws.Config) autoscaling.AutoScalingClient {
 					return fakeASGClient
+				},
+				NewOceanCloudProviderAWSFactory: func() spot.OceanClient {
+					return fakeOceanClient
 				},
 			}
 
