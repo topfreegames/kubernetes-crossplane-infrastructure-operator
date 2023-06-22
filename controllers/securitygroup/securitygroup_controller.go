@@ -135,6 +135,8 @@ func (r *SecurityGroupReconciliation) getAWSAccountInfo(ctx context.Context, kcp
 //+kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kopsmachinepools,verbs=get;list;watch
 //+kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=kopscontrolplanes,verbs=get;list;watch
 //+kubebuilder:rbac:groups=ec2.aws.crossplane.io,resources=securitygroups,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=events,verbs=get;list;watch;create;patch
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update
 
 func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
 	r := &SecurityGroupReconciliation{
@@ -313,6 +315,9 @@ func (r *SecurityGroupReconciliation) reconcileKopsMachinePool(ctx context.Conte
 				attachErr = multierror.Append(attachErr, err)
 				continue
 			}
+		} else if kmp.Spec.KopsInstanceGroupSpec.Manager == "Karpenter" {
+			r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha1.SecurityGroupAttachmentFailedReason, "Karpenter is not supported yet")
+			continue
 		} else {
 			asgName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
 			if err != nil {
@@ -466,7 +471,16 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 			return resultError, err
 		}
 
-		err := r.detachSGFromKopsMachinePool(ctx, csg, kmp)
+		kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+		key = client.ObjectKey{
+			Name:      kmp.Spec.ClusterName,
+			Namespace: kmp.ObjectMeta.Namespace,
+		}
+		if err := r.Client.Get(ctx, key, kcp); err != nil {
+			return resultError, err
+		}
+
+		err := r.detachSGFromKopsMachinePool(ctx, csg, kcp, kmp)
 		if err != nil {
 			return resultError, err
 		}
@@ -476,16 +490,16 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 			Namespace: sg.Spec.InfrastructureRef.Namespace,
 			Name:      sg.Spec.InfrastructureRef.Name,
 		}
+		// TODO: Think how we will handle this when the  kcp is deleted
 		if err := r.Client.Get(ctx, key, kcp); err != nil {
 			return resultError, err
 		}
-
 		kmps, err := kops.GetKopsMachinePoolsWithLabel(ctx, r.Client, "cluster.x-k8s.io/cluster-name", kcp.Name)
 		if err != nil {
 			return resultError, err
 		}
 
-		err = r.detachSGFromKopsMachinePool(ctx, csg, kmps...)
+		err = r.detachSGFromKopsMachinePool(ctx, csg, kcp, kmps...)
 		if err != nil {
 			return resultError, err
 		}
@@ -502,7 +516,14 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 	return ctrl.Result{}, nil
 }
 
-func (r *SecurityGroupReconciliation) detachSGFromKopsMachinePool(ctx context.Context, csg *crossec2v1beta1.SecurityGroup, kmps ...kinfrastructurev1alpha1.KopsMachinePool) error {
+func (r *SecurityGroupReconciliation) detachSGFromKopsMachinePool(ctx context.Context, csg *crossec2v1beta1.SecurityGroup, kcp *kcontrolplanev1alpha1.KopsControlPlane, kmps ...kinfrastructurev1alpha1.KopsMachinePool) error {
+	_, cfg, err := util.AWSCredentialsFromKCP(ctx, r.Client, kcp)
+	if err != nil {
+		return err
+	}
+
+	r.ec2Client = r.NewEC2ClientFactory(*cfg)
+	r.asgClient = r.NewAutoScalingClientFactory(*cfg)
 
 	var detachErr error
 	for _, kmp := range kmps {
@@ -517,6 +538,9 @@ func (r *SecurityGroupReconciliation) detachSGFromKopsMachinePool(ctx context.Co
 				detachErr = multierror.Append(detachErr, err)
 				continue
 			}
+		} else if kmp.Spec.KopsInstanceGroupSpec.Manager == "Karpenter" {
+			r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha1.SecurityGroupAttachmentFailedReason, "Karpenter is not supported yet")
+			continue
 		} else {
 			asgName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
 			if err != nil {
@@ -529,7 +553,6 @@ func (r *SecurityGroupReconciliation) detachSGFromKopsMachinePool(ctx context.Co
 				detachErr = multierror.Append(detachErr, err)
 				continue
 			}
-			// TODO: Do we want to detach the SGs from the instances as well?
 		}
 	}
 
