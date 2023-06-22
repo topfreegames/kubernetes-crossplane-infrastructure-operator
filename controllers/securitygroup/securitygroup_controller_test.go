@@ -1484,6 +1484,148 @@ func TestDetachSGFromVNG(t *testing.T) {
 	}
 }
 
+func TestDetachSGFromKopsMachinePool(t *testing.T) {
+	testCases := []struct {
+		description   string
+		k8sObjects    []client.Object
+		csg           *crossec2v1beta1.SecurityGroup
+		kcp           *kcontrolplanev1alpha1.KopsControlPlane
+		kmps          []kinfrastructurev1alpha1.KopsMachinePool
+		errorExpected error
+	}{
+		{
+			description: "should detach sg from kmp",
+			k8sObjects: []client.Object{
+				defaultSecret,
+			},
+			csg: csg,
+			kcp: kcp,
+			kmps: []kinfrastructurev1alpha1.KopsMachinePool{
+				*kmp,
+			},
+		},
+		{
+			description: "should do nothing when kmp manager is karpenter",
+			k8sObjects: []client.Object{
+				defaultSecret,
+			},
+			csg: csg,
+			kcp: kcp,
+			kmps: []kinfrastructurev1alpha1.KopsMachinePool{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: metav1.NamespaceDefault,
+						Name:      "test-kops-machine-pool",
+						Labels: map[string]string{
+							"cluster.x-k8s.io/cluster-name": "test-cluster",
+						},
+					},
+					Spec: kinfrastructurev1alpha1.KopsMachinePoolSpec{
+						ClusterName: "test-cluster",
+						KopsInstanceGroupSpec: kopsapi.InstanceGroupSpec{
+							Manager: "Karpenter",
+							NodeLabels: map[string]string{
+								"kops.k8s.io/instance-group-name": "test-ig",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	err := clusterv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = kcontrolplanev1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
+
+			fakeEC2Client := &fakeec2.MockEC2Client{}
+			fakeEC2Client.MockDescribeLaunchTemplateVersions = func(ctx context.Context, params *awsec2.DescribeLaunchTemplateVersionsInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplateVersionsOutput, error) {
+				return &awsec2.DescribeLaunchTemplateVersionsOutput{
+					LaunchTemplateVersions: []ec2types.LaunchTemplateVersion{
+						{
+							LaunchTemplateId: params.LaunchTemplateId,
+							LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
+								NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
+									{
+										Groups: []string{
+											"sg-xxxx",
+										},
+									},
+								},
+							},
+						},
+					},
+				}, nil
+			}
+			fakeEC2Client.MockCreateLaunchTemplateVersion = func(ctx context.Context, params *awsec2.CreateLaunchTemplateVersionInput, optFns []func(*awsec2.Options)) (*awsec2.CreateLaunchTemplateVersionOutput, error) {
+				return &awsec2.CreateLaunchTemplateVersionOutput{
+					LaunchTemplateVersion: &ec2types.LaunchTemplateVersion{
+						VersionNumber: aws.Int64(1),
+					},
+				}, nil
+			}
+
+			fakeASGClient := &fakeasg.MockAutoScalingClient{}
+			fakeASGClient.MockDescribeAutoScalingGroups = func(ctx context.Context, params *awsautoscaling.DescribeAutoScalingGroupsInput, optFns []func(*awsautoscaling.Options)) (*awsautoscaling.DescribeAutoScalingGroupsOutput, error) {
+				return &awsautoscaling.DescribeAutoScalingGroupsOutput{
+					AutoScalingGroups: []autoscalingtypes.AutoScalingGroup{
+						{
+							AutoScalingGroupName: aws.String("test-asg"),
+							LaunchTemplate: &autoscalingtypes.LaunchTemplateSpecification{
+								LaunchTemplateId: aws.String("lt-xxxx"),
+								Version:          aws.String("1"),
+							},
+						},
+					},
+				}, nil
+			}
+
+			reconciler := SecurityGroupReconciler{
+				Client:   fakeClient,
+				Recorder: record.NewFakeRecorder(3),
+				NewAutoScalingClientFactory: func(cfg aws.Config) autoscaling.AutoScalingClient {
+					return fakeASGClient
+				},
+				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
+					return fakeEC2Client
+				},
+			}
+
+			ctx := context.TODO()
+
+			reconciliation := SecurityGroupReconciliation{
+				SecurityGroupReconciler: reconciler,
+				log:                     ctrl.LoggerFrom(ctx),
+			}
+
+			err = reconciliation.detachSGFromKopsMachinePool(ctx, tc.csg, tc.kcp, tc.kmps...)
+			if tc.errorExpected == nil {
+				g.Expect(err).To(BeNil())
+			} else {
+				g.Expect(err.Error()).To(ContainSubstring(tc.errorExpected.Error()))
+			}
+		})
+	}
+
+}
+
 func TestDetachSGFromASG(t *testing.T) {
 	testCases := []struct {
 		description            string

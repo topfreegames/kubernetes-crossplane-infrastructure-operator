@@ -315,6 +315,9 @@ func (r *SecurityGroupReconciliation) reconcileKopsMachinePool(ctx context.Conte
 				attachErr = multierror.Append(attachErr, err)
 				continue
 			}
+		} else if kmp.Spec.KopsInstanceGroupSpec.Manager == "Karpenter" {
+			r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha1.SecurityGroupAttachmentFailedReason, "Karpenter is not supported yet")
+			continue
 		} else {
 			asgName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
 			if err != nil {
@@ -491,7 +494,6 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 		if err := r.Client.Get(ctx, key, kcp); err != nil {
 			return resultError, err
 		}
-
 		kmps, err := kops.GetKopsMachinePoolsWithLabel(ctx, r.Client, "cluster.x-k8s.io/cluster-name", kcp.Name)
 		if err != nil {
 			return resultError, err
@@ -536,6 +538,9 @@ func (r *SecurityGroupReconciliation) detachSGFromKopsMachinePool(ctx context.Co
 				detachErr = multierror.Append(detachErr, err)
 				continue
 			}
+		} else if kmp.Spec.KopsInstanceGroupSpec.Manager == "Karpenter" {
+			r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha1.SecurityGroupAttachmentFailedReason, "Karpenter is not supported yet")
+			continue
 		} else {
 			asgName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
 			if err != nil {
