@@ -117,7 +117,7 @@ func (r *SecurityGroupReconciliation) getAWSAccountInfo(ctx context.Context, kcp
 		return aws.String(""), aws.String(""), err
 	}
 
-	vpcId, err := ec2.GetVPCIdFromCIDR(ctx, r.ec2Client, kcp.Spec.KopsClusterSpec.NetworkCIDR)
+	vpcId, err := ec2.GetVPCIdWithCIDRAndClusterName(ctx, r.ec2Client, kcp.Name, kcp.Spec.KopsClusterSpec.NetworkCIDR)
 	if err != nil {
 		return aws.String(""), aws.String(""), err
 	}

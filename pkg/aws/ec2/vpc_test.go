@@ -17,56 +17,73 @@ import (
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2/fake"
 )
 
-func TestGetVPCIdFromCIDR(t *testing.T) {
-	testCases := []map[string]interface{}{
+func TestGetVPCIdWithCIDRAndClusterName(t *testing.T) {
+	testCases := []struct {
+		description      string
+		mockDescribeVpcs func(ctx context.Context, input *ec2.DescribeVpcsInput, opts []func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error)
+		expectedError    error
+		expectedCIDR     string
+	}{
 		{
-			"description": "should return a VPC ID",
-			"mockDescribeVpcs": func(ctx context.Context, input *ec2.DescribeVpcsInput, opts []func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error) {
+			description: "should return vpc-xxxxx",
+			mockDescribeVpcs: func(ctx context.Context, input *ec2.DescribeVpcsInput, opts []func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error) {
 				return &ec2.DescribeVpcsOutput{
 					Vpcs: []ec2types.Vpc{
 						{
 							VpcId: aws.String("vpc-xxxxx"),
+							Tags: []ec2types.Tag{
+								{
+									Key:   aws.String("KubernetesCluster"),
+									Value: aws.String("test-cluster"),
+								},
+							},
+						},
+						{
+							VpcId: aws.String("vpc-yyyyy"),
+							Tags: []ec2types.Tag{
+								{
+									Key:   aws.String("KubernetesCluster"),
+									Value: aws.String("test-cluster-2"),
+								},
+							},
 						},
 					},
 				}, nil
 			},
-			"expectedError": false,
+			expectedCIDR: "vpc-xxxxx",
 		},
 		{
-			"description": "should fail to describe VPCs",
-			"mockDescribeVpcs": func(ctx context.Context, input *ec2.DescribeVpcsInput, opts []func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error) {
+			description: "should fail to describe VPCs",
+			mockDescribeVpcs: func(ctx context.Context, input *ec2.DescribeVpcsInput, opts []func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error) {
 				return nil, errors.New("some error")
 			},
-			"expectedError":        true,
-			"expectedErrorMessage": "failed to describe VPCs",
+			expectedError: fmt.Errorf("failed to describe VPCs"),
 		},
 		{
-			"description": "should fail to with empty result",
-			"mockDescribeVpcs": func(ctx context.Context, input *ec2.DescribeVpcsInput, opts []func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error) {
+			description: "should fail with empty result",
+			mockDescribeVpcs: func(ctx context.Context, input *ec2.DescribeVpcsInput, opts []func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error) {
 				return &ec2.DescribeVpcsOutput{
 					Vpcs: []ec2types.Vpc{},
 				}, nil
 			},
-			"expectedError":        true,
-			"expectedErrorMessage": "failed to retrieve vpc with CIDR",
+			expectedError: fmt.Errorf("failed to retrieve vpc with CIDR"),
 		},
 	}
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
 
 	for _, tc := range testCases {
-		t.Run(tc["description"].(string), func(t *testing.T) {
+		t.Run(tc.description, func(t *testing.T) {
 			ctx := context.TODO()
 			fakeEC2Client := &fake.MockEC2Client{}
-			fakeEC2Client.MockDescribeVpcs = tc["mockDescribeVpcs"].(func(ctx context.Context, input *ec2.DescribeVpcsInput, opts []func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error))
-			vpcId, err := GetVPCIdFromCIDR(ctx, fakeEC2Client, "x.x.x.x/20")
+			fakeEC2Client.MockDescribeVpcs = tc.mockDescribeVpcs
+			vpcId, err := GetVPCIdWithCIDRAndClusterName(ctx, fakeEC2Client, "test-cluster", "x.x.x.x/20")
 
-			if !tc["expectedError"].(bool) {
-				g.Expect(err).To(BeNil())
-				g.Expect(vpcId).ToNot(BeNil())
+			if tc.expectedError != nil {
+				g.Expect(err.Error()).To(ContainSubstring(tc.expectedError.Error()))
 			} else {
-				g.Expect(err).ToNot(BeNil())
-				g.Expect(err.Error()).To(ContainSubstring(tc["expectedErrorMessage"].(string)))
+				g.Expect(err).To(BeNil())
+				g.Expect(*vpcId).To(BeEquivalentTo(tc.expectedCIDR))
 			}
 		})
 	}

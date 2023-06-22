@@ -101,15 +101,20 @@ func GetReservationsUsingFilters(ctx context.Context, ec2Client EC2Client, filte
 	return instances.Reservations, nil
 }
 
-func GetVPCIdFromCIDR(ctx context.Context, ec2Client EC2Client, CIDR string) (*string, error) {
+func GetVPCIdWithCIDRAndClusterName(ctx context.Context, ec2Client EC2Client, clusterName, CIDR string) (*string, error) {
 
-	filter := "cidr"
 	result, err := ec2Client.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{
 		Filters: []ec2types.Filter{
 			{
-				Name: &filter,
+				Name: aws.String("cidr"),
 				Values: []string{
 					CIDR,
+				},
+			},
+			{
+				Name: aws.String("tag:KubernetesCluster"),
+				Values: []string{
+					clusterName,
 				},
 			},
 		},
