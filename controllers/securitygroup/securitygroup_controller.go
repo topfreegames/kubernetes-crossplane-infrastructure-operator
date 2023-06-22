@@ -135,6 +135,8 @@ func (r *SecurityGroupReconciliation) getAWSAccountInfo(ctx context.Context, kcp
 //+kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kopsmachinepools,verbs=get;list;watch
 //+kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=kopscontrolplanes,verbs=get;list;watch
 //+kubebuilder:rbac:groups=ec2.aws.crossplane.io,resources=securitygroups,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=events,verbs=get;list;watch;create;patch
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update
 
 func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
 	r := &SecurityGroupReconciliation{

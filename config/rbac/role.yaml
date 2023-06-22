@@ -8,10 +8,23 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - secrets
+  - events
   verbs:
+  - create
   - get
   - list
+  - patch
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - get
+  - list
+  - update
+  - watch
 - apiGroups:
   - cluster.x-k8s.io
   resources:
