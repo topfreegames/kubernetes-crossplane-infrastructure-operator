@@ -6,8 +6,8 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
-	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
+	clustermeshv1beta1 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/apis/clustermesh/v1alpha1"
+	securitygroupv1alpha1 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/apis/securitygroup/v1alpha1"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	crossec2v1alphav1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
@@ -72,7 +72,7 @@ func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha1.SecurityGroup, vpcId, 
 		},
 		Spec: crossec2v1beta1.SecurityGroupSpec{
 			ForProvider: crossec2v1beta1.SecurityGroupParameters{
-				Description: fmt.Sprintf("sg %s managed by provider-crossplane", sg.GetName()),
+				Description: fmt.Sprintf("sg %s managed by kubernetes-crossplane-infrastructure-operator", sg.GetName()),
 				GroupName:   sg.GetName(),
 				Ingress:     []crossec2v1beta1.IPPermission{},
 				VPCID:       vpcId,

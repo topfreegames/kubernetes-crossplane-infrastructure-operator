@@ -1,4 +1,4 @@
-module github.com/topfreegames/provider-crossplane
+module github.com/topfreegames/kubernetes-crossplane-infrastructure-operator
 
 go 1.19
 

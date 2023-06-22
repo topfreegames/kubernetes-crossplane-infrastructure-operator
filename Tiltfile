@@ -43,16 +43,16 @@ k8s_yaml('.kubernetes/dev/manifest.yaml')
 
 k8s_resource(
   objects=[
-    'provider-crossplane-system:namespace',
-    'provider-crossplane-controller-manager:serviceaccount',
-    'provider-crossplane-leader-election-role:role',
-    'provider-crossplane-manager-role:clusterrole',
-    'provider-crossplane-metrics-reader:clusterrole',
-    'provider-crossplane-proxy-role:clusterrole',
-    'provider-crossplane-leader-election-rolebinding:rolebinding',
-    'provider-crossplane-manager-rolebinding:clusterrolebinding',
-    'provider-crossplane-proxy-rolebinding:clusterrolebinding',
-    'provider-crossplane-manager-config:configmap'
+    'kubernetes-crossplane-infrastructure-operator-system:namespace',
+    'kubernetes-crossplane-infrastructure-operator-controller-manager:serviceaccount',
+    'kubernetes-crossplane-infrastructure-operator-leader-election-role:role',
+    'kubernetes-crossplane-infrastructure-operator-manager-role:clusterrole',
+    'kubernetes-crossplane-infrastructure-operator-metrics-reader:clusterrole',
+    'kubernetes-crossplane-infrastructure-operator-proxy-role:clusterrole',
+    'kubernetes-crossplane-infrastructure-operator-leader-election-rolebinding:rolebinding',
+    'kubernetes-crossplane-infrastructure-operator-manager-rolebinding:clusterrolebinding',
+    'kubernetes-crossplane-infrastructure-operator-proxy-rolebinding:clusterrolebinding',
+    'kubernetes-crossplane-infrastructure-operator-manager-config:configmap'
   ],
   new_name='Deploy Kubernetes resources'
 )

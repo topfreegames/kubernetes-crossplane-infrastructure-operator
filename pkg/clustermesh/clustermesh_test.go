@@ -6,8 +6,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	clustermeshv1alpha1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
-	"github.com/topfreegames/provider-crossplane/pkg/clustermesh"
+	clustermeshv1alpha1 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/apis/clustermesh/v1alpha1"
+	"github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/clustermesh"
 )
 
 func TestClustermesh(t *testing.T) {

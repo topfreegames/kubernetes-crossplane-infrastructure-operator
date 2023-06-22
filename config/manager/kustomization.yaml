@@ -12,7 +12,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 images:
 - name: controller
-  newName: tfgco/provider-crossplane
-  newTag: v0.0.13-alpha
+  newName: tfgco/kubernetes-crossplane-infrastructure-operator
+  newTag: v0.1.0-alpha
 - name: manager
-  newName: tfgco/provider-crossplane
+  newName: tfgco/kubernetes-crossplane-infrastructure-operator

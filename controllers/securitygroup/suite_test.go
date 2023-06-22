@@ -28,7 +28,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
+	securitygroupv1alpha1 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/apis/securitygroup/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
 

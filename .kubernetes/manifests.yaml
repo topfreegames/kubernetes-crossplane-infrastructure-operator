@@ -3,7 +3,7 @@ kind: Namespace
 metadata:
   labels:
     control-plane: controller-manager
-  name: provider-crossplane-system
+  name: kubernetes-crossplane-infrastructure-operator-system
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -327,14 +327,14 @@ spec:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: provider-crossplane-controller-manager
-  namespace: provider-crossplane-system
+  name: kubernetes-crossplane-infrastructure-operator-controller-manager
+  namespace: kubernetes-crossplane-infrastructure-operator-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: provider-crossplane-leader-election-role
-  namespace: provider-crossplane-system
+  name: kubernetes-crossplane-infrastructure-operator-leader-election-role
+  namespace: kubernetes-crossplane-infrastructure-operator-system
 rules:
 - apiGroups:
   - ""
@@ -374,7 +374,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   creationTimestamp: null
-  name: provider-crossplane-manager-role
+  name: kubernetes-crossplane-infrastructure-operator-manager-role
 rules:
 - apiGroups:
   - ""
@@ -496,7 +496,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: provider-crossplane-metrics-reader
+  name: kubernetes-crossplane-infrastructure-operator-metrics-reader
 rules:
 - nonResourceURLs:
   - /metrics
@@ -506,7 +506,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: provider-crossplane-proxy-role
+  name: kubernetes-crossplane-infrastructure-operator-proxy-role
 rules:
 - apiGroups:
   - authentication.k8s.io
@@ -524,42 +524,42 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: provider-crossplane-leader-election-rolebinding
-  namespace: provider-crossplane-system
+  name: kubernetes-crossplane-infrastructure-operator-leader-election-rolebinding
+  namespace: kubernetes-crossplane-infrastructure-operator-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: provider-crossplane-leader-election-role
+  name: kubernetes-crossplane-infrastructure-operator-leader-election-role
 subjects:
 - kind: ServiceAccount
-  name: provider-crossplane-controller-manager
-  namespace: provider-crossplane-system
+  name: kubernetes-crossplane-infrastructure-operator-controller-manager
+  namespace: kubernetes-crossplane-infrastructure-operator-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: provider-crossplane-manager-rolebinding
+  name: kubernetes-crossplane-infrastructure-operator-manager-rolebinding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: provider-crossplane-manager-role
+  name: kubernetes-crossplane-infrastructure-operator-manager-role
 subjects:
 - kind: ServiceAccount
-  name: provider-crossplane-controller-manager
-  namespace: provider-crossplane-system
+  name: kubernetes-crossplane-infrastructure-operator-controller-manager
+  namespace: kubernetes-crossplane-infrastructure-operator-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: provider-crossplane-proxy-rolebinding
+  name: kubernetes-crossplane-infrastructure-operator-proxy-rolebinding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: provider-crossplane-proxy-role
+  name: kubernetes-crossplane-infrastructure-operator-proxy-role
 subjects:
 - kind: ServiceAccount
-  name: provider-crossplane-controller-manager
-  namespace: provider-crossplane-system
+  name: kubernetes-crossplane-infrastructure-operator-controller-manager
+  namespace: kubernetes-crossplane-infrastructure-operator-system
 ---
 apiVersion: v1
 data:
@@ -577,16 +577,16 @@ data:
       resourceName: 1334ff7b.infrastructure.wildlife.io
 kind: ConfigMap
 metadata:
-  name: provider-crossplane-manager-config
-  namespace: provider-crossplane-system
+  name: kubernetes-crossplane-infrastructure-operator-manager-config
+  namespace: kubernetes-crossplane-infrastructure-operator-system
 ---
 apiVersion: v1
 kind: Service
 metadata:
   labels:
     control-plane: controller-manager
-  name: provider-crossplane-controller-manager-metrics-service
-  namespace: provider-crossplane-system
+  name: kubernetes-crossplane-infrastructure-operator-controller-manager-metrics-service
+  namespace: kubernetes-crossplane-infrastructure-operator-system
 spec:
   ports:
   - name: https
@@ -601,8 +601,8 @@ kind: Deployment
 metadata:
   labels:
     control-plane: controller-manager
-  name: provider-crossplane-controller-manager
-  namespace: provider-crossplane-system
+  name: kubernetes-crossplane-infrastructure-operator-controller-manager
+  namespace: kubernetes-crossplane-infrastructure-operator-system
 spec:
   replicas: 1
   selector:
@@ -619,7 +619,7 @@ spec:
               "controller*",
               "workqueue*"
             ],
-            "namespace": "providercrossplane",
+            "namespace": "kcio",
             "prometheus_url": "http://%%host%%:8080/metrics",
             "send_monotonic_counter": true,
             "send_distribution_buckets": true
@@ -658,7 +658,7 @@ spec:
               name: aws-credentials
         - name: AWS_REGION
           value: us-east-1
-        image: tfgco/provider-crossplane:v0.0.13-alpha
+        image: tfgco/kubernetes-crossplane-infrastructure-operator:v0.1.0-alpha
         livenessProbe:
           httpGet:
             path: /healthz
@@ -683,5 +683,5 @@ spec:
           allowPrivilegeEscalation: false
       securityContext:
         runAsNonRoot: true
-      serviceAccountName: provider-crossplane-controller-manager
+      serviceAccountName: kubernetes-crossplane-infrastructure-operator-controller-manager
       terminationGracePeriodSeconds: 10

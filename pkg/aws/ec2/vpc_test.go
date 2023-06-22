@@ -14,7 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2/fake"
+	"github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/aws/ec2/fake"
 )
 
 func TestGetVPCIdFromCIDR(t *testing.T) {

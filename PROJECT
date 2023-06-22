@@ -3,7 +3,7 @@ layout:
 - go.kubebuilder.io/v3
 multigroup: true
 projectName: test
-repo: github.com/topfreegames/provider-crossplane
+repo: github.com/topfreegames/kubernetes-crossplane-infrastructure-operator
 resources:
 - api:
     crdVersion: v1
@@ -12,7 +12,7 @@ resources:
   domain: ec2.aws.wildlife.io
   group: ec2.aws.wildlife.io
   kind: SecurityGroup
-  path: github.com/topfreegames/provider-crossplane/api/v1alpha1
+  path: github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -21,6 +21,6 @@ resources:
   domain: infrastructure.wildlife.io
   group: clustermesh
   kind: ClusterMesh
-  path: github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1
+  path: github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/apis/clustermesh/v1alpha1
   version: v1alpha1
 version: "3"

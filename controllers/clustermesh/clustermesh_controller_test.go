@@ -7,11 +7,11 @@ import (
 
 	wildlifecrossec2v1alphav1 "github.com/topfreegames/crossplane-provider-aws/apis/ec2/manualv1alpha1"
 
+	clustermeshv1beta1 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/apis/clustermesh/v1alpha1"
+	securitygroupv1alpha1 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/apis/securitygroup/v1alpha1"
+	"github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/aws/ec2"
+	clmesh "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/clustermesh"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
-	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
-	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
-	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
-	clmesh "github.com/topfreegames/provider-crossplane/pkg/clustermesh"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsec2 "github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -19,7 +19,7 @@ import (
 	crossec2v1alpha1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	v1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
-	fakeec2 "github.com/topfreegames/provider-crossplane/pkg/aws/ec2/fake"
+	fakeec2 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/aws/ec2/fake"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	kopsapi "k8s.io/kops/pkg/apis/kops"
