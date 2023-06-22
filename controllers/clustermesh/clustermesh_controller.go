@@ -561,7 +561,7 @@ func PopulateClusterSpec(r *ClusterMeshReconciliation, ctx context.Context, clus
 		return clusterSpec, err
 	}
 
-	vpcId, err := ec2.GetVPCIdFromCIDR(ctx, r.ec2Client, r.kcp.Spec.KopsClusterSpec.NetworkCIDR)
+	vpcId, err := ec2.GetVPCIdWithCIDRAndClusterName(ctx, r.ec2Client, r.kcp.Name, r.kcp.Spec.KopsClusterSpec.NetworkCIDR)
 	if err != nil {
 		return clusterSpec, err
 	}
