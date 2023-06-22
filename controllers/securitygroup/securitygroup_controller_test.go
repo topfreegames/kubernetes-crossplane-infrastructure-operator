@@ -726,7 +726,7 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 				return &awsautoscaling.DescribeAutoScalingGroupsOutput{
 					AutoScalingGroups: []autoscalingtypes.AutoScalingGroup{
 						{
-							AutoScalingGroupName: aws.String("testASG"),
+							AutoScalingGroupName: aws.String("test-asg"),
 							LaunchTemplate: &autoscalingtypes.LaunchTemplateSpecification{
 								LaunchTemplateId: aws.String("lt-xxxx"),
 								Version:          aws.String("1"),
@@ -1159,28 +1159,28 @@ func TestReconcileDelete(t *testing.T) {
 		{
 			description: "should remove the crossplane security group referencing kmp",
 			k8sObjects: []client.Object{
-				sg, csg, kcp, kmp, cluster,
+				sg, csg, kcp, kmp, cluster, defaultSecret,
 			},
 			sg: sg,
 		},
 		{
 			description: "should remove the crossplane security group referencing kmp using kops",
 			k8sObjects: []client.Object{
-				sg, csg, kcp, spotKMP, cluster,
+				sg, csg, kcp, spotKMP, cluster, defaultSecret,
 			},
 			sg: sg,
 		},
 		{
 			description: "should remove the crossplane security group referencing kcp",
 			k8sObjects: []client.Object{
-				sgKCP, csg, kcp, kmp, cluster,
+				sgKCP, csg, kcp, kmp, cluster, defaultSecret,
 			},
 			sg: sgKCP,
 		},
 		{
 			description: "should fail with infrastructureRef not supported",
 			k8sObjects: []client.Object{
-				sg, csg, kcp, kmp, cluster,
+				sg, csg, kcp, kmp, cluster, defaultSecret,
 			},
 			sg: &securitygroupv1alpha1.SecurityGroup{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1301,7 +1301,7 @@ func TestReconcileDelete(t *testing.T) {
 				return &awsautoscaling.DescribeAutoScalingGroupsOutput{
 					AutoScalingGroups: []autoscalingtypes.AutoScalingGroup{
 						{
-							AutoScalingGroupName: aws.String("testASG"),
+							AutoScalingGroupName: aws.String("test-asg"),
 							LaunchTemplate: &autoscalingtypes.LaunchTemplateSpecification{
 								LaunchTemplateId: aws.String("lt-xxxx"),
 								Version:          aws.String("1"),
@@ -1808,7 +1808,7 @@ func TestSecurityGroupStatus(t *testing.T) {
 					return &awsautoscaling.DescribeAutoScalingGroupsOutput{
 						AutoScalingGroups: []autoscalingtypes.AutoScalingGroup{
 							{
-								AutoScalingGroupName: aws.String("testASG"),
+								AutoScalingGroupName: aws.String("test-asg"),
 								LaunchTemplate: &autoscalingtypes.LaunchTemplateSpecification{
 									LaunchTemplateId: aws.String("lt-xxxx"),
 									Version:          aws.String("1"),

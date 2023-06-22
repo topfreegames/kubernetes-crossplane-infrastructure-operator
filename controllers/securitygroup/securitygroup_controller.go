@@ -468,7 +468,16 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 			return resultError, err
 		}
 
-		err := r.detachSGFromKopsMachinePool(ctx, csg, kmp)
+		kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+		key = client.ObjectKey{
+			Name:      kmp.Spec.ClusterName,
+			Namespace: kmp.ObjectMeta.Namespace,
+		}
+		if err := r.Client.Get(ctx, key, kcp); err != nil {
+			return resultError, err
+		}
+
+		err := r.detachSGFromKopsMachinePool(ctx, csg, kcp, kmp)
 		if err != nil {
 			return resultError, err
 		}
@@ -478,6 +487,7 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 			Namespace: sg.Spec.InfrastructureRef.Namespace,
 			Name:      sg.Spec.InfrastructureRef.Name,
 		}
+		// TODO: Think how we will handle this when the  kcp is deleted
 		if err := r.Client.Get(ctx, key, kcp); err != nil {
 			return resultError, err
 		}
@@ -487,7 +497,7 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 			return resultError, err
 		}
 
-		err = r.detachSGFromKopsMachinePool(ctx, csg, kmps...)
+		err = r.detachSGFromKopsMachinePool(ctx, csg, kcp, kmps...)
 		if err != nil {
 			return resultError, err
 		}
@@ -504,7 +514,14 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 	return ctrl.Result{}, nil
 }
 
-func (r *SecurityGroupReconciliation) detachSGFromKopsMachinePool(ctx context.Context, csg *crossec2v1beta1.SecurityGroup, kmps ...kinfrastructurev1alpha1.KopsMachinePool) error {
+func (r *SecurityGroupReconciliation) detachSGFromKopsMachinePool(ctx context.Context, csg *crossec2v1beta1.SecurityGroup, kcp *kcontrolplanev1alpha1.KopsControlPlane, kmps ...kinfrastructurev1alpha1.KopsMachinePool) error {
+	_, cfg, err := util.AWSCredentialsFromKCP(ctx, r.Client, kcp)
+	if err != nil {
+		return err
+	}
+
+	r.ec2Client = r.NewEC2ClientFactory(*cfg)
+	r.asgClient = r.NewAutoScalingClientFactory(*cfg)
 
 	var detachErr error
 	for _, kmp := range kmps {
@@ -531,7 +548,6 @@ func (r *SecurityGroupReconciliation) detachSGFromKopsMachinePool(ctx context.Co
 				detachErr = multierror.Append(detachErr, err)
 				continue
 			}
-			// TODO: Do we want to detach the SGs from the instances as well?
 		}
 	}
 
