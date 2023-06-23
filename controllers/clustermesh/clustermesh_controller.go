@@ -485,7 +485,9 @@ func ReconcileSecurityGroups(r *ClusterMeshReconciliation, ctx context.Context, 
 	}
 
 	operationResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, sg, func() error {
-		sg.Spec.InfrastructureRef = &infraRef
+		sg.Spec.InfrastructureRef = []*corev1.ObjectReference{
+			&infraRef,
+		}
 		sg.Spec.IngressRules = rules
 		return nil
 	})

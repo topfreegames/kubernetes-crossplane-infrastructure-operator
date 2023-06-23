@@ -118,8 +118,14 @@ func (in *SecurityGroupSpec) DeepCopyInto(out *SecurityGroupSpec) {
 	}
 	if in.InfrastructureRef != nil {
 		in, out := &in.InfrastructureRef, &out.InfrastructureRef
-		*out = new(v1.ObjectReference)
-		**out = **in
+		*out = make([]*v1.ObjectReference, len(*in))
+		for i := range *in {
+			if (*in)[i] != nil {
+				in, out := &(*in)[i], &(*out)[i]
+				*out = new(v1.ObjectReference)
+				**out = **in
+			}
+		}
 	}
 }
 

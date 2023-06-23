@@ -58,11 +58,13 @@ var (
 					},
 				},
 			},
-			InfrastructureRef: &corev1.ObjectReference{
-				APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
-				Kind:       "KopsMachinePool",
-				Name:       "test-kops-machine-pool",
-				Namespace:  metav1.NamespaceDefault,
+			InfrastructureRef: []*corev1.ObjectReference{
+				{
+					APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+					Kind:       "KopsMachinePool",
+					Name:       "test-kops-machine-pool",
+					Namespace:  metav1.NamespaceDefault,
+				},
 			},
 		},
 	}
@@ -82,11 +84,13 @@ var (
 					},
 				},
 			},
-			InfrastructureRef: &corev1.ObjectReference{
-				APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
-				Kind:       "KopsControlPlane",
-				Name:       "test-cluster",
-				Namespace:  metav1.NamespaceDefault,
+			InfrastructureRef: []*corev1.ObjectReference{
+				{
+					APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+					Kind:       "KopsControlPlane",
+					Name:       "test-cluster",
+					Namespace:  metav1.NamespaceDefault,
+				},
 			},
 		},
 	}
@@ -294,11 +298,13 @@ func TestSecurityGroupReconciler(t *testing.T) {
 								},
 							},
 						},
-						InfrastructureRef: &corev1.ObjectReference{
-							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
-							Kind:       "MachinePool",
-							Name:       "test-machine-pool",
-							Namespace:  metav1.NamespaceDefault,
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+								Kind:       "MachinePool",
+								Name:       "test-machine-pool",
+								Namespace:  metav1.NamespaceDefault,
+							},
 						},
 					},
 				},
@@ -561,11 +567,13 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 								},
 							},
 						},
-						InfrastructureRef: &corev1.ObjectReference{
-							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
-							Kind:       "KopsMachinePool",
-							Name:       "test-kops-machine-pool-2",
-							Namespace:  metav1.NamespaceDefault,
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+								Kind:       "KopsMachinePool",
+								Name:       "test-kops-machine-pool-2",
+								Namespace:  metav1.NamespaceDefault,
+							},
 						},
 					},
 				},
@@ -803,7 +811,7 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 				ec2Client:               reconciler.NewEC2ClientFactory(aws.Config{}),
 			}
 
-			err = reconciliation.reconcileKopsMachinePool(ctx, kcp, *tc.kmp)
+			err = reconciliation.attachKopsMachinePool(ctx, csg, kcp, *tc.kmp)
 			if tc.errorExpected == nil {
 				if !errors.Is(err, ErrSecurityGroupNotAvailable) {
 					g.Expect(err).To(BeNil())
@@ -1197,11 +1205,13 @@ func TestReconcileDelete(t *testing.T) {
 							},
 						},
 					},
-					InfrastructureRef: &corev1.ObjectReference{
-						APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
-						Kind:       "UnsupportedKind",
-						Name:       "test-kops-machine-pool",
-						Namespace:  metav1.NamespaceDefault,
+					InfrastructureRef: []*corev1.ObjectReference{
+						{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "UnsupportedKind",
+							Name:       "test-kops-machine-pool",
+							Namespace:  metav1.NamespaceDefault,
+						},
 					},
 				},
 			},

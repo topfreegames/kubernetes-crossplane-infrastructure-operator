@@ -196,11 +196,13 @@ func TestClusterMeshReconciler(t *testing.T) {
 								},
 							},
 						},
-						InfrastructureRef: &corev1.ObjectReference{
-							APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
-							Kind:       "KopsControlPlane",
-							Name:       "test-cluster",
-							Namespace:  metav1.NamespaceDefault,
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+								Kind:       "KopsControlPlane",
+								Name:       "test-cluster",
+								Namespace:  metav1.NamespaceDefault,
+							},
 						},
 					},
 				},
@@ -894,10 +896,12 @@ func TestReconcileDelete(t *testing.T) {
 						Name: "clustermesh-A-sg",
 					},
 					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						InfrastructureRef: &corev1.ObjectReference{
-							Name:       "A",
-							Kind:       "KopsControlPlane",
-							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								Name:       "A",
+								Kind:       "KopsControlPlane",
+								APIVersion: "controlplane.x-k8s.io/v1alpha1",
+							},
 						},
 					},
 				},
@@ -936,11 +940,12 @@ func TestReconcileDelete(t *testing.T) {
 						Name: "clustermesh-B-sg",
 					},
 					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						InfrastructureRef: &corev1.ObjectReference{
+						InfrastructureRef: []*corev1.ObjectReference{{
 							Name:       "B",
 							Namespace:  "kubernetes-B",
 							Kind:       "KopsControlPlane",
 							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+						},
 						},
 					},
 				},
@@ -949,11 +954,13 @@ func TestReconcileDelete(t *testing.T) {
 						Name: "clustermesh-A-sg",
 					},
 					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						InfrastructureRef: &corev1.ObjectReference{
-							Name:       "A",
-							Namespace:  "kubernetes-A",
-							Kind:       "KopsControlPlane",
-							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								Name:       "A",
+								Namespace:  "kubernetes-A",
+								Kind:       "KopsControlPlane",
+								APIVersion: "controlplane.x-k8s.io/v1alpha1",
+							},
 						},
 					},
 				},
@@ -1010,10 +1017,12 @@ func TestReconcileDelete(t *testing.T) {
 						Name: "clustermesh-A-sg",
 					},
 					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						InfrastructureRef: &corev1.ObjectReference{
-							Name:       "A",
-							Kind:       "KopsControlPlane",
-							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								Name:       "A",
+								Kind:       "KopsControlPlane",
+								APIVersion: "controlplane.x-k8s.io/v1alpha1",
+							},
 						},
 					},
 				},
@@ -1073,10 +1082,12 @@ func TestReconcileDelete(t *testing.T) {
 						Name: "clustermesh-A-sg",
 					},
 					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						InfrastructureRef: &corev1.ObjectReference{
-							Name:       "A",
-							Kind:       "KopsControlPlane",
-							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								Name:       "A",
+								Kind:       "KopsControlPlane",
+								APIVersion: "controlplane.x-k8s.io/v1alpha1",
+							},
 						},
 					},
 				},
@@ -1133,10 +1144,12 @@ func TestReconcileDelete(t *testing.T) {
 						Name: "clustermesh-A-sg",
 					},
 					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						InfrastructureRef: &corev1.ObjectReference{
-							Name:       "A",
-							Kind:       "KopsControlPlane",
-							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								Name:       "A",
+								Kind:       "KopsControlPlane",
+								APIVersion: "controlplane.x-k8s.io/v1alpha1",
+							},
 						},
 					},
 				},
@@ -1145,10 +1158,12 @@ func TestReconcileDelete(t *testing.T) {
 						Name: "clustermesh-B-sg",
 					},
 					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						InfrastructureRef: &corev1.ObjectReference{
-							Name:       "B",
-							Kind:       "KopsControlPlane",
-							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								Name:       "B",
+								Kind:       "KopsControlPlane",
+								APIVersion: "controlplane.x-k8s.io/v1alpha1",
+							},
 						},
 					},
 				},
