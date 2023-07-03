@@ -1,0 +1,361 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    kubernetes.io/metadata.name: k8s-test-cluster-a
+  name: k8s-test-cluster-a
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  annotations:
+    clustermesh.infrastructure.wildlife.io: "true"
+    kopscontrolplane.controlplane.wildlife.io/external-security-groups: "true"
+  labels:
+    clusterGroup: test-cluster
+  name: test-cluster-a.<DOMAIN>
+  namespace: k8s-test-cluster-a
+spec:
+  controlPlaneEndpoint:
+    host: api.test-cluster-a.<DOMAIN>
+    port: 443
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1alpha1
+    kind: KopsControlPlane
+    name: test-cluster-a.<DOMAIN>
+    namespace: k8s-test-cluster-a
+  infrastructureRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1alpha1
+    kind: KopsControlPlane
+    name: test-cluster-a.<DOMAIN>
+    namespace: k8s-test-cluster-a
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1alpha1
+kind: KopsControlPlane
+metadata:
+  labels:
+    cluster.x-k8s.io/cluster-name: test-cluster-a.<DOMAIN>
+  name: test-cluster-a.<DOMAIN>
+  namespace: k8s-test-cluster-a
+spec:
+  identityRef:
+    kind: Secret
+    name: aws-credentials
+    namespace: "kubernetes-kops-operator-system"
+  SSHPublicKey: |
+    ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCo+0yqHFl+nPcg3t0NKXb8duQ/9yTuxZm/rYkNBdEOi+SeiQL8iXJFCbiSKhdwzIyM7fwqSYNE4FV//rNnkVw9Lm1zDiDL8JcRRmO0qnWOb+q68AOJkm5sYELFdQBddO6DFI1oWjMJ083LzvWQTu6OYaSoHNUbFvx8/LvBIfCGdkWhxrhroh6UTVA1ePHn3a+WAZylko/gMlobEvVCkWtKtCfIpgeuXm8Y+l0I5Lj6rejxBpcms7GgvxRh5rUkkCkrSUkjg4ngC0bfucit3vjWO+TBJdHOnDZkfS3MA473VpftMM2DI2rK5K2YnMr2CJWYYk7fM5gMS9q+hKcny63nzIrZTxNqGY6F64sm8grEv9yabIk+QumWYdu/g8CmImsQC1wNJEv/uNTpffC/eFjXkhtMqpn+Yk+q8KYe7VaXWcHmdX0XHVwM/EByTzqMhnM4cm8H40XttQTYV1QvFrHDNw1aPDgKcmlFGIjmtP0Ek6f/uvbC4v+X9pUZb3fnOG4XK/d1jDZChaQn1XnbcaCjDipq/yYo7WlS3lagR6nk8KeQTasMGrJGwaxVOj/LjIfynARDql9tRXUFmHepiEOE01+30ycVcAgBrgJ/gjxGy0zqOVZFV+oYXo4AXxUrWYislwGh5MHHWxbp6NN+6qMO33D+UzKMifB5vFoqQw+9fQ==
+  kopsClusterSpec:
+    additionalPolicies:
+      master: |
+        [
+          {
+            "Effect": "Allow",
+            "Action":[
+              "ec2:DescribeTags",
+              "autoscaling:DescribeAutoScalingGroups",
+              "autoscaling:DescribeAutoScalingInstances",
+              "autoscaling:DescribeLaunchConfigurations",
+              "autoscaling:DescribeTags",
+              "autoscaling:SetDesiredCapacity",
+              "autoscaling:TerminateInstanceInAutoScalingGroup"
+            ],
+            "Resource": "*"
+          },
+          {
+            "Effect": "Allow",
+            "Action": [
+              "route53:ListHostedZones",
+              "route53:ListResourceRecordSets"
+            ],
+            "Resource": [
+              "*"
+            ]
+          }
+        ]
+    api:
+      loadBalancer:
+        class: Classic
+        idleTimeoutSeconds: 4000
+        type: Public
+    authorization:
+      rbac: {}
+    channel: stable
+    cloudLabels:
+      Application: kubernetes
+      Managed: kops-controller
+    cloudProvider:
+      aws: {}
+    configBase: s3://<BUCKET>/test-cluster-a.<DOMAIN>
+    containerRuntime: containerd
+    etcdClusters:
+    - cpuRequest: 200m
+      etcdMembers:
+      - instanceGroup: master
+        name: master
+        volumeSize: 20
+        volumeType: gp3
+      name: main
+      version: 3.5.3
+      manager:
+        env:
+        - name: ETCD_LISTEN_METRICS_URLS
+          value: http://0.0.0.0:8081
+        - name: ETCD_METRICS
+          value: basic
+    - cpuRequest: 250m
+      etcdMembers:
+      - instanceGroup: master
+        name: master
+        volumeSize: 20
+        volumeType: gp3
+      memoryRequest: 500Mi
+      name: events
+      manager:
+        env:
+        - name: ETCD_LISTEN_METRICS_URLS
+          value: http://0.0.0.0:8082
+        - name: ETCD_METRICS
+          value: basic
+      version: 3.5.3
+    externalPolicies:
+      bastion:
+      - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      master:
+      - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      node:
+      - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+    iam:
+      allowContainerRegistry: true
+      legacy: false
+    kubeAPIServer:
+      authorizationMode: RBAC,Node
+    kubeDNS:
+      coreDNSImage: coredns/coredns:1.9.3
+      cpuRequest: 150m
+      externalCoreFile: |-
+        .:53 {
+          errors
+          health {
+            lameduck 5s
+          }
+          ready
+          kubernetes cluster.local. in-addr.arpa ip6.arpa {
+            pods insecure
+            fallthrough in-addr.arpa ip6.arpa
+            ttl 60
+          }
+          prometheus :9153
+          forward . /etc/resolv.conf
+          loop
+          cache 3600
+          loadbalance
+          reload
+        }
+      memoryLimit: 128Mi
+      memoryRequest: 128Mi
+      nodeLocalDNS:
+        cpuRequest: 30m
+        enabled: true
+        memoryRequest: 30Mi
+      provider: CoreDNS
+    kubeProxy:
+      enabled: false
+    kubelet:
+      anonymousAuth: false
+      authenticationTokenWebhook: true
+      authorizationMode: Webhook
+      readOnlyPort: 0
+    kubernetesAPIAccess:
+    - 0.0.0.0/0
+    kubernetesVersion: 1.24.14
+    masterPublicName: api.test-cluster-a.<DOMAIN>
+    networkCIDR: 172.24.232.0/24
+    nonMasqueradeCIDR: 10.0.0.0/16
+    networking:
+      cilium: {}
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    sshAccess:
+    - 0.0.0.0/0
+    subnets:
+    - cidr: 172.24.232.0/25
+      name: default
+      type: Private
+      zone: <ZONE> 
+    - cidr: 172.24.232.128/25
+      name: utility
+      type: Utility
+      zone: <ZONE>
+    topology:
+      dns:
+        type: Public
+      bastion:
+        publicName: bastion.test-cluster-a.<DOMAIN>
+        idleTimeoutSeconds: 3600
+      masters: private
+      nodes: private
+  kopsSecret:
+    apiVersion: v1
+    kind: Secret
+    name: kops-secrets-test-cluster-a.<DOMAIN>
+    namespace: k8s-test-cluster-a
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: KopsMachinePool
+metadata:
+  labels:
+    cluster.x-k8s.io/cluster-name: test-cluster-a.<DOMAIN>
+  name: nodes
+  namespace: k8s-test-cluster-a
+spec:
+  clusterName: test-cluster-a.<DOMAIN>
+  kopsInstanceGroupSpec:
+    associatePublicIP: false
+    cloudLabels:
+      k8s.io/cluster-autoscaler/enabled: "true"
+      k8s.io/cluster/test-cluster-a.<DOMAIN>: "true"
+    image: ubuntu/ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-20230325
+    machineType: c5.2xlarge
+    maxSize: 5
+    minSize: 1
+    nodeLabels:
+      kops.k8s.io/cluster: test-cluster-a.<DOMAIN>
+      kops.k8s.io/cluster-name: test-cluster-a.<DOMAIN>
+      kops.k8s.io/instance-group-name: nodes
+      kops.k8s.io/instance-group-role: Node
+      kops.k8s.io/instancegroup: nodes
+      kops.k8s.io/managed-by: kops-controller
+      nodes: "true"
+    role: Node
+    rootVolumeSize: 60
+    rootVolumeType: gp3
+    subnets:
+    - default
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: KopsMachinePool
+metadata:
+  labels:
+    cluster.x-k8s.io/cluster-name: test-cluster-a.<DOMAIN>
+  name: bastions
+  namespace: k8s-test-cluster-a
+spec:
+  clusterName: test-cluster-a.<DOMAIN>
+  kopsInstanceGroupSpec:
+    associatePublicIP: true
+    cloudLabels:
+      k8s.io/cluster/test-cluster-a.<DOMAIN>: "true"
+    image: ubuntu/ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-20230325
+    machineType: t3.micro
+    maxSize: 2
+    minSize: 1
+    nodeLabels:
+      kops.k8s.io/cluster: test-cluster-a.<DOMAIN>
+      kops.k8s.io/cluster-name: test-cluster-a.<DOMAIN>
+      kops.k8s.io/instance-group-name: bastions
+      kops.k8s.io/instance-group-role: Bastion
+      kops.k8s.io/instancegroup: bastions
+      kops.k8s.io/managed-by: kops-controller
+    role: Bastion
+    rootVolumeSize: 60
+    rootVolumeType: gp3
+    subnets:
+    - utility
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: KopsMachinePool
+metadata:
+  labels:
+    cluster.x-k8s.io/cluster-name: test-cluster-a.<DOMAIN>
+  name: master
+  namespace: k8s-test-cluster-a
+spec:
+  clusterName: test-cluster-a.<DOMAIN>
+  kopsInstanceGroupSpec:
+    associatePublicIP: false
+    cloudLabels:
+      k8s.io/cluster/test-cluster-a.<DOMAIN>: "true"
+    image: ubuntu/ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-20230325
+    machineType: m5.xlarge
+    maxSize: 1
+    minSize: 1
+    nodeLabels:
+      kops.k8s.io/cluster: test-cluster-a.<DOMAIN>
+      kops.k8s.io/cluster-name: test-cluster-a.<DOMAIN>
+      kops.k8s.io/instance-group-name: master
+      kops.k8s.io/instance-group-role: Master
+      kops.k8s.io/instancegroup: master
+      kops.k8s.io/managed-by: kops-controller
+    role: Master
+    rootVolumeSize: 50
+    rootVolumeType: gp3
+    subnets:
+    - default
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachinePool
+metadata:
+  labels:
+    cluster.x-k8s.io/cluster-name: test-cluster-a.<DOMAIN>
+  name: nodes
+  namespace: k8s-test-cluster-a
+spec:
+  clusterName: test-cluster-a.<DOMAIN>
+  minReadySeconds: 0
+  replicas: 1
+  template:
+    spec:
+      bootstrap:
+        dataSecretName: ""
+      clusterName: test-cluster-a.<DOMAIN>
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+        kind: KopsMachinePool
+        name: nodes
+        namespace: k8s-test-cluster-a
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachinePool
+metadata:
+  labels:
+    cluster.x-k8s.io/cluster-name: test-cluster-a.<DOMAIN>
+  name: bastions
+  namespace: k8s-test-cluster-a
+spec:
+  clusterName: test-cluster-a.<DOMAIN>
+  minReadySeconds: 0
+  replicas: 1
+  template:
+    spec:
+      bootstrap:
+        dataSecretName: ""
+      clusterName: test-cluster-a.<DOMAIN>
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+        kind: KopsMachinePool
+        name: bastions
+        namespace: k8s-test-cluster-a
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachinePool
+metadata:
+  labels:
+    cluster.x-k8s.io/cluster-name: test-cluster-a.<DOMAIN>
+  name: master
+  namespace: k8s-test-cluster-a
+spec:
+  clusterName: test-cluster-a.<DOMAIN>
+  minReadySeconds: 0
+  replicas: 1
+  template:
+    spec:
+      bootstrap:
+        dataSecretName: ""
+      clusterName: test-cluster-a.<DOMAIN>
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+        kind: KopsMachinePool
+        name: master
+        namespace: k8s-test-cluster-a
