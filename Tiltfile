@@ -1,58 +1,54 @@
 load('ext://restart_process', 'docker_build_with_restart')
 
-local_resource('Install Crossplane dependencies',
-               'make apply-crossplane-dependencies'
+local_resource('Wait AWS Credentials',
+  'make wait-aws-credentials',
 )
 
-local_resource('Wait Crossplane dependencies resources',
-               'make wait-crossplane-dependencies-resources',
-               resource_deps=[
-                 'Install Crossplane dependencies'
-               ]
+local_resource('Install Crossplane',
+  'make apply-crossplane',
 )
 
-local_resource('Install Cluster API CRDs',
-               'make apply-capi-crds'
+local_resource('Install Cluster API',
+  'make apply-capi',
 )
 
-local_resource('Install Kubernetes Kops Operator CRDs',
-               'make apply-kubernetes-kops-operator-crds'
+local_resource('Install Kubernetes Kops Operator',
+  'make apply-kops-operator',
 )
 
 local_resource('Install CRDs',
-               'make install',
+  'make apply-crds',
 )
 
 local_resource('Build manager binary',
-               'make build',
+  'make build',
 )
 
-docker_build_with_restart('manager:test',
-             '.',
-             dockerfile='./Dockerfile.dev',
-             entrypoint='/manager',
-             live_update=[
-               sync('./bin/manager', '/manager')
-             ],
-             only=[
-               "./bin/manager",
-             ],
+docker_build_with_restart('tfgco/provider-crossplane',
+  '.',
+  dockerfile = './Dockerfile.dev',
+  entrypoint = '/manager',
+  live_update = [
+    sync('./bin/manager', '/manager')
+  ],
+  only = [
+    "./bin/manager",
+  ],
 )
 
-k8s_yaml('.kubernetes/dev/manifest.yaml')
+k8s_yaml('.kubernetes/manifests.yaml')
 
 k8s_resource(
-  objects=[
+  objects = [
     'provider-crossplane-system:namespace',
     'provider-crossplane-controller-manager:serviceaccount',
     'provider-crossplane-leader-election-role:role',
     'provider-crossplane-manager-role:clusterrole',
-    'provider-crossplane-metrics-reader:clusterrole',
-    'provider-crossplane-proxy-role:clusterrole',
     'provider-crossplane-leader-election-rolebinding:rolebinding',
     'provider-crossplane-manager-rolebinding:clusterrolebinding',
-    'provider-crossplane-proxy-rolebinding:clusterrolebinding',
-    'provider-crossplane-manager-config:configmap'
+    'provider-crossplane-manager-config:configmap',
+    'clustermeshes.clustermesh.infrastructure.wildlife.io:customresourcedefinition',
+    'securitygroups.ec2.aws.wildlife.io:customresourcedefinition'
   ],
-  new_name='Deploy Kubernetes resources'
+  new_name = 'Deploy Kubernetes resources'
 )
