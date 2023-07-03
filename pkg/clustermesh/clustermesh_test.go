@@ -6,7 +6,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	clustermeshv1alpha1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
+	clustermeshv1alpha1 "github.com/topfreegames/provider-crossplane/api/clustermesh.infrastructure/v1alpha1"
 	"github.com/topfreegames/provider-crossplane/pkg/clustermesh"
 )
 

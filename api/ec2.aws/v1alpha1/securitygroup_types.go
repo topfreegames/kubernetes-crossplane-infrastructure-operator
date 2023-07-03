@@ -1,5 +1,5 @@
 /*
-Copyright 2022.
+Copyright 2023.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -84,8 +84,8 @@ type SecurityGroupStatus struct {
 }
 
 //+kubebuilder:object:root=true
-//+kubebuilder:resource:shortName=wsg
 //+kubebuilder:subresource:status
+//+kubebuilder:resource:shortName=wsg
 //+kubebuilder:resource:scope=Cluster
 //+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description=""
 //+kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type==\"Ready\")].status",description=""

@@ -1,5 +1,5 @@
 /*
-Copyright 2021.
+Copyright 2023.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -25,8 +25,8 @@ import (
 	wildlifecrossec2v1alphav1 "github.com/topfreegames/crossplane-provider-aws/apis/ec2/manualv1alpha1"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	"github.com/topfreegames/kubernetes-kops-operator/pkg/kops"
-	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
-	sgv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
+	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/api/clustermesh.infrastructure/v1alpha1"
+	sgv1alpha1 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha1"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
 	clmesh "github.com/topfreegames/provider-crossplane/pkg/clustermesh"
 	"github.com/topfreegames/provider-crossplane/pkg/crossplane"

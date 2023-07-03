@@ -14,5 +14,3 @@ images:
 - name: controller
   newName: tfgco/provider-crossplane
   newTag: v0.1.1-alpha
-- name: manager
-  newName: tfgco/provider-crossplane
