@@ -2,23 +2,45 @@
 apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
-  name: provider-aws
-  namespace: crossplane-system
+  name: crossplane-provider-aws-peering-only
 spec:
-  package: quay.io/tfgco/provider-aws:v0.23.0-slim
+  ignoreCrossplaneConstraints: false
+  package: quay.io/tfgco/provider-aws:v0.27.0-peering-only
   packagePullPolicy: Always
   revisionActivationPolicy: Automatic
-  revisionHistoryLimit: 1
+  revisionHistoryLimit: 0
+  skipDependencyResolution: false
 ---
-apiVersion: aws.crossplane.io/v1beta1
-kind: ProviderConfig
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
 metadata:
-  name: default
-  namespace: crossplane-system
+  name: crossplane-provider-aws
 spec:
-  credentials:
-    source: Secret
-    secretRef:
-      namespace: crossplane-system
-      name: aws-credentials
-      key: creds
+  ignoreCrossplaneConstraints: false
+  package: crossplanecontrib/provider-aws:v0.41.1
+  packagePullPolicy: IfNotPresent
+  revisionActivationPolicy: Automatic
+  revisionHistoryLimit: 0
+  skipDependencyResolution: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: provider-aws-peering-only-allowed-permissions
+  labels:
+    rbac.crossplane.io/aggregate-to-allowed-provider-permissions: "true"
+rules:
+- apiGroups:
+  - aws.crossplane.io
+  resources:
+  - providerconfigs
+  - providerconfigs/status
+  - providerconfigusages
+  - providerconfigusages/status
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+  - patch
+  - create

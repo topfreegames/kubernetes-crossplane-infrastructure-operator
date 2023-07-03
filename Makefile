@@ -186,30 +186,34 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 
 
 # Development environment targets
+KIND_IMAGE_VERSION ?= kindest/node:v1.24.15@sha256:7db4f8bea3e14b82d12e044e25e34bd53754b7f2b0e9d56df21774e6f66a70ab
+KIND_CLUSTER_NAME ?= kaas-cluster
+
 setup-dev-env: create-kind init-tilt
 
 create-kind:
-	bash ./hack/scripts/kind.sh kaas-cluster
+	bash ./hack/scripts/kind.sh $(KIND_CLUSTER_NAME) $(KIND_IMAGE_VERSION)
 
 init-tilt:
-	kind export kubeconfig --name kaas-cluster
+	kind export kubeconfig --name $(KIND_CLUSTER_NAME)
 	tilt down
 	tilt up
 
-apply-crossplane-dependencies:
-	bash ./hack/scripts/install-dependencies.sh
-
-wait-crossplane-dependencies-resources:
-	bash ./hack/scripts/wait-controllers.sh dependencies
-
 # Tilt targets
-apply-capi-crds:
-	kubectl apply -f ./hack/assets/crds/cluster-api
+apply-crossplane:
+	bash ./hack/scripts/install-crossplane.sh $(KIND_CLUSTER_NAME)
 
-apply-kubernetes-kops-operator-crds:
-	kubectl apply -f ./hack/assets/crds/kubernetes-kops-operator
+apply-capi:
+	bash ./hack/scripts/install-capi.sh $(KIND_CLUSTER_NAME)
 
-.PHONY: prepare-kind
-prepare-kind: apply-crossplane-dependencies install apply-capi-crds apply-kubernetes-kops-operator-crds ## Prepare cluster specified in ~/.kube/config for debug.
-	bash ./hack/scripts/wait-controllers.sh dependencies
-	kubectl apply -f ./hack/assets/dependencies/provider.yaml
+apply-kops-operator:
+	bash ./hack/scripts/install-kops-operator.sh $(KIND_CLUSTER_NAME)
+
+wait-aws-credentials:
+	bash ./hack/scripts/wait-aws-credentials.sh $(KIND_CLUSTER_NAME)
+
+apply-cluster-crs:
+	bash ./hack/scripts/apply-cluster-crs.sh $(KIND_CLUSTER_NAME)
+
+apply-crds: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
+	$(KUSTOMIZE) build config/crd | $(KUBECTL) apply -f - --context kind-$(KIND_CLUSTER_NAME)
