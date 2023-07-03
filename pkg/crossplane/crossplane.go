@@ -6,8 +6,8 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
-	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
+	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/api/clustermesh.infrastructure/v1alpha1"
+	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha1"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	crossec2v1alphav1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"

@@ -1,5 +1,5 @@
 /*
-Copyright 2021.
+Copyright 2023.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
@@ -61,10 +61,10 @@ type ClusterMeshSpec struct {
 
 // ClusterMeshStatus defines the observed state of ClusterMesh
 type ClusterMeshStatus struct {
-	CrossplanePeeringRef       []*v1.ObjectReference     `json:"crossplanePeeringRef,omitempty"`
-	CrossplaneSecurityGroupRef []*v1.ObjectReference     `json:"crossplaneSecurityGroupRef,omitempty"`
+	CrossplanePeeringRef       []*corev1.ObjectReference `json:"crossplanePeeringRef,omitempty"`
+	CrossplaneSecurityGroupRef []*corev1.ObjectReference `json:"crossplaneSecurityGroupRef,omitempty"`
 	Conditions                 clusterv1beta1.Conditions `json:"conditions,omitempty"`
-	RoutesRef                  []*v1.ObjectReference     `json:"routesRef,omitempty"`
+	RoutesRef                  []*corev1.ObjectReference `json:"routesRef,omitempty"`
 }
 
 //+kubebuilder:object:root=true

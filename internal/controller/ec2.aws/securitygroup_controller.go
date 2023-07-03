@@ -1,5 +1,5 @@
 /*
-Copyright 2022.
+Copyright 2023.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ import (
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
 	"github.com/topfreegames/kubernetes-kops-operator/pkg/kops"
-	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
+	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha1"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/autoscaling"
 
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"

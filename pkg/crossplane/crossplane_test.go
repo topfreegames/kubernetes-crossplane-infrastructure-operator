@@ -21,8 +21,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
-	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/apis/clustermesh/v1alpha1"
-	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/apis/securitygroup/v1alpha1"
+	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/api/clustermesh.infrastructure/v1alpha1"
+	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubectl/pkg/scheme"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
