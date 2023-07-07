@@ -48,7 +48,9 @@ k8s_resource(
     'provider-crossplane-manager-rolebinding:clusterrolebinding',
     'provider-crossplane-manager-config:configmap',
     'clustermeshes.clustermesh.infrastructure.wildlife.io:customresourcedefinition',
-    'securitygroups.ec2.aws.wildlife.io:customresourcedefinition'
+    'securitygroups.ec2.aws.wildlife.io:customresourcedefinition',
+    'provider-crossplane-serving-cert:certificate',
+    'provider-crossplane-selfsigned-issuer:issuer'
   ],
   new_name = 'Deploy Kubernetes resources'
 )

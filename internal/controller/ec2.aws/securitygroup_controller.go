@@ -27,12 +27,12 @@ import (
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
 	"github.com/topfreegames/kubernetes-kops-operator/pkg/kops"
-	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha1"
+	securitygroupv1alpha2 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha2"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/autoscaling"
+	kopsutils "github.com/topfreegames/provider-crossplane/pkg/kops"
 
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
 	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
-	"github.com/topfreegames/provider-crossplane/pkg/util"
 
 	oceanaws "github.com/spotinst/spotinst-sdk-go/service/ocean/providers/aws"
 	"github.com/topfreegames/provider-crossplane/pkg/spot"
@@ -80,11 +80,14 @@ type SecurityGroupReconciler struct {
 
 type SecurityGroupReconciliation struct {
 	SecurityGroupReconciler
-	log       logr.Logger
-	start     time.Time
-	ec2Client ec2.EC2Client
-	asgClient autoscaling.AutoScalingClient
-	sg        *securitygroupv1alpha1.SecurityGroup
+	log                logr.Logger
+	start              time.Time
+	ec2Client          ec2.EC2Client
+	asgClient          autoscaling.AutoScalingClient
+	sg                 *securitygroupv1alpha2.SecurityGroup
+	region             *string
+	vpcId              *string
+	providerConfigName string
 }
 
 func DefaultReconciler(mgr manager.Manager) *SecurityGroupReconciler {
@@ -96,37 +99,6 @@ func DefaultReconciler(mgr manager.Manager) *SecurityGroupReconciler {
 		NewAutoScalingClientFactory:     autoscaling.NewAutoScalingClient,
 		NewOceanCloudProviderAWSFactory: spot.NewOceanCloudProviderAWS,
 	}
-}
-
-func (r *SecurityGroupReconciliation) getAWSAccountInfo(ctx context.Context, kcp *kcontrolplanev1alpha1.KopsControlPlane) (*string, *string, error) {
-	subnet, err := kops.GetSubnetFromKopsControlPlane(kcp)
-	if err != nil {
-		return aws.String(""), aws.String(""), err
-	}
-
-	region, err := kops.GetRegionFromKopsSubnet(*subnet)
-	if err != nil {
-		return aws.String(""), aws.String(""), err
-	}
-
-	if region == nil {
-		return aws.String(""), aws.String(""), fmt.Errorf("region not defined")
-	}
-
-	if err != nil {
-		return aws.String(""), aws.String(""), err
-	}
-
-	vpcId, err := ec2.GetVPCIdWithCIDRAndClusterName(ctx, r.ec2Client, kcp.Name, kcp.Spec.KopsClusterSpec.NetworkCIDR)
-	if err != nil {
-		return aws.String(""), aws.String(""), err
-	}
-
-	if vpcId == nil {
-		return aws.String(""), aws.String(""), fmt.Errorf("vpcId not defined")
-	}
-
-	return vpcId, region, nil
 }
 
 //+kubebuilder:rbac:groups=ec2.aws.wildlife.io,resources=securitygroups,verbs=get;list;watch;create;update;patch;delete
@@ -145,7 +117,7 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		log:                     ctrl.LoggerFrom(ctx),
 	}
 
-	r.sg = &securitygroupv1alpha1.SecurityGroup{}
+	r.sg = &securitygroupv1alpha2.SecurityGroup{}
 	if err := r.Get(ctx, req.NamespacedName, r.sg); err != nil {
 		return resultError, client.IgnoreNotFound(err)
 	}
@@ -156,7 +128,7 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	if r.sg.GetAnnotations()[AnnotationKeyReconciliationPaused] == "true" {
 		r.log.Info("Reconciliation is paused via the pause annotation", "annotation", AnnotationKeyReconciliationPaused, "value", "true")
-		r.Recorder.Eventf(r.sg, corev1.EventTypeNormal, securitygroupv1alpha1.ReasonReconcilePaused, "Reconciliation is paused via the pause annotation")
+		r.Recorder.Eventf(r.sg, corev1.EventTypeNormal, securitygroupv1alpha2.ReasonReconcilePaused, "Reconciliation is paused via the pause annotation")
 		return resultDefault, nil
 	}
 
@@ -180,6 +152,11 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		r.log.Info(fmt.Sprintf("finished reconcile loop for %s", r.sg.ObjectMeta.GetName()))
 	}()
 
+	err = r.retrieveInfraRefInfo(ctx)
+	if err != nil {
+		return resultError, err
+	}
+
 	if !r.sg.ObjectMeta.DeletionTimestamp.IsZero() {
 		return r.reconcileDelete(ctx, r.sg)
 	}
@@ -187,20 +164,20 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return r.reconcileNormal(ctx)
 }
 
-func (r *SecurityGroupReconciliation) reconcileNormal(ctx context.Context) (ctrl.Result, error) {
-	if !controllerutil.ContainsFinalizer(r.sg, securityGroupFinalizer) {
-		controllerutil.AddFinalizer(r.sg, securityGroupFinalizer)
+func (r *SecurityGroupReconciliation) retrieveInfraRefInfo(ctx context.Context) error {
+	if len(r.sg.Spec.InfrastructureRef) == 0 {
+		return fmt.Errorf("no infrastructureRef found")
 	}
 
-	switch r.sg.Spec.InfrastructureRef.Kind {
+	switch r.sg.Spec.InfrastructureRef[0].Kind {
 	case "KopsMachinePool":
 		kmp := kinfrastructurev1alpha1.KopsMachinePool{}
 		key := client.ObjectKey{
-			Name:      r.sg.Spec.InfrastructureRef.Name,
-			Namespace: r.sg.Spec.InfrastructureRef.Namespace,
+			Name:      r.sg.Spec.InfrastructureRef[0].Name,
+			Namespace: r.sg.Spec.InfrastructureRef[0].Namespace,
 		}
 		if err := r.Client.Get(ctx, key, &kmp); err != nil {
-			return resultError, err
+			return err
 		}
 
 		kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
@@ -209,98 +186,174 @@ func (r *SecurityGroupReconciliation) reconcileNormal(ctx context.Context) (ctrl
 			Namespace: kmp.ObjectMeta.Namespace,
 		}
 		if err := r.Client.Get(ctx, key, kcp); err != nil {
-			return resultError, err
+			return err
 		}
-		err := r.reconcileKopsMachinePool(ctx, kcp, kmp)
+
+		region, err := kopsutils.GetRegionFromKopsControlPlane(ctx, kcp)
 		if err != nil {
-			if errors.Is(err, ErrSecurityGroupNotAvailable) {
-				return requeue30seconds, nil
-			}
-			return resultError, err
+			return fmt.Errorf("error retrieving region: %w", err)
 		}
+
+		providerConfigName, awsCfg, err := kopsutils.RetrieveAWSCredentialsFromKCP(ctx, r.Client, region, kcp)
+		if err != nil {
+			return err
+		}
+
+		r.ec2Client = r.NewEC2ClientFactory(*awsCfg)
+		r.asgClient = r.NewAutoScalingClientFactory(*awsCfg)
+
+		vpcId, err := ec2.GetVPCIdWithCIDRAndClusterName(ctx, r.ec2Client, kcp.Name, kcp.Spec.KopsClusterSpec.NetworkCIDR)
+		if err != nil {
+			return fmt.Errorf("error retrieving vpcID: %w", err)
+		}
+
+		r.providerConfigName = providerConfigName
+		r.region = region
+		r.vpcId = vpcId
+
+		return nil
 	case "KopsControlPlane":
 		kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
 		key := client.ObjectKey{
-			Name:      r.sg.Spec.InfrastructureRef.Name,
-			Namespace: r.sg.Spec.InfrastructureRef.Namespace,
+			Name:      r.sg.Spec.InfrastructureRef[0].Name,
+			Namespace: r.sg.Spec.InfrastructureRef[0].Namespace,
 		}
 		if err := r.Client.Get(ctx, key, kcp); err != nil {
-			return resultError, err
+			return err
 		}
 
-		kmps, err := kops.GetKopsMachinePoolsWithLabel(ctx, r.Client, "cluster.x-k8s.io/cluster-name", kcp.Name)
+		region, err := kopsutils.GetRegionFromKopsControlPlane(ctx, kcp)
 		if err != nil {
-			return resultError, err
+			return fmt.Errorf("error retrieving region: %w", err)
 		}
-		err = r.reconcileKopsMachinePool(ctx, kcp, kmps...)
+
+		providerConfigName, awsCfg, err := kopsutils.RetrieveAWSCredentialsFromKCP(ctx, r.Client, region, kcp)
 		if err != nil {
-			if errors.Is(err, ErrSecurityGroupNotAvailable) {
-				return requeue30seconds, nil
-			}
-			return resultError, err
+			return err
 		}
+
+		r.ec2Client = r.NewEC2ClientFactory(*awsCfg)
+		r.asgClient = r.NewAutoScalingClientFactory(*awsCfg)
+
+		vpcId, err := ec2.GetVPCIdWithCIDRAndClusterName(ctx, r.ec2Client, kcp.Name, kcp.Spec.KopsClusterSpec.NetworkCIDR)
+		if err != nil {
+			return fmt.Errorf("error retrieving vpcID: %w", err)
+		}
+
+		r.providerConfigName = providerConfigName
+		r.region = region
+		r.vpcId = vpcId
+
+		return nil
 	default:
-		return resultError, fmt.Errorf("infrastructureRef not supported")
+		return fmt.Errorf("infrastructureRef not supported")
+	}
+}
+
+func (r *SecurityGroupReconciliation) reconcileNormal(ctx context.Context) (ctrl.Result, error) {
+
+	if !controllerutil.ContainsFinalizer(r.sg, securityGroupFinalizer) {
+		controllerutil.AddFinalizer(r.sg, securityGroupFinalizer)
+	}
+
+	csg, err := crossplane.CreateOrUpdateCrossplaneSecurityGroup(ctx, r.Client, r.vpcId, r.region, r.providerConfigName, r.sg)
+	if err != nil {
+		conditions.MarkFalse(r.sg,
+			securitygroupv1alpha2.CrossplaneResourceReadyCondition,
+			securitygroupv1alpha2.CrossplaneResourceReconciliationFailedReason,
+			clusterv1beta1.ConditionSeverityError,
+			err.Error(),
+		)
+		return resultError, fmt.Errorf("error creating crossplane securitygroup: %w", err)
+	}
+
+	err = r.Client.Get(ctx, client.ObjectKeyFromObject(csg), csg)
+	if err != nil {
+		conditions.MarkFalse(r.sg,
+			securitygroupv1alpha2.CrossplaneResourceReadyCondition,
+			securitygroupv1alpha2.CrossplaneResourceReconciliationFailedReason,
+			clusterv1beta1.ConditionSeverityError,
+			err.Error(),
+		)
+		return resultError, err
+	}
+	conditions.MarkTrue(r.sg, securitygroupv1alpha2.CrossplaneResourceReadyCondition)
+
+	availableCondition := crossplane.GetSecurityGroupReadyCondition(csg)
+	if availableCondition == nil {
+		return resultError, ErrSecurityGroupNotAvailable
+	} else {
+		if availableCondition.Status == corev1.ConditionTrue {
+			conditions.MarkTrue(r.sg, securitygroupv1alpha2.SecurityGroupReadyCondition)
+		} else {
+			conditions.MarkFalse(r.sg,
+				securitygroupv1alpha2.SecurityGroupReadyCondition,
+				string(availableCondition.Reason),
+				clusterv1beta1.ConditionSeverityError,
+				availableCondition.Message,
+			)
+			return resultError, ErrSecurityGroupNotAvailable
+		}
+	}
+
+	for _, infrastructureRef := range r.sg.Spec.InfrastructureRef {
+		switch infrastructureRef.Kind {
+		case "KopsMachinePool":
+			kmp := kinfrastructurev1alpha1.KopsMachinePool{}
+			key := client.ObjectKey{
+				Name:      infrastructureRef.Name,
+				Namespace: infrastructureRef.Namespace,
+			}
+			if err := r.Client.Get(ctx, key, &kmp); err != nil {
+				return resultError, err
+			}
+
+			kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+			key = client.ObjectKey{
+				Name:      kmp.Spec.ClusterName,
+				Namespace: kmp.ObjectMeta.Namespace,
+			}
+			if err := r.Client.Get(ctx, key, kcp); err != nil {
+				return resultError, err
+			}
+			err := r.attachKopsMachinePool(ctx, csg, kcp, kmp)
+			if err != nil {
+				if errors.Is(err, ErrSecurityGroupNotAvailable) {
+					return requeue30seconds, nil
+				}
+				return resultError, err
+			}
+		case "KopsControlPlane":
+			kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+			key := client.ObjectKey{
+				Name:      infrastructureRef.Name,
+				Namespace: infrastructureRef.Namespace,
+			}
+			if err := r.Client.Get(ctx, key, kcp); err != nil {
+				return resultError, err
+			}
+
+			kmps, err := kops.GetKopsMachinePoolsWithLabel(ctx, r.Client, "cluster.x-k8s.io/cluster-name", kcp.Name)
+			if err != nil {
+				return resultError, err
+			}
+			err = r.attachKopsMachinePool(ctx, csg, kcp, kmps...)
+			if err != nil {
+				if errors.Is(err, ErrSecurityGroupNotAvailable) {
+					return requeue30seconds, nil
+				}
+				return resultError, err
+			}
+		default:
+			return resultError, fmt.Errorf("infrastructureRef not supported")
+		}
 	}
 
 	r.sg.Status.Ready = true
 	return resultDefault, nil
 }
 
-func (r *SecurityGroupReconciliation) reconcileKopsMachinePool(ctx context.Context, kcp *kcontrolplanev1alpha1.KopsControlPlane, kmps ...kinfrastructurev1alpha1.KopsMachinePool) error {
-	providerConfigName, cfg, err := util.AWSCredentialsFromKCP(ctx, r.Client, kcp)
-	if err != nil {
-		return err
-	}
-
-	r.ec2Client = r.NewEC2ClientFactory(*cfg)
-	r.asgClient = r.NewAutoScalingClientFactory(*cfg)
-
-	vpcId, region, err := r.getAWSAccountInfo(ctx, kcp)
-	if err != nil {
-		return fmt.Errorf("error retrieving aws account: %w", err)
-	}
-
-	csg, err := crossplane.CreateOrUpdateCrossplaneSecurityGroup(ctx, r.Client, vpcId, region, providerConfigName, r.sg)
-	if err != nil {
-		conditions.MarkFalse(r.sg,
-			securitygroupv1alpha1.CrossplaneResourceReadyCondition,
-			securitygroupv1alpha1.CrossplaneResourceReconciliationFailedReason,
-			clusterv1beta1.ConditionSeverityError,
-			err.Error(),
-		)
-		return fmt.Errorf("error creating crossplane securitygroup: %w", err)
-	}
-
-	err = r.Client.Get(ctx, client.ObjectKeyFromObject(csg), csg)
-	if err != nil {
-		conditions.MarkFalse(r.sg,
-			securitygroupv1alpha1.CrossplaneResourceReadyCondition,
-			securitygroupv1alpha1.CrossplaneResourceReconciliationFailedReason,
-			clusterv1beta1.ConditionSeverityError,
-			err.Error(),
-		)
-		return err
-	}
-	conditions.MarkTrue(r.sg, securitygroupv1alpha1.CrossplaneResourceReadyCondition)
-
-	availableCondition := crossplane.GetSecurityGroupReadyCondition(csg)
-	if availableCondition == nil {
-		return ErrSecurityGroupNotAvailable
-	} else {
-		if availableCondition.Status == corev1.ConditionTrue {
-			conditions.MarkTrue(r.sg, securitygroupv1alpha1.SecurityGroupReadyCondition)
-		} else {
-			conditions.MarkFalse(r.sg,
-				securitygroupv1alpha1.SecurityGroupReadyCondition,
-				string(availableCondition.Reason),
-				clusterv1beta1.ConditionSeverityError,
-				availableCondition.Message,
-			)
-			return ErrSecurityGroupNotAvailable
-		}
-	}
-
+func (r *SecurityGroupReconciliation) attachKopsMachinePool(ctx context.Context, csg *crossec2v1beta1.SecurityGroup, kcp *kcontrolplanev1alpha1.KopsControlPlane, kmps ...kinfrastructurev1alpha1.KopsMachinePool) error {
 	var attachErr error
 	for _, kmp := range kmps {
 		if len(kmp.Spec.SpotInstOptions) != 0 {
@@ -311,12 +364,12 @@ func (r *SecurityGroupReconciliation) reconcileKopsMachinePool(ctx context.Conte
 			}
 			err = r.attachSGToVNG(ctx, oceanClient, launchSpecs, kmp.Name, csg)
 			if err != nil {
-				r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha1.SecurityGroupAttachmentFailedReason, err.Error())
+				r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, err.Error())
 				attachErr = multierror.Append(attachErr, err)
 				continue
 			}
 		} else if kmp.Spec.KopsInstanceGroupSpec.Manager == "Karpenter" {
-			r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha1.SecurityGroupAttachmentFailedReason, "Karpenter is not supported yet")
+			r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, "Karpenter is not supported yet")
 			continue
 		} else {
 			asgName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
@@ -327,7 +380,7 @@ func (r *SecurityGroupReconciliation) reconcileKopsMachinePool(ctx context.Conte
 
 			err = r.attachSGToASG(ctx, asgName, csg.Status.AtProvider.SecurityGroupID)
 			if err != nil {
-				r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha1.SecurityGroupAttachmentFailedReason, err.Error())
+				r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, err.Error())
 				attachErr = multierror.Append(attachErr, err)
 				continue
 			}
@@ -335,14 +388,14 @@ func (r *SecurityGroupReconciliation) reconcileKopsMachinePool(ctx context.Conte
 	}
 	if attachErr != nil {
 		conditions.MarkFalse(r.sg,
-			securitygroupv1alpha1.SecurityGroupAttachedCondition,
-			securitygroupv1alpha1.SecurityGroupAttachmentFailedReason,
+			securitygroupv1alpha2.SecurityGroupAttachedCondition,
+			securitygroupv1alpha2.SecurityGroupAttachmentFailedReason,
 			clusterv1beta1.ConditionSeverityError,
 			attachErr.Error(),
 		)
 	} else {
-		conditions.MarkTrue(r.sg, securitygroupv1alpha1.SecurityGroupAttachedCondition)
-		conditions.MarkTrue(r.sg, securitygroupv1alpha1.SecurityGroupReadyCondition)
+		conditions.MarkTrue(r.sg, securitygroupv1alpha2.SecurityGroupAttachedCondition)
+		conditions.MarkTrue(r.sg, securitygroupv1alpha2.SecurityGroupReadyCondition)
 	}
 
 	return attachErr
@@ -443,7 +496,7 @@ func (r *SecurityGroupReconciliation) attachSGToASG(ctx context.Context, asgName
 	return nil
 }
 
-func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *securitygroupv1alpha1.SecurityGroup) (ctrl.Result, error) {
+func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *securitygroupv1alpha2.SecurityGroup) (ctrl.Result, error) {
 	r.log.Info(fmt.Sprintf("reconciling deletion for security group %s\n", sg.Name))
 
 	key := client.ObjectKey{
@@ -460,51 +513,44 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 		return ctrl.Result{}, fmt.Errorf("could not retrieve crossplane security group: %w", err)
 	}
 
-	switch r.sg.Spec.InfrastructureRef.Kind {
-	case "KopsMachinePool":
-		kmp := kinfrastructurev1alpha1.KopsMachinePool{}
-		key := client.ObjectKey{
-			Name:      sg.Spec.InfrastructureRef.Name,
-			Namespace: sg.Spec.InfrastructureRef.Namespace,
-		}
-		if err := r.Client.Get(ctx, key, &kmp); err != nil {
-			return resultError, err
-		}
+	for _, infrastructureRef := range sg.Spec.InfrastructureRef {
+		switch infrastructureRef.Kind {
+		case "KopsMachinePool":
+			kmp := kinfrastructurev1alpha1.KopsMachinePool{}
+			key := client.ObjectKey{
+				Name:      infrastructureRef.Name,
+				Namespace: infrastructureRef.Namespace,
+			}
+			if err := r.Client.Get(ctx, key, &kmp); err != nil {
+				return resultError, err
+			}
 
-		kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
-		key = client.ObjectKey{
-			Name:      kmp.Spec.ClusterName,
-			Namespace: kmp.ObjectMeta.Namespace,
-		}
-		if err := r.Client.Get(ctx, key, kcp); err != nil {
-			return resultError, err
-		}
+			err := r.detachSGFromKopsMachinePool(ctx, csg, kmp)
+			if err != nil {
+				return resultError, err
+			}
+		case "KopsControlPlane":
+			kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+			key := client.ObjectKey{
+				Namespace: infrastructureRef.Namespace,
+				Name:      infrastructureRef.Name,
+			}
+			if err := r.Client.Get(ctx, key, kcp); err != nil {
+				return resultError, err
+			}
 
-		err := r.detachSGFromKopsMachinePool(ctx, csg, kcp, kmp)
-		if err != nil {
-			return resultError, err
-		}
-	case "KopsControlPlane":
-		kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
-		key := client.ObjectKey{
-			Namespace: sg.Spec.InfrastructureRef.Namespace,
-			Name:      sg.Spec.InfrastructureRef.Name,
-		}
-		// TODO: Think how we will handle this when the  kcp is deleted
-		if err := r.Client.Get(ctx, key, kcp); err != nil {
-			return resultError, err
-		}
-		kmps, err := kops.GetKopsMachinePoolsWithLabel(ctx, r.Client, "cluster.x-k8s.io/cluster-name", kcp.Name)
-		if err != nil {
-			return resultError, err
-		}
+			kmps, err := kops.GetKopsMachinePoolsWithLabel(ctx, r.Client, "cluster.x-k8s.io/cluster-name", kcp.Name)
+			if err != nil {
+				return resultError, err
+			}
 
-		err = r.detachSGFromKopsMachinePool(ctx, csg, kcp, kmps...)
-		if err != nil {
-			return resultError, err
+			err = r.detachSGFromKopsMachinePool(ctx, csg, kmps...)
+			if err != nil {
+				return resultError, err
+			}
+		default:
+			return resultError, fmt.Errorf("infrastructureRef not supported")
 		}
-	default:
-		return resultError, fmt.Errorf("infrastructureRef not supported")
 	}
 
 	err = r.Delete(ctx, csg)
@@ -516,14 +562,7 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 	return ctrl.Result{}, nil
 }
 
-func (r *SecurityGroupReconciliation) detachSGFromKopsMachinePool(ctx context.Context, csg *crossec2v1beta1.SecurityGroup, kcp *kcontrolplanev1alpha1.KopsControlPlane, kmps ...kinfrastructurev1alpha1.KopsMachinePool) error {
-	_, cfg, err := util.AWSCredentialsFromKCP(ctx, r.Client, kcp)
-	if err != nil {
-		return err
-	}
-
-	r.ec2Client = r.NewEC2ClientFactory(*cfg)
-	r.asgClient = r.NewAutoScalingClientFactory(*cfg)
+func (r *SecurityGroupReconciliation) detachSGFromKopsMachinePool(ctx context.Context, csg *crossec2v1beta1.SecurityGroup, kmps ...kinfrastructurev1alpha1.KopsMachinePool) error {
 
 	var detachErr error
 	for _, kmp := range kmps {
@@ -539,7 +578,7 @@ func (r *SecurityGroupReconciliation) detachSGFromKopsMachinePool(ctx context.Co
 				continue
 			}
 		} else if kmp.Spec.KopsInstanceGroupSpec.Manager == "Karpenter" {
-			r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha1.SecurityGroupAttachmentFailedReason, "Karpenter is not supported yet")
+			r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, "Karpenter is not supported yet")
 			continue
 		} else {
 			asgName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
@@ -617,6 +656,6 @@ func (r *SecurityGroupReconciliation) detachSGFromASG(ctx context.Context, asgNa
 // SetupWithManager sets up the controller with the Manager.
 func (r *SecurityGroupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&securitygroupv1alpha1.SecurityGroup{}).
+		For(&securitygroupv1alpha2.SecurityGroup{}).
 		Complete(r)
 }

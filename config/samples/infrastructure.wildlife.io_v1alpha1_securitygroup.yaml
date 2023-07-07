@@ -1,6 +1,0 @@
-apiVersion: ec2.aws.wildlife.io/v1alpha1
-kind: SecurityGroup
-metadata:
-  name: securitygroup-sample
-spec:
-  # TODO(user): Add fields here

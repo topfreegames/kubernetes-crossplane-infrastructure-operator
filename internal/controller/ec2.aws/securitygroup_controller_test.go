@@ -33,8 +33,8 @@ import (
 	oceanaws "github.com/spotinst/spotinst-sdk-go/service/ocean/providers/aws"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
-	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/api/clustermesh.infrastructure/v1alpha1"
-	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha1"
+	clustermeshv1alpha1 "github.com/topfreegames/provider-crossplane/api/clustermesh.infrastructure/v1alpha1"
+	securitygroupv1alpha2 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha2"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/autoscaling"
 	fakeasg "github.com/topfreegames/provider-crossplane/pkg/aws/autoscaling/fake"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
@@ -59,12 +59,12 @@ import (
 )
 
 var (
-	sg = &securitygroupv1alpha1.SecurityGroup{
+	sg = &securitygroupv1alpha2.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-security-group",
 		},
-		Spec: securitygroupv1alpha1.SecurityGroupSpec{
-			IngressRules: []securitygroupv1alpha1.IngressRule{
+		Spec: securitygroupv1alpha2.SecurityGroupSpec{
+			IngressRules: []securitygroupv1alpha2.IngressRule{
 				{
 					IPProtocol: "TCP",
 					FromPort:   40000,
@@ -74,21 +74,23 @@ var (
 					},
 				},
 			},
-			InfrastructureRef: &corev1.ObjectReference{
-				APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
-				Kind:       "KopsMachinePool",
-				Name:       "test-kops-machine-pool",
-				Namespace:  metav1.NamespaceDefault,
+			InfrastructureRef: []*corev1.ObjectReference{
+				{
+					APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+					Kind:       "KopsMachinePool",
+					Name:       "test-kops-machine-pool",
+					Namespace:  metav1.NamespaceDefault,
+				},
 			},
 		},
 	}
 
-	sgKCP = &securitygroupv1alpha1.SecurityGroup{
+	sgKCP = &securitygroupv1alpha2.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-security-group",
 		},
-		Spec: securitygroupv1alpha1.SecurityGroupSpec{
-			IngressRules: []securitygroupv1alpha1.IngressRule{
+		Spec: securitygroupv1alpha2.SecurityGroupSpec{
+			IngressRules: []securitygroupv1alpha2.IngressRule{
 				{
 					IPProtocol: "TCP",
 					FromPort:   40000,
@@ -98,11 +100,13 @@ var (
 					},
 				},
 			},
-			InfrastructureRef: &corev1.ObjectReference{
-				APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
-				Kind:       "KopsControlPlane",
-				Name:       "test-cluster",
-				Namespace:  metav1.NamespaceDefault,
+			InfrastructureRef: []*corev1.ObjectReference{
+				{
+					APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+					Kind:       "KopsControlPlane",
+					Name:       "test-cluster",
+					Namespace:  metav1.NamespaceDefault,
+				},
 			},
 		},
 	}
@@ -198,6 +202,7 @@ var (
 						Zone: "us-east-1d",
 					},
 				},
+				NetworkCIDR: "0.0.0.0/24",
 			},
 			IdentityRef: &corev1.ObjectReference{
 				Name:      "default",
@@ -260,17 +265,16 @@ func TestSecurityGroupReconciler(t *testing.T) {
 		expectedDeletion          bool
 		expectedProviderConfigRef *string
 	}{
-
 		{
 			description: "should fail without InfrastructureRef defined",
 			k8sObjects: []client.Object{
 				kmp, cluster, kcp,
-				&securitygroupv1alpha1.SecurityGroup{
+				&securitygroupv1alpha2.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-security-group",
 					},
-					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						IngressRules: []securitygroupv1alpha1.IngressRule{
+					Spec: securitygroupv1alpha2.SecurityGroupSpec{
+						IngressRules: []securitygroupv1alpha2.IngressRule{
 							{
 								IPProtocol: "TCP",
 								FromPort:   40000,
@@ -292,15 +296,27 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			},
 		},
 		{
+			description: "should update a SecurityGroup with KopsControlPlane infrastructureRef",
+			k8sObjects: []client.Object{
+				kmp, cluster, kcp, defaultSecret, sgKCP, csg,
+			},
+		},
+		{
+			description: "should create a SecurityGroup with KopsControlPlane infrastructureRef",
+			k8sObjects: []client.Object{
+				kmp, cluster, kcp, defaultSecret, sgKCP,
+			},
+		},
+		{
 			description: "should fail with InfrastructureRef Kind different from KopsMachinePool and KopsControlPlane",
 			k8sObjects: []client.Object{
 				kmp, cluster, kcp,
-				&securitygroupv1alpha1.SecurityGroup{
+				&securitygroupv1alpha2.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-security-group",
 					},
-					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						IngressRules: []securitygroupv1alpha1.IngressRule{
+					Spec: securitygroupv1alpha2.SecurityGroupSpec{
+						IngressRules: []securitygroupv1alpha2.IngressRule{
 							{
 								IPProtocol: "TCP",
 								FromPort:   40000,
@@ -310,11 +326,13 @@ func TestSecurityGroupReconciler(t *testing.T) {
 								},
 							},
 						},
-						InfrastructureRef: &corev1.ObjectReference{
-							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
-							Kind:       "MachinePool",
-							Name:       "test-machine-pool",
-							Namespace:  metav1.NamespaceDefault,
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+								Kind:       "MachinePool",
+								Name:       "test-machine-pool",
+								Namespace:  metav1.NamespaceDefault,
+							},
 						},
 					},
 				},
@@ -359,7 +377,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
+	err = securitygroupv1alpha2.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
@@ -384,7 +402,57 @@ func TestSecurityGroupReconciler(t *testing.T) {
 				}, nil
 			}
 
+			fakeEC2Client.MockDescribeLaunchTemplateVersions = func(ctx context.Context, params *awsec2.DescribeLaunchTemplateVersionsInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplateVersionsOutput, error) {
+				return &awsec2.DescribeLaunchTemplateVersionsOutput{
+					LaunchTemplateVersions: []ec2types.LaunchTemplateVersion{
+						{
+							LaunchTemplateId: params.LaunchTemplateId,
+							LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
+								NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
+									{
+										Groups: []string{
+											"sg-xxxx",
+										},
+									},
+								},
+							},
+						},
+					},
+				}, nil
+			}
+			fakeEC2Client.MockModifyInstanceAttribute = func(ctx context.Context, params *awsec2.ModifyInstanceAttributeInput, opts []func(*awsec2.Options)) (*awsec2.ModifyInstanceAttributeOutput, error) {
+				return &awsec2.ModifyInstanceAttributeOutput{}, nil
+			}
+			fakeEC2Client.MockCreateLaunchTemplateVersion = func(ctx context.Context, params *awsec2.CreateLaunchTemplateVersionInput, optFns []func(*awsec2.Options)) (*awsec2.CreateLaunchTemplateVersionOutput, error) {
+				return &awsec2.CreateLaunchTemplateVersionOutput{
+					LaunchTemplateVersion: &ec2types.LaunchTemplateVersion{
+						LaunchTemplateId: params.LaunchTemplateId,
+						VersionNumber:    aws.Int64(2),
+					},
+				}, nil
+			}
+			fakeEC2Client.MockDescribeSecurityGroups = func(ctx context.Context, params *awsec2.DescribeSecurityGroupsInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeSecurityGroupsOutput, error) {
+				return &awsec2.DescribeSecurityGroupsOutput{}, nil
+			}
+
 			fakeASGClient := &fakeasg.MockAutoScalingClient{}
+			fakeASGClient.MockDescribeAutoScalingGroups = func(ctx context.Context, params *awsautoscaling.DescribeAutoScalingGroupsInput, optFns []func(*awsautoscaling.Options)) (*awsautoscaling.DescribeAutoScalingGroupsOutput, error) {
+				return &awsautoscaling.DescribeAutoScalingGroupsOutput{
+					AutoScalingGroups: []autoscalingtypes.AutoScalingGroup{
+						{
+							AutoScalingGroupName: aws.String("test-asg"),
+							LaunchTemplate: &autoscalingtypes.LaunchTemplateSpecification{
+								LaunchTemplateId: aws.String("lt-xxxx"),
+								Version:          aws.String("1"),
+							},
+						},
+					},
+				}, nil
+			}
+			fakeASGClient.MockUpdateAutoScalingGroup = func(ctx context.Context, params *awsautoscaling.UpdateAutoScalingGroupInput, optFns []func(*awsautoscaling.Options)) (*awsautoscaling.UpdateAutoScalingGroupOutput, error) {
+				Expect(*params.LaunchTemplate.Version).To(BeEquivalentTo("2"))
+				return &awsautoscaling.UpdateAutoScalingGroupOutput{}, nil
+			}
 			reconciler := &SecurityGroupReconciler{
 				Client: fakeClient,
 				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
@@ -423,7 +491,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 	}
 }
 
-func TestReconcileKopsMachinePool(t *testing.T) {
+func TestAttachKopsMachinePool(t *testing.T) {
 
 	testCases := []struct {
 		description          string
@@ -432,51 +500,6 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 		errorExpected        error
 		mockUpdateLaunchSpec func(context.Context, *oceanaws.UpdateLaunchSpecInput) (*oceanaws.UpdateLaunchSpecOutput, error)
 	}{
-		{
-			description: "should fail without secret credentials created",
-			k8sObjects: []client.Object{
-				kmp, cluster, kcp, sg,
-			},
-			kmp:           kmp,
-			errorExpected: fmt.Errorf("failed to get secret: %w", apierrors.NewNotFound(schema.GroupResource{Group: "", Resource: "secrets"}, defaultSecret.Name)),
-		},
-		{
-			description: "should fail getting AWS account info",
-			k8sObjects: []client.Object{
-				kmp, cluster, sg, defaultSecret, kcp,
-				&kcontrolplanev1alpha1.KopsControlPlane{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: metav1.NamespaceDefault,
-						Name:      "test-kops-control-plane",
-					},
-					Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
-						KopsClusterSpec: kopsapi.ClusterSpec{},
-						IdentityRef: &corev1.ObjectReference{
-							Name:      "default",
-							Namespace: "kubernetes-kops-operator-system",
-						},
-					},
-				},
-			},
-			kmp:           kmp,
-			errorExpected: errors.New("security group not available"),
-		},
-		{
-			description: "should create a Crossplane SecurityGroup",
-			k8sObjects: []client.Object{
-				kmp, cluster, kcp, sg, defaultSecret,
-			},
-			kmp: kmp,
-		},
-		{
-			description: "should return that csg isn't available",
-			k8sObjects: []client.Object{
-				kmp, cluster, kcp, sg, defaultSecret,
-			},
-			kmp:           kmp,
-			errorExpected: ErrSecurityGroupNotAvailable,
-		},
-
 		{
 			description: "should reconcile without error with spotKMP",
 			k8sObjects: []client.Object{
@@ -562,12 +585,12 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 			k8sObjects: []client.Object{
 				cluster,
 				defaultSecret,
-				&securitygroupv1alpha1.SecurityGroup{
+				&securitygroupv1alpha2.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-security-group",
 					},
-					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						IngressRules: []securitygroupv1alpha1.IngressRule{
+					Spec: securitygroupv1alpha2.SecurityGroupSpec{
+						IngressRules: []securitygroupv1alpha2.IngressRule{
 							{
 								IPProtocol: "TCP",
 								FromPort:   40000,
@@ -577,11 +600,13 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 								},
 							},
 						},
-						InfrastructureRef: &corev1.ObjectReference{
-							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
-							Kind:       "KopsMachinePool",
-							Name:       "test-kops-machine-pool-2",
-							Namespace:  metav1.NamespaceDefault,
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+								Kind:       "KopsMachinePool",
+								Name:       "test-kops-machine-pool-2",
+								Namespace:  metav1.NamespaceDefault,
+							},
 						},
 					},
 				},
@@ -682,7 +707,7 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
+	err = securitygroupv1alpha2.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
@@ -817,21 +842,14 @@ func TestReconcileKopsMachinePool(t *testing.T) {
 				log:                     ctrl.LoggerFrom(ctx),
 				sg:                      sg,
 				ec2Client:               reconciler.NewEC2ClientFactory(aws.Config{}),
+				asgClient:               reconciler.NewAutoScalingClientFactory(aws.Config{}),
 			}
 
-			err = reconciliation.reconcileKopsMachinePool(ctx, kcp, *tc.kmp)
+			err = reconciliation.attachKopsMachinePool(ctx, csg, kcp, *tc.kmp)
 			if tc.errorExpected == nil {
 				if !errors.Is(err, ErrSecurityGroupNotAvailable) {
 					g.Expect(err).To(BeNil())
 				}
-
-				crosssg := &crossec2v1beta1.SecurityGroup{}
-				key := client.ObjectKey{
-					Name: sg.ObjectMeta.Name,
-				}
-				err = fakeClient.Get(ctx, key, crosssg)
-				g.Expect(err).To(BeNil())
-				g.Expect(crosssg).NotTo(BeNil())
 
 			} else {
 				g.Expect(tc.errorExpected).To(MatchError(err))
@@ -1074,7 +1092,7 @@ func TestAttachSGToASG(t *testing.T) {
 	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
+	err = securitygroupv1alpha2.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
@@ -1169,7 +1187,7 @@ func TestReconcileDelete(t *testing.T) {
 	testCases := []struct {
 		description   string
 		k8sObjects    []client.Object
-		sg            *securitygroupv1alpha1.SecurityGroup
+		sg            *securitygroupv1alpha2.SecurityGroup
 		expectedError error
 	}{
 		{
@@ -1198,12 +1216,12 @@ func TestReconcileDelete(t *testing.T) {
 			k8sObjects: []client.Object{
 				sg, csg, kcp, kmp, cluster, defaultSecret,
 			},
-			sg: &securitygroupv1alpha1.SecurityGroup{
+			sg: &securitygroupv1alpha2.SecurityGroup{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-security-group",
 				},
-				Spec: securitygroupv1alpha1.SecurityGroupSpec{
-					IngressRules: []securitygroupv1alpha1.IngressRule{
+				Spec: securitygroupv1alpha2.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha2.IngressRule{
 						{
 							IPProtocol: "TCP",
 							FromPort:   40000,
@@ -1213,11 +1231,13 @@ func TestReconcileDelete(t *testing.T) {
 							},
 						},
 					},
-					InfrastructureRef: &corev1.ObjectReference{
-						APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
-						Kind:       "UnsupportedKind",
-						Name:       "test-kops-machine-pool",
-						Namespace:  metav1.NamespaceDefault,
+					InfrastructureRef: []*corev1.ObjectReference{
+						{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "UnsupportedKind",
+							Name:       "test-kops-machine-pool",
+							Namespace:  metav1.NamespaceDefault,
+						},
 					},
 				},
 			},
@@ -1228,10 +1248,10 @@ func TestReconcileDelete(t *testing.T) {
 	err := clusterv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	err = clustermeshv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
+	err = securitygroupv1alpha2.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
@@ -1558,7 +1578,7 @@ func TestDetachSGFromKopsMachinePool(t *testing.T) {
 	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
+	err = securitygroupv1alpha2.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
@@ -1629,9 +1649,11 @@ func TestDetachSGFromKopsMachinePool(t *testing.T) {
 			reconciliation := SecurityGroupReconciliation{
 				SecurityGroupReconciler: reconciler,
 				log:                     ctrl.LoggerFrom(ctx),
+				ec2Client:               reconciler.NewEC2ClientFactory(aws.Config{}),
+				asgClient:               reconciler.NewAutoScalingClientFactory(aws.Config{}),
 			}
 
-			err = reconciliation.detachSGFromKopsMachinePool(ctx, tc.csg, tc.kcp, tc.kmps...)
+			err = reconciliation.detachSGFromKopsMachinePool(ctx, tc.csg, tc.kmps...)
 			if tc.errorExpected == nil {
 				g.Expect(err).To(BeNil())
 			} else {
@@ -1751,7 +1773,7 @@ func TestDetachSGFromASG(t *testing.T) {
 	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
+	err = securitygroupv1alpha2.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
@@ -1840,9 +1862,9 @@ func TestSecurityGroupStatus(t *testing.T) {
 				kmp, cluster, kcp, sg, csg, defaultSecret,
 			},
 			conditionsToAssert: []*clusterv1beta1.Condition{
-				conditions.TrueCondition(securitygroupv1alpha1.SecurityGroupReadyCondition),
-				conditions.TrueCondition(securitygroupv1alpha1.CrossplaneResourceReadyCondition),
-				conditions.TrueCondition(securitygroupv1alpha1.SecurityGroupAttachedCondition),
+				conditions.TrueCondition(securitygroupv1alpha2.SecurityGroupReadyCondition),
+				conditions.TrueCondition(securitygroupv1alpha2.CrossplaneResourceReadyCondition),
+				conditions.TrueCondition(securitygroupv1alpha2.SecurityGroupAttachedCondition),
 			},
 			expectedReadiness: true,
 		},
@@ -1870,13 +1892,14 @@ func TestSecurityGroupStatus(t *testing.T) {
 				},
 			},
 			conditionsToAssert: []*clusterv1beta1.Condition{
-				conditions.TrueCondition(securitygroupv1alpha1.CrossplaneResourceReadyCondition),
-				conditions.FalseCondition(securitygroupv1alpha1.SecurityGroupReadyCondition,
+				conditions.TrueCondition(securitygroupv1alpha2.CrossplaneResourceReadyCondition),
+				conditions.FalseCondition(securitygroupv1alpha2.SecurityGroupReadyCondition,
 					"Unavailable",
 					clusterv1beta1.ConditionSeverityError,
 					"error message",
 				),
 			},
+			errorExpected: ErrSecurityGroupNotAvailable,
 		},
 		{
 			description: "should mark attach condition as false when failed to attach",
@@ -1887,10 +1910,10 @@ func TestSecurityGroupStatus(t *testing.T) {
 				return nil, errors.New("some error when attaching asg")
 			},
 			conditionsToAssert: []*clusterv1beta1.Condition{
-				conditions.TrueCondition(securitygroupv1alpha1.SecurityGroupReadyCondition),
-				conditions.TrueCondition(securitygroupv1alpha1.CrossplaneResourceReadyCondition),
-				conditions.FalseCondition(securitygroupv1alpha1.SecurityGroupAttachedCondition,
-					securitygroupv1alpha1.SecurityGroupAttachmentFailedReason,
+				conditions.TrueCondition(securitygroupv1alpha2.SecurityGroupReadyCondition),
+				conditions.TrueCondition(securitygroupv1alpha2.CrossplaneResourceReadyCondition),
+				conditions.FalseCondition(securitygroupv1alpha2.SecurityGroupAttachedCondition,
+					securitygroupv1alpha2.SecurityGroupAttachmentFailedReason,
 					clusterv1beta1.ConditionSeverityError,
 					"some error when attaching asg"),
 			},
@@ -1907,7 +1930,7 @@ func TestSecurityGroupStatus(t *testing.T) {
 	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
+	err = securitygroupv1alpha2.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
@@ -2001,7 +2024,7 @@ func TestSecurityGroupStatus(t *testing.T) {
 			} else {
 				g.Expect(err).ToNot(HaveOccurred())
 			}
-			sg = &securitygroupv1alpha1.SecurityGroup{}
+			sg = &securitygroupv1alpha2.SecurityGroup{}
 			key := client.ObjectKey{
 				Name: "test-security-group",
 			}

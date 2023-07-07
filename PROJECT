@@ -27,4 +27,15 @@ resources:
   kind: SecurityGroup
   path: github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: wildlife.io
+  group: ec2.aws
+  kind: SecurityGroup
+  path: github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha2
+  version: v1alpha2
+  webhooks:
+    conversion: true
+    webhookVersion: v1
 version: "3"

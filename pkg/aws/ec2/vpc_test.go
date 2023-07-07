@@ -736,6 +736,21 @@ func TestAttachSecurityGroupToInstances(t *testing.T) {
 			expected: []string{"sg-xxx", "sg-yyy"},
 		},
 		{
+			description: "should do nothing when sg-xxx is already attached in instance i-xxx",
+			input:       []string{"i-xxx"},
+			instances: []ec2types.Instance{
+				{
+					InstanceId: aws.String("i-xxx"),
+					SecurityGroups: []ec2types.GroupIdentifier{
+						{
+							GroupId: aws.String("sg-xxx"),
+						},
+					},
+				},
+			},
+			expected: []string{"sg-xxx", "sg-yyy"},
+		},
+		{
 			description: "should do nothing if list of instance ids is empty",
 			input:       []string{},
 			instances: []ec2types.Instance{
@@ -803,6 +818,62 @@ func TestAttachSecurityGroupToInstances(t *testing.T) {
 			} else {
 				g.Expect(err).To(BeNil())
 			}
+		})
+	}
+}
+
+func TestGetReservationsUsingFilters(t *testing.T) {
+	testCases := []struct {
+		description string
+		input       []ec2types.GroupIdentifier
+		expected    bool
+	}{
+		{
+			description: "should return true when the sg is already attached",
+			input: []ec2types.GroupIdentifier{
+				{
+					GroupId: aws.String("sg-xxx"),
+				},
+			},
+			expected: true,
+		},
+		{
+			description: "should return true when the sg is already attached alongside with other sgs",
+			input: []ec2types.GroupIdentifier{
+				{
+					GroupId: aws.String("sg-yyy"),
+				},
+				{
+					GroupId: aws.String("sg-xxx"),
+				},
+			},
+			expected: true,
+		},
+		{
+			description: "should return false when the sg isn't attached",
+			input: []ec2types.GroupIdentifier{
+				{
+					GroupId: aws.String("sg-yyy"),
+				},
+				{
+					GroupId: aws.String("sg-zzz"),
+				},
+			},
+			expected: false,
+		},
+		{
+			description: "should return false when the sg list is empty",
+			input:       []ec2types.GroupIdentifier{},
+			expected:    false,
+		},
+	}
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			output := isSGAttached(tc.input, "sg-xxx")
+			g.Expect(output).To(BeEquivalentTo(tc.expected))
 		})
 	}
 }

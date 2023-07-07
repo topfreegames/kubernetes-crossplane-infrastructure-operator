@@ -22,10 +22,9 @@ import (
 	"testing"
 
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
-	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/api/clustermesh.infrastructure/v1alpha1"
-	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha1"
+	clustermeshv1alpha1 "github.com/topfreegames/provider-crossplane/api/clustermesh.infrastructure/v1alpha1"
+	securitygroupv1alpha2 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha2"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
-	clmesh "github.com/topfreegames/provider-crossplane/pkg/clustermesh"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsec2 "github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -90,7 +89,7 @@ func TestClusterMeshReconciler(t *testing.T) {
 	testCases := []struct {
 		description                    string
 		k8sObjects                     []client.Object
-		expectedClusterMesh            []clustermeshv1beta1.ClusterMesh
+		expectedClusterMesh            []clustermeshv1alpha1.ClusterMesh
 		expectedClusterMeshToBeDeleted []string
 	}{
 		{
@@ -172,14 +171,14 @@ func TestClusterMeshReconciler(t *testing.T) {
 					},
 				},
 			},
-			expectedClusterMesh: []clustermeshv1beta1.ClusterMesh{
+			expectedClusterMesh: []clustermeshv1alpha1.ClusterMesh{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: metav1.NamespaceDefault,
 						Name:      "test-mesh",
 					},
-					Spec: clustermeshv1beta1.ClusterMeshSpec{
-						Clusters: []*clustermeshv1beta1.ClusterSpec{
+					Spec: clustermeshv1alpha1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1alpha1.ClusterSpec{
 							{
 								Name:   "test-cluster",
 								VPCID:  "xxx",
@@ -195,12 +194,12 @@ func TestClusterMeshReconciler(t *testing.T) {
 			k8sObjects: []client.Object{
 				defaultSecret,
 				defaultKcp,
-				&securitygroupv1alpha1.SecurityGroup{
+				&securitygroupv1alpha2.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: clmesh.GetClusterMeshSecurityGroupName("test-cluster"),
+						Name: getClusterMeshSecurityGroupName("test-cluster"),
 					},
-					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						IngressRules: []securitygroupv1alpha1.IngressRule{
+					Spec: securitygroupv1alpha2.SecurityGroupSpec{
+						IngressRules: []securitygroupv1alpha2.IngressRule{
 							{
 								IPProtocol: "TCP",
 								FromPort:   40000,
@@ -210,11 +209,13 @@ func TestClusterMeshReconciler(t *testing.T) {
 								},
 							},
 						},
-						InfrastructureRef: &corev1.ObjectReference{
-							APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
-							Kind:       "KopsControlPlane",
-							Name:       "test-cluster",
-							Namespace:  metav1.NamespaceDefault,
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+								Kind:       "KopsControlPlane",
+								Name:       "test-cluster",
+								Namespace:  metav1.NamespaceDefault,
+							},
 						},
 					},
 				},
@@ -236,12 +237,12 @@ func TestClusterMeshReconciler(t *testing.T) {
 						},
 					},
 				},
-				&clustermeshv1beta1.ClusterMesh{
+				&clustermeshv1alpha1.ClusterMesh{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-mesh",
 					},
-					Spec: clustermeshv1beta1.ClusterMeshSpec{
-						Clusters: []*clustermeshv1beta1.ClusterSpec{
+					Spec: clustermeshv1alpha1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1alpha1.ClusterSpec{
 							{
 								Name:   "test-cluster",
 								VPCID:  "xxx",
@@ -263,10 +264,10 @@ func TestClusterMeshReconciler(t *testing.T) {
 	err := clusterv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	err = clustermeshv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
+	err = securitygroupv1alpha2.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = crossec2v1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme)
@@ -283,8 +284,8 @@ func TestClusterMeshReconciler(t *testing.T) {
 
 			reconciler := &ClusterMeshReconciler{
 				Client: fakeClient,
-				PopulateClusterSpecFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error) {
-					return &clustermeshv1beta1.ClusterSpec{
+				PopulateClusterSpecFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1alpha1.ClusterSpec, error) {
+					return &clustermeshv1alpha1.ClusterSpec{
 						Name:   cluster.Name,
 						VPCID:  "xxx",
 						Region: "yyy",
@@ -306,7 +307,7 @@ func TestClusterMeshReconciler(t *testing.T) {
 			g.Expect(err).NotTo(HaveOccurred())
 
 			for _, clustermesh := range tc.expectedClusterMesh {
-				ccm := &clustermeshv1beta1.ClusterMesh{}
+				ccm := &clustermeshv1alpha1.ClusterMesh{}
 				key := client.ObjectKey{
 					Name: clustermesh.Name,
 				}
@@ -315,7 +316,7 @@ func TestClusterMeshReconciler(t *testing.T) {
 				g.Expect(ccm.Spec).To(BeEquivalentTo(clustermesh.Spec))
 			}
 			for _, clusterMeshName := range tc.expectedClusterMeshToBeDeleted {
-				ccm := &clustermeshv1beta1.ClusterMesh{}
+				ccm := &clustermeshv1alpha1.ClusterMesh{}
 				key := client.ObjectKey{
 					Name: clusterMeshName,
 				}
@@ -405,7 +406,7 @@ func TestPopulateClusterSpec(t *testing.T) {
 		mockDescribeVPCOutput        *mockDescribeVPCOutput
 		mockDescribeRouteTableOutput *mockDescribeRouteTableOutput
 		errorValidation              func(error) bool
-		expectedOutput               *clustermeshv1beta1.ClusterSpec
+		expectedOutput               *clustermeshv1alpha1.ClusterSpec
 	}{
 		{
 			description: "should return the clSpec as expected",
@@ -458,7 +459,7 @@ func TestPopulateClusterSpec(t *testing.T) {
 					},
 				}, nil,
 			},
-			expectedOutput: &clustermeshv1beta1.ClusterSpec{
+			expectedOutput: &clustermeshv1alpha1.ClusterSpec{
 				Name:   "cluster-test",
 				Region: "us-east-1",
 				VPCID:  "xxx",
@@ -575,12 +576,12 @@ func TestIsClusterBelongToAnyMesh(t *testing.T) {
 		{
 			description: "should return true when the cluster is part of a clustermesh",
 			k8sObjects: []client.Object{
-				&clustermeshv1beta1.ClusterMesh{
+				&clustermeshv1alpha1.ClusterMesh{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-clustermesh",
 					},
-					Spec: clustermeshv1beta1.ClusterMeshSpec{
-						Clusters: []*clustermeshv1beta1.ClusterSpec{
+					Spec: clustermeshv1alpha1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1alpha1.ClusterSpec{
 							{
 								Name: "A",
 							},
@@ -594,12 +595,12 @@ func TestIsClusterBelongToAnyMesh(t *testing.T) {
 		{
 			description: "should return false when the cluster isn't part of any clustermesh",
 			k8sObjects: []client.Object{
-				&clustermeshv1beta1.ClusterMesh{
+				&clustermeshv1alpha1.ClusterMesh{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-clustermesh-A",
 					},
-					Spec: clustermeshv1beta1.ClusterMeshSpec{
-						Clusters: []*clustermeshv1beta1.ClusterSpec{
+					Spec: clustermeshv1alpha1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1alpha1.ClusterSpec{
 							{
 								Name: "B",
 							},
@@ -609,12 +610,12 @@ func TestIsClusterBelongToAnyMesh(t *testing.T) {
 						},
 					},
 				},
-				&clustermeshv1beta1.ClusterMesh{
+				&clustermeshv1alpha1.ClusterMesh{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-clustermesh-B",
 					},
-					Spec: clustermeshv1beta1.ClusterMeshSpec{
-						Clusters: []*clustermeshv1beta1.ClusterSpec{
+					Spec: clustermeshv1alpha1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1alpha1.ClusterSpec{
 							{
 								Name: "D",
 							},
@@ -629,7 +630,7 @@ func TestIsClusterBelongToAnyMesh(t *testing.T) {
 		},
 	}
 
-	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	err := clustermeshv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
@@ -664,8 +665,8 @@ func TestReconcileNormal(t *testing.T) {
 		description       string
 		k8sObjects        []client.Object
 		cluster           *clusterv1beta1.Cluster
-		clustermesh       *clustermeshv1beta1.ClusterMesh
-		expectedOutput    *clustermeshv1beta1.ClusterMesh
+		clustermesh       *clustermeshv1alpha1.ClusterMesh
+		expectedOutput    *clustermeshv1alpha1.ClusterMesh
 		shouldNotValidate bool
 	}{
 		{
@@ -678,12 +679,12 @@ func TestReconcileNormal(t *testing.T) {
 					},
 				},
 			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
 			},
-			expectedOutput: &clustermeshv1beta1.ClusterMesh{
+			expectedOutput: &clustermeshv1alpha1.ClusterMesh{
 				TypeMeta: metav1.TypeMeta{
 					Kind:       "ClusterMesh",
 					APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
@@ -692,8 +693,8 @@ func TestReconcileNormal(t *testing.T) {
 					Name:            "test-clustermesh",
 					ResourceVersion: "1",
 				},
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name: "A",
 						},
@@ -705,12 +706,12 @@ func TestReconcileNormal(t *testing.T) {
 		{
 			description: "should add the cluster B in the spec of an already create clustermesh",
 			k8sObjects: []client.Object{
-				&clustermeshv1beta1.ClusterMesh{
+				&clustermeshv1alpha1.ClusterMesh{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-clustermesh",
 					},
-					Spec: clustermeshv1beta1.ClusterMeshSpec{
-						Clusters: []*clustermeshv1beta1.ClusterSpec{
+					Spec: clustermeshv1alpha1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1alpha1.ClusterSpec{
 							{
 								Name: "A",
 							},
@@ -726,17 +727,17 @@ func TestReconcileNormal(t *testing.T) {
 					},
 				},
 			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
 			},
-			expectedOutput: &clustermeshv1beta1.ClusterMesh{
+			expectedOutput: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name: "A",
 						},
@@ -750,12 +751,12 @@ func TestReconcileNormal(t *testing.T) {
 		{
 			description: "should not add cluster B in the spec if it already exists in clustermesh",
 			k8sObjects: []client.Object{
-				&clustermeshv1beta1.ClusterMesh{
+				&clustermeshv1alpha1.ClusterMesh{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-clustermesh",
 					},
-					Spec: clustermeshv1beta1.ClusterMeshSpec{
-						Clusters: []*clustermeshv1beta1.ClusterSpec{
+					Spec: clustermeshv1alpha1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1alpha1.ClusterSpec{
 							{
 								Name: "B",
 							},
@@ -771,17 +772,17 @@ func TestReconcileNormal(t *testing.T) {
 					},
 				},
 			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
 			},
-			expectedOutput: &clustermeshv1beta1.ClusterMesh{
+			expectedOutput: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name: "B",
 						},
@@ -792,11 +793,11 @@ func TestReconcileNormal(t *testing.T) {
 		{
 			description: "should add the cluster in the spec of an already create empty clustermesh",
 			k8sObjects: []client.Object{
-				&clustermeshv1beta1.ClusterMesh{
+				&clustermeshv1alpha1.ClusterMesh{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-clustermesh",
 					},
-					Spec: clustermeshv1beta1.ClusterMeshSpec{},
+					Spec: clustermeshv1alpha1.ClusterMeshSpec{},
 				},
 			},
 			cluster: &clusterv1beta1.Cluster{
@@ -807,17 +808,17 @@ func TestReconcileNormal(t *testing.T) {
 					},
 				},
 			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
 			},
-			expectedOutput: &clustermeshv1beta1.ClusterMesh{
+			expectedOutput: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name: "A",
 						},
@@ -827,7 +828,7 @@ func TestReconcileNormal(t *testing.T) {
 		},
 	}
 
-	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	err := clustermeshv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
@@ -838,18 +839,18 @@ func TestReconcileNormal(t *testing.T) {
 
 			reconciler := ClusterMeshReconciler{
 				Client: fakeClient,
-				PopulateClusterSpecFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1beta1.ClusterSpec, error) {
-					return &clustermeshv1beta1.ClusterSpec{
+				PopulateClusterSpecFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1alpha1.ClusterSpec, error) {
+					return &clustermeshv1alpha1.ClusterSpec{
 						Name: cluster.Name,
 					}, nil
 				},
-				ReconcilePeeringsFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec) error {
+				ReconcilePeeringsFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1alpha1.ClusterSpec) error {
 					return nil
 				},
-				ReconcileRoutesFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec) (ctrl.Result, error) {
+				ReconcileRoutesFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1alpha1.ClusterSpec) (ctrl.Result, error) {
 					return ctrl.Result{}, nil
 				},
-				ReconcileSecurityGroupsFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec) error {
+				ReconcileSecurityGroupsFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1alpha1.ClusterSpec) error {
 					return nil
 				},
 			}
@@ -858,11 +859,11 @@ func TestReconcileNormal(t *testing.T) {
 				ClusterMeshReconciler: reconciler,
 				cluster:               tc.cluster,
 				log:                   ctrl.LoggerFrom(ctx),
-				clustermesh:           &clustermeshv1beta1.ClusterMesh{},
+				clustermesh:           &clustermeshv1alpha1.ClusterMesh{},
 			}
 
 			_, _ = reconciliation.reconcileNormal(ctx)
-			clustermesh := &clustermeshv1beta1.ClusterMesh{}
+			clustermesh := &clustermeshv1alpha1.ClusterMesh{}
 			err = fakeClient.Get(ctx, client.ObjectKey{Name: "test-clustermesh"}, clustermesh)
 			g.Expect(clustermesh.GetName()).To(BeEquivalentTo(tc.expectedOutput.GetName()))
 			g.Expect(clustermesh.Spec).To(BeEquivalentTo(tc.expectedOutput.Spec))
@@ -881,37 +882,39 @@ func TestReconcileDelete(t *testing.T) {
 		description                          string
 		k8sObjects                           []client.Object
 		cluster                              *clusterv1beta1.Cluster
-		clustermesh                          *clustermeshv1beta1.ClusterMesh
+		clustermesh                          *clustermeshv1alpha1.ClusterMesh
 		expectedVpcPeeringConnections        []string
 		expectedSecurityGroup                []string
 		shouldBeDeletedVpcPeeringConnections []string
 		shouldBeDeletedSecurityGroup         []string
-		expectedOutput                       *clustermeshv1beta1.ClusterMesh
+		expectedOutput                       *clustermeshv1alpha1.ClusterMesh
 	}{
 		{
 			description: "should remove the cluster A from clustermesh spec",
 			k8sObjects: []client.Object{
-				&clustermeshv1beta1.ClusterMesh{
+				&clustermeshv1alpha1.ClusterMesh{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-clustermesh",
 					},
-					Spec: clustermeshv1beta1.ClusterMeshSpec{
-						Clusters: []*clustermeshv1beta1.ClusterSpec{
+					Spec: clustermeshv1alpha1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1alpha1.ClusterSpec{
 							{
 								Name: "A",
 							},
 						},
 					},
 				},
-				&securitygroupv1alpha1.SecurityGroup{
+				&securitygroupv1alpha2.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "clustermesh-A-sg",
 					},
-					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						InfrastructureRef: &corev1.ObjectReference{
-							Name:       "A",
-							Kind:       "KopsControlPlane",
-							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+					Spec: securitygroupv1alpha2.SecurityGroupSpec{
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								Name:       "A",
+								Kind:       "KopsControlPlane",
+								APIVersion: "controlplane.x-k8s.io/v1alpha1",
+							},
 						},
 					},
 				},
@@ -924,7 +927,7 @@ func TestReconcileDelete(t *testing.T) {
 					},
 				},
 			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
@@ -933,41 +936,45 @@ func TestReconcileDelete(t *testing.T) {
 		{
 			description: "should not remove anything when the cluster don't exist in the clustermesh spec",
 			k8sObjects: []client.Object{
-				&clustermeshv1beta1.ClusterMesh{
+				&clustermeshv1alpha1.ClusterMesh{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-clustermesh",
 					},
-					Spec: clustermeshv1beta1.ClusterMeshSpec{
-						Clusters: []*clustermeshv1beta1.ClusterSpec{
+					Spec: clustermeshv1alpha1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1alpha1.ClusterSpec{
 							{
 								Name: "B",
 							},
 						},
 					},
 				},
-				&securitygroupv1alpha1.SecurityGroup{
+				&securitygroupv1alpha2.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "clustermesh-B-sg",
 					},
-					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						InfrastructureRef: &corev1.ObjectReference{
-							Name:       "B",
-							Namespace:  "kubernetes-B",
-							Kind:       "KopsControlPlane",
-							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+					Spec: securitygroupv1alpha2.SecurityGroupSpec{
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								Name:       "B",
+								Namespace:  "kubernetes-B",
+								Kind:       "KopsControlPlane",
+								APIVersion: "controlplane.x-k8s.io/v1alpha1",
+							},
 						},
 					},
 				},
-				&securitygroupv1alpha1.SecurityGroup{
+				&securitygroupv1alpha2.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "clustermesh-A-sg",
 					},
-					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						InfrastructureRef: &corev1.ObjectReference{
-							Name:       "A",
-							Namespace:  "kubernetes-A",
-							Kind:       "KopsControlPlane",
-							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+					Spec: securitygroupv1alpha2.SecurityGroupSpec{
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								Name:       "A",
+								Namespace:  "kubernetes-A",
+								Kind:       "KopsControlPlane",
+								APIVersion: "controlplane.x-k8s.io/v1alpha1",
+							},
 						},
 					},
 				},
@@ -980,17 +987,17 @@ func TestReconcileDelete(t *testing.T) {
 					},
 				},
 			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
 			},
-			expectedOutput: &clustermeshv1beta1.ClusterMesh{
+			expectedOutput: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name: "B",
 						},
@@ -1001,12 +1008,12 @@ func TestReconcileDelete(t *testing.T) {
 		{
 			description: "should remove cluster A in the first position",
 			k8sObjects: []client.Object{
-				&clustermeshv1beta1.ClusterMesh{
+				&clustermeshv1alpha1.ClusterMesh{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-clustermesh",
 					},
-					Spec: clustermeshv1beta1.ClusterMeshSpec{
-						Clusters: []*clustermeshv1beta1.ClusterSpec{
+					Spec: clustermeshv1alpha1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1alpha1.ClusterSpec{
 							{
 								Name: "A",
 							},
@@ -1019,15 +1026,17 @@ func TestReconcileDelete(t *testing.T) {
 						},
 					},
 				},
-				&securitygroupv1alpha1.SecurityGroup{
+				&securitygroupv1alpha2.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "clustermesh-A-sg",
 					},
-					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						InfrastructureRef: &corev1.ObjectReference{
-							Name:       "A",
-							Kind:       "KopsControlPlane",
-							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+					Spec: securitygroupv1alpha2.SecurityGroupSpec{
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								Name:       "A",
+								Kind:       "KopsControlPlane",
+								APIVersion: "controlplane.x-k8s.io/v1alpha1",
+							},
 						},
 					},
 				},
@@ -1040,17 +1049,17 @@ func TestReconcileDelete(t *testing.T) {
 					},
 				},
 			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
 			},
-			expectedOutput: &clustermeshv1beta1.ClusterMesh{
+			expectedOutput: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name: "B",
 						},
@@ -1064,12 +1073,12 @@ func TestReconcileDelete(t *testing.T) {
 		{
 			description: "should remove cluster A in the last position",
 			k8sObjects: []client.Object{
-				&clustermeshv1beta1.ClusterMesh{
+				&clustermeshv1alpha1.ClusterMesh{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-clustermesh",
 					},
-					Spec: clustermeshv1beta1.ClusterMeshSpec{
-						Clusters: []*clustermeshv1beta1.ClusterSpec{
+					Spec: clustermeshv1alpha1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1alpha1.ClusterSpec{
 							{
 								Name: "C",
 							},
@@ -1082,15 +1091,17 @@ func TestReconcileDelete(t *testing.T) {
 						},
 					},
 				},
-				&securitygroupv1alpha1.SecurityGroup{
+				&securitygroupv1alpha2.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "clustermesh-A-sg",
 					},
-					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						InfrastructureRef: &corev1.ObjectReference{
-							Name:       "A",
-							Kind:       "KopsControlPlane",
-							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+					Spec: securitygroupv1alpha2.SecurityGroupSpec{
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								Name:       "A",
+								Kind:       "KopsControlPlane",
+								APIVersion: "controlplane.x-k8s.io/v1alpha1",
+							},
 						},
 					},
 				},
@@ -1103,17 +1114,17 @@ func TestReconcileDelete(t *testing.T) {
 					},
 				},
 			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
 			},
-			expectedOutput: &clustermeshv1beta1.ClusterMesh{
+			expectedOutput: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name: "C",
 						},
@@ -1127,12 +1138,12 @@ func TestReconcileDelete(t *testing.T) {
 		{
 			description: "should remove the security group of the cluster when cluster is deleted",
 			k8sObjects: []client.Object{
-				&clustermeshv1beta1.ClusterMesh{
+				&clustermeshv1alpha1.ClusterMesh{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-clustermesh",
 					},
-					Spec: clustermeshv1beta1.ClusterMeshSpec{
-						Clusters: []*clustermeshv1beta1.ClusterSpec{
+					Spec: clustermeshv1alpha1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1alpha1.ClusterSpec{
 							{
 								Name: "A",
 							},
@@ -1142,27 +1153,31 @@ func TestReconcileDelete(t *testing.T) {
 						},
 					},
 				},
-				&securitygroupv1alpha1.SecurityGroup{
+				&securitygroupv1alpha2.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "clustermesh-A-sg",
 					},
-					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						InfrastructureRef: &corev1.ObjectReference{
-							Name:       "A",
-							Kind:       "KopsControlPlane",
-							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+					Spec: securitygroupv1alpha2.SecurityGroupSpec{
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								Name:       "A",
+								Kind:       "KopsControlPlane",
+								APIVersion: "controlplane.x-k8s.io/v1alpha1",
+							},
 						},
 					},
 				},
-				&securitygroupv1alpha1.SecurityGroup{
+				&securitygroupv1alpha2.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "clustermesh-B-sg",
 					},
-					Spec: securitygroupv1alpha1.SecurityGroupSpec{
-						InfrastructureRef: &corev1.ObjectReference{
-							Name:       "B",
-							Kind:       "KopsControlPlane",
-							APIVersion: "controlplane.x-k8s.io/v1alpha1",
+					Spec: securitygroupv1alpha2.SecurityGroupSpec{
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								Name:       "B",
+								Kind:       "KopsControlPlane",
+								APIVersion: "controlplane.x-k8s.io/v1alpha1",
+							},
 						},
 					},
 				},
@@ -1175,17 +1190,17 @@ func TestReconcileDelete(t *testing.T) {
 					},
 				},
 			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
 			},
-			expectedOutput: &clustermeshv1beta1.ClusterMesh{
+			expectedOutput: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name: "B",
 						},
@@ -1196,12 +1211,12 @@ func TestReconcileDelete(t *testing.T) {
 		{
 			description: "should remove vpcpeerings related to A cluster when it's deleted",
 			k8sObjects: []client.Object{
-				&clustermeshv1beta1.ClusterMesh{
+				&clustermeshv1alpha1.ClusterMesh{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-clustermesh",
 					},
-					Spec: clustermeshv1beta1.ClusterMeshSpec{
-						Clusters: []*clustermeshv1beta1.ClusterSpec{
+					Spec: clustermeshv1alpha1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1alpha1.ClusterSpec{
 							{
 								Name: "B",
 							},
@@ -1213,7 +1228,7 @@ func TestReconcileDelete(t *testing.T) {
 							},
 						},
 					},
-					Status: clustermeshv1beta1.ClusterMeshStatus{
+					Status: clustermeshv1alpha1.ClusterMeshStatus{
 						CrossplanePeeringRef: []*corev1.ObjectReference{
 							{
 								Name:       "A-B",
@@ -1284,12 +1299,12 @@ func TestReconcileDelete(t *testing.T) {
 					},
 				},
 			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name: "B",
 						},
@@ -1301,7 +1316,7 @@ func TestReconcileDelete(t *testing.T) {
 						},
 					},
 				},
-				Status: clustermeshv1beta1.ClusterMeshStatus{
+				Status: clustermeshv1alpha1.ClusterMeshStatus{
 					CrossplanePeeringRef: []*corev1.ObjectReference{
 						{
 							Name:       "A-B",
@@ -1321,12 +1336,12 @@ func TestReconcileDelete(t *testing.T) {
 					},
 				},
 			},
-			expectedOutput: &clustermeshv1beta1.ClusterMesh{
+			expectedOutput: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name: "B",
 						},
@@ -1342,12 +1357,12 @@ func TestReconcileDelete(t *testing.T) {
 		{
 			description: "should remove last vpcpeering of the clustermesh",
 			k8sObjects: []client.Object{
-				&clustermeshv1beta1.ClusterMesh{
+				&clustermeshv1alpha1.ClusterMesh{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-clustermesh",
 					},
-					Spec: clustermeshv1beta1.ClusterMeshSpec{
-						Clusters: []*clustermeshv1beta1.ClusterSpec{
+					Spec: clustermeshv1alpha1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1alpha1.ClusterSpec{
 							{
 								Name: "A",
 							},
@@ -1356,7 +1371,7 @@ func TestReconcileDelete(t *testing.T) {
 							},
 						},
 					},
-					Status: clustermeshv1beta1.ClusterMeshStatus{
+					Status: clustermeshv1alpha1.ClusterMeshStatus{
 						CrossplanePeeringRef: []*corev1.ObjectReference{
 							{
 								Name:       "A-B",
@@ -1389,12 +1404,12 @@ func TestReconcileDelete(t *testing.T) {
 					},
 				},
 			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name: "A",
 						},
@@ -1403,7 +1418,7 @@ func TestReconcileDelete(t *testing.T) {
 						},
 					},
 				},
-				Status: clustermeshv1beta1.ClusterMeshStatus{
+				Status: clustermeshv1alpha1.ClusterMeshStatus{
 					CrossplanePeeringRef: []*corev1.ObjectReference{
 						{
 							Name:       "A-B",
@@ -1413,12 +1428,12 @@ func TestReconcileDelete(t *testing.T) {
 					},
 				},
 			},
-			expectedOutput: &clustermeshv1beta1.ClusterMesh{
+			expectedOutput: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name: "B",
 						},
@@ -1430,12 +1445,12 @@ func TestReconcileDelete(t *testing.T) {
 		{
 			description: "should remove crossplaneRef related to A cluster when it's deleted",
 			k8sObjects: []client.Object{
-				&clustermeshv1beta1.ClusterMesh{
+				&clustermeshv1alpha1.ClusterMesh{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-clustermesh",
 					},
-					Spec: clustermeshv1beta1.ClusterMeshSpec{
-						Clusters: []*clustermeshv1beta1.ClusterSpec{
+					Spec: clustermeshv1alpha1.ClusterMeshSpec{
+						Clusters: []*clustermeshv1alpha1.ClusterSpec{
 							{
 								Name: "B",
 							},
@@ -1447,7 +1462,7 @@ func TestReconcileDelete(t *testing.T) {
 							},
 						},
 					},
-					Status: clustermeshv1beta1.ClusterMeshStatus{
+					Status: clustermeshv1alpha1.ClusterMeshStatus{
 						CrossplaneSecurityGroupRef: []*corev1.ObjectReference{
 							{
 								Name:       "clustermesh-A-sg",
@@ -1467,7 +1482,7 @@ func TestReconcileDelete(t *testing.T) {
 						},
 					},
 				},
-				&securitygroupv1alpha1.SecurityGroup{
+				&securitygroupv1alpha2.SecurityGroup{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
 						Kind:       "SecurityGroup",
@@ -1481,7 +1496,7 @@ func TestReconcileDelete(t *testing.T) {
 						},
 					},
 				},
-				&securitygroupv1alpha1.SecurityGroup{
+				&securitygroupv1alpha2.SecurityGroup{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
 						Kind:       "SecurityGroup",
@@ -1495,7 +1510,7 @@ func TestReconcileDelete(t *testing.T) {
 						},
 					},
 				},
-				&securitygroupv1alpha1.SecurityGroup{
+				&securitygroupv1alpha2.SecurityGroup{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
 						Kind:       "SecurityGroup",
@@ -1518,12 +1533,12 @@ func TestReconcileDelete(t *testing.T) {
 					},
 				},
 			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name: "B",
 						},
@@ -1535,7 +1550,7 @@ func TestReconcileDelete(t *testing.T) {
 						},
 					},
 				},
-				Status: clustermeshv1beta1.ClusterMeshStatus{
+				Status: clustermeshv1alpha1.ClusterMeshStatus{
 					CrossplaneSecurityGroupRef: []*corev1.ObjectReference{
 						{
 							Name:       "clustermesh-A-sg",
@@ -1555,12 +1570,12 @@ func TestReconcileDelete(t *testing.T) {
 					},
 				},
 			},
-			expectedOutput: &clustermeshv1beta1.ClusterMesh{
+			expectedOutput: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name: "B",
 						},
@@ -1569,7 +1584,7 @@ func TestReconcileDelete(t *testing.T) {
 						},
 					},
 				},
-				Status: clustermeshv1beta1.ClusterMeshStatus{
+				Status: clustermeshv1alpha1.ClusterMeshStatus{
 					CrossplaneSecurityGroupRef: []*corev1.ObjectReference{
 						{
 							Name:       "clustermesh-B-sg",
@@ -1589,13 +1604,13 @@ func TestReconcileDelete(t *testing.T) {
 		},
 	}
 
-	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	err := clustermeshv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = crossec2v1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
+	err = securitygroupv1alpha2.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
@@ -1618,7 +1633,7 @@ func TestReconcileDelete(t *testing.T) {
 			err = reconciliation.reconcileDelete(ctx)
 			g.Expect(err).ToNot(HaveOccurred())
 
-			clustermesh := &clustermeshv1beta1.ClusterMesh{}
+			clustermesh := &clustermeshv1alpha1.ClusterMesh{}
 			err = fakeClient.Get(ctx, client.ObjectKey{Name: "test-clustermesh"}, clustermesh)
 			if tc.expectedOutput != nil {
 				g.Expect(tc.clustermesh.GetName()).To(BeEquivalentTo(tc.expectedOutput.GetName()))
@@ -1647,7 +1662,7 @@ func TestReconcileDelete(t *testing.T) {
 			}
 
 			for _, securityGroupName := range tc.expectedSecurityGroup {
-				securityGroup := &securitygroupv1alpha1.SecurityGroup{}
+				securityGroup := &securitygroupv1alpha2.SecurityGroup{}
 				key := client.ObjectKey{
 					Name: securityGroupName,
 				}
@@ -1656,7 +1671,7 @@ func TestReconcileDelete(t *testing.T) {
 			}
 
 			for _, securityGroupName := range tc.shouldBeDeletedSecurityGroup {
-				securityGroup := &securitygroupv1alpha1.SecurityGroup{}
+				securityGroup := &securitygroupv1alpha2.SecurityGroup{}
 				key := client.ObjectKey{
 					Name: securityGroupName,
 				}
@@ -1675,18 +1690,18 @@ func TestReconcilePeerings(t *testing.T) {
 	testCases := []struct {
 		description                   string
 		k8sObjects                    []client.Object
-		clSpec                        *clustermeshv1beta1.ClusterSpec
-		clustermesh                   *clustermeshv1beta1.ClusterMesh
+		clSpec                        *clustermeshv1alpha1.ClusterSpec
+		clustermesh                   *clustermeshv1alpha1.ClusterMesh
 		expectedVpcPeeringConnections []string
 	}{
 		{
 			description: "should not create a vpcpeering with only one cluster",
-			clSpec: &clustermeshv1beta1.ClusterSpec{
+			clSpec: &clustermeshv1alpha1.ClusterSpec{
 				Name: "A",
 			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name: "A",
 						},
@@ -1696,12 +1711,12 @@ func TestReconcilePeerings(t *testing.T) {
 		},
 		{
 			description: "should create vpcpeeringconnection A-B, A-C, not B-C",
-			clSpec: &clustermeshv1beta1.ClusterSpec{
+			clSpec: &clustermeshv1alpha1.ClusterSpec{
 				Name: "A",
 			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name: "A",
 						},
@@ -1734,12 +1749,12 @@ func TestReconcilePeerings(t *testing.T) {
 					},
 				},
 			},
-			clSpec: &clustermeshv1beta1.ClusterSpec{
+			clSpec: &clustermeshv1alpha1.ClusterSpec{
 				Name: "A",
 			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name: "A",
 						},
@@ -1751,7 +1766,7 @@ func TestReconcilePeerings(t *testing.T) {
 						},
 					},
 				},
-				Status: clustermeshv1beta1.ClusterMeshStatus{
+				Status: clustermeshv1alpha1.ClusterMeshStatus{
 					CrossplanePeeringRef: []*corev1.ObjectReference{
 						{
 							Name:       "A-B",
@@ -1781,12 +1796,12 @@ func TestReconcilePeerings(t *testing.T) {
 					},
 				},
 			},
-			clSpec: &clustermeshv1beta1.ClusterSpec{
+			clSpec: &clustermeshv1alpha1.ClusterSpec{
 				Name: "A",
 			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name: "A",
 						},
@@ -1798,7 +1813,7 @@ func TestReconcilePeerings(t *testing.T) {
 						},
 					},
 				},
-				Status: clustermeshv1beta1.ClusterMeshStatus{
+				Status: clustermeshv1alpha1.ClusterMeshStatus{
 					CrossplanePeeringRef: []*corev1.ObjectReference{
 						{
 							Name:       "B-A",
@@ -1828,12 +1843,12 @@ func TestReconcilePeerings(t *testing.T) {
 					},
 				},
 			},
-			clSpec: &clustermeshv1beta1.ClusterSpec{
+			clSpec: &clustermeshv1alpha1.ClusterSpec{
 				Name: "A",
 			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name: "C",
 						},
@@ -1845,7 +1860,7 @@ func TestReconcilePeerings(t *testing.T) {
 						},
 					},
 				},
-				Status: clustermeshv1beta1.ClusterMeshStatus{
+				Status: clustermeshv1alpha1.ClusterMeshStatus{
 					CrossplanePeeringRef: []*corev1.ObjectReference{
 						{
 							Name:       "A-B",
@@ -1862,7 +1877,7 @@ func TestReconcilePeerings(t *testing.T) {
 	err := crossec2v1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	err = clustermeshv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
@@ -1873,7 +1888,7 @@ func TestReconcilePeerings(t *testing.T) {
 
 			reconciler := ClusterMeshReconciler{
 				Client: fakeClient,
-				ReconcilePeeringsFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec) error {
+				ReconcilePeeringsFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1alpha1.ClusterSpec) error {
 					return nil
 				},
 			}
@@ -1901,7 +1916,7 @@ func TestReconcileRoutes(t *testing.T) {
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
 
-	clustermesh := clustermeshv1beta1.ClusterMesh{
+	clustermesh := clustermeshv1alpha1.ClusterMesh{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "ClusterMesh",
 			APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
@@ -1909,8 +1924,8 @@ func TestReconcileRoutes(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "clustermesh-test",
 		},
-		Spec: clustermeshv1beta1.ClusterMeshSpec{
-			Clusters: []*clustermeshv1beta1.ClusterSpec{
+		Spec: clustermeshv1alpha1.ClusterMeshSpec{
+			Clusters: []*clustermeshv1alpha1.ClusterSpec{
 				{
 					Name:      "A",
 					Namespace: "A",
@@ -1959,7 +1974,7 @@ func TestReconcileRoutes(t *testing.T) {
 	testCases := []struct {
 		description                  string
 		k8sObjects                   []client.Object
-		clSpec                       *clustermeshv1beta1.ClusterSpec
+		clSpec                       *clustermeshv1alpha1.ClusterSpec
 		shouldCheckRoute             bool
 		shouldCreateRoute            bool
 		shouldCheckClustermeshStatus bool
@@ -1970,7 +1985,7 @@ func TestReconcileRoutes(t *testing.T) {
 				&clustermesh,
 				&vpcPeeringConnection,
 			},
-			clSpec: &clustermeshv1beta1.ClusterSpec{
+			clSpec: &clustermeshv1alpha1.ClusterSpec{
 				VPCID:  "vpc-xxxxx",
 				Name:   "cluster-a",
 				Region: "us-east-1",
@@ -1988,7 +2003,7 @@ func TestReconcileRoutes(t *testing.T) {
 				&clustermesh,
 				&vpcPeeringConnection,
 			},
-			clSpec: &clustermeshv1beta1.ClusterSpec{
+			clSpec: &clustermeshv1alpha1.ClusterSpec{
 				VPCID:  "vpc-xxxxx",
 				Name:   "cluster-a",
 				Region: "us-east-1",
@@ -2026,7 +2041,7 @@ func TestReconcileRoutes(t *testing.T) {
 					},
 				},
 			},
-			clSpec: &clustermeshv1beta1.ClusterSpec{
+			clSpec: &clustermeshv1alpha1.ClusterSpec{
 				VPCID:  "vpc-xxxxx",
 				Name:   "cluster-a",
 				Region: "us-east-1",
@@ -2075,7 +2090,7 @@ func TestReconcileRoutes(t *testing.T) {
 					},
 				},
 			},
-			clSpec: &clustermeshv1beta1.ClusterSpec{
+			clSpec: &clustermeshv1alpha1.ClusterSpec{
 				VPCID:  "vpc-xxxxx",
 				Name:   "cluster-a",
 				Region: "us-east-1",
@@ -2113,7 +2128,7 @@ func TestReconcileRoutes(t *testing.T) {
 					},
 				},
 			},
-			clSpec: &clustermeshv1beta1.ClusterSpec{
+			clSpec: &clustermeshv1alpha1.ClusterSpec{
 				VPCID:  "vpc-xxxxx",
 				Name:   "cluster-a",
 				Region: "us-east-1",
@@ -2203,7 +2218,7 @@ func TestReconcileRoutes(t *testing.T) {
 					},
 				},
 			},
-			clSpec: &clustermeshv1beta1.ClusterSpec{
+			clSpec: &clustermeshv1alpha1.ClusterSpec{
 				VPCID:  "vpc-xxxxx",
 				Name:   "cluster-a",
 				Region: "us-east-1",
@@ -2225,7 +2240,7 @@ func TestReconcileRoutes(t *testing.T) {
 	err = crossec2v1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	err = clustermeshv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
@@ -2306,14 +2321,14 @@ func TestReconcileSecurityGroups(t *testing.T) {
 	var testCases = []struct {
 		description            string
 		k8sObjects             []client.Object
-		clustermesh            *clustermeshv1beta1.ClusterMesh
-		expectedSecurityGroups []securitygroupv1alpha1.SecurityGroup
+		clustermesh            *clustermeshv1alpha1.ClusterMesh
+		expectedSecurityGroups []securitygroupv1alpha2.SecurityGroup
 	}{
 		{
 			description: "should create a securitygroup",
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name:      "A",
 							Namespace: "kubernetes-A",
@@ -2322,7 +2337,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 					},
 				},
 			},
-			expectedSecurityGroups: []securitygroupv1alpha1.SecurityGroup{
+			expectedSecurityGroups: []securitygroupv1alpha2.SecurityGroup{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "clustermesh-A-sg",
@@ -2344,9 +2359,9 @@ func TestReconcileSecurityGroups(t *testing.T) {
 					},
 				},
 			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name:      "A",
 							Namespace: "kubernetes-A",
@@ -2360,7 +2375,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 					},
 				},
 			},
-			expectedSecurityGroups: []securitygroupv1alpha1.SecurityGroup{
+			expectedSecurityGroups: []securitygroupv1alpha2.SecurityGroup{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "clustermesh-A-sg",
@@ -2377,7 +2392,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 		{
 			description: "should not create a securitygroup when it already exists",
 			k8sObjects: []client.Object{
-				&securitygroupv1alpha1.SecurityGroup{
+				&securitygroupv1alpha2.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "clustermesh-A-sg",
 						OwnerReferences: []metav1.OwnerReference{
@@ -2388,9 +2403,9 @@ func TestReconcileSecurityGroups(t *testing.T) {
 					},
 				},
 			},
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
-				Spec: clustermeshv1beta1.ClusterMeshSpec{
-					Clusters: []*clustermeshv1beta1.ClusterSpec{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
 						{
 							Name:      "A",
 							Namespace: "kubernetes-A",
@@ -2408,7 +2423,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 						},
 					},
 				},
-				Status: clustermeshv1beta1.ClusterMeshStatus{
+				Status: clustermeshv1alpha1.ClusterMeshStatus{
 					CrossplaneSecurityGroupRef: []*corev1.ObjectReference{
 						{
 							Name:       "A",
@@ -2418,7 +2433,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 					},
 				},
 			},
-			expectedSecurityGroups: []securitygroupv1alpha1.SecurityGroup{
+			expectedSecurityGroups: []securitygroupv1alpha2.SecurityGroup{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "clustermesh-A-sg",
@@ -2443,10 +2458,10 @@ func TestReconcileSecurityGroups(t *testing.T) {
 	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	err = clustermeshv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
+	err = securitygroupv1alpha2.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
@@ -2457,7 +2472,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 
 			reconciler := ClusterMeshReconciler{
 				Client: fakeClient,
-				ReconcileSecurityGroupsFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1beta1.ClusterSpec) error {
+				ReconcileSecurityGroupsFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1alpha1.ClusterSpec) error {
 					return nil
 				},
 				Scheme: scheme.Scheme,
@@ -2474,7 +2489,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 				g.Expect(err).ToNot(HaveOccurred())
 			}
 			for _, esg := range tc.expectedSecurityGroups {
-				sg := &securitygroupv1alpha1.SecurityGroup{}
+				sg := &securitygroupv1alpha2.SecurityGroup{}
 				key := client.ObjectKey{
 					Name: esg.Name,
 				}
@@ -2506,7 +2521,7 @@ func TestClusterToClustersMapFunc(t *testing.T) {
 		},
 	}
 
-	clustermesh := &clustermeshv1beta1.ClusterMesh{
+	clustermesh := &clustermeshv1alpha1.ClusterMesh{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "ClusterMesh",
 			APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
@@ -2514,8 +2529,8 @@ func TestClusterToClustersMapFunc(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test",
 		},
-		Spec: clustermeshv1beta1.ClusterMeshSpec{
-			Clusters: []*clustermeshv1beta1.ClusterSpec{
+		Spec: clustermeshv1alpha1.ClusterMeshSpec{
+			Clusters: []*clustermeshv1alpha1.ClusterSpec{
 				{
 					Name:      "A",
 					Namespace: "A",
@@ -2559,7 +2574,7 @@ func TestClusterToClustersMapFunc(t *testing.T) {
 	err := clusterv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	err = clustermeshv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
@@ -2606,7 +2621,7 @@ func TestValidateClusterMesh(t *testing.T) {
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
 
-	clustermeshBase := &clustermeshv1beta1.ClusterMesh{
+	clustermeshBase := &clustermeshv1alpha1.ClusterMesh{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "ClusterMesh",
 			APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
@@ -2614,8 +2629,8 @@ func TestValidateClusterMesh(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "clustermesh-test",
 		},
-		Spec: clustermeshv1beta1.ClusterMeshSpec{
-			Clusters: []*clustermeshv1beta1.ClusterSpec{
+		Spec: clustermeshv1alpha1.ClusterMeshSpec{
+			Clusters: []*clustermeshv1alpha1.ClusterSpec{
 				{
 					Name:      "A",
 					Namespace: "A",
@@ -2806,7 +2821,7 @@ func TestValidateClusterMesh(t *testing.T) {
 	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	err = clustermeshv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
@@ -2815,7 +2830,7 @@ func TestValidateClusterMesh(t *testing.T) {
 			ctx := context.TODO()
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
 
-			clustermesh := &clustermeshv1beta1.ClusterMesh{}
+			clustermesh := &clustermeshv1alpha1.ClusterMesh{}
 			err := fakeClient.Get(ctx, client.ObjectKeyFromObject(clustermeshBase), clustermesh)
 			g.Expect(err).To(BeNil())
 
@@ -2833,25 +2848,25 @@ func TestValidateClusterMesh(t *testing.T) {
 			g.Expect(err).To(BeNil())
 
 			if tc.vpcNotReady {
-				g.Expect(conditions.IsFalse(clustermesh, clustermeshv1beta1.ClusterMeshVPCPeeringReadyCondition)).To(BeTrue())
-				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshSecurityGroupsReadyCondition)).To(BeTrue())
-				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshRoutesReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsFalse(clustermesh, clustermeshv1alpha1.ClusterMeshVPCPeeringReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1alpha1.ClusterMeshSecurityGroupsReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1alpha1.ClusterMeshRoutesReadyCondition)).To(BeTrue())
 			} else if tc.routeNotReady {
-				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshVPCPeeringReadyCondition)).To(BeTrue())
-				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshSecurityGroupsReadyCondition)).To(BeTrue())
-				g.Expect(conditions.IsFalse(clustermesh, clustermeshv1beta1.ClusterMeshRoutesReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1alpha1.ClusterMeshVPCPeeringReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1alpha1.ClusterMeshSecurityGroupsReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsFalse(clustermesh, clustermeshv1alpha1.ClusterMeshRoutesReadyCondition)).To(BeTrue())
 			} else if tc.securityGroupNotReady {
-				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshVPCPeeringReadyCondition)).To(BeTrue())
-				g.Expect(conditions.IsFalse(clustermesh, clustermeshv1beta1.ClusterMeshSecurityGroupsReadyCondition)).To(BeTrue())
-				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshRoutesReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1alpha1.ClusterMeshVPCPeeringReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsFalse(clustermesh, clustermeshv1alpha1.ClusterMeshSecurityGroupsReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1alpha1.ClusterMeshRoutesReadyCondition)).To(BeTrue())
 			} else if tc.vpcAndRouteNotReady {
-				g.Expect(conditions.IsFalse(clustermesh, clustermeshv1beta1.ClusterMeshVPCPeeringReadyCondition)).To(BeTrue())
-				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshSecurityGroupsReadyCondition)).To(BeTrue())
-				g.Expect(conditions.IsFalse(clustermesh, clustermeshv1beta1.ClusterMeshRoutesReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsFalse(clustermesh, clustermeshv1alpha1.ClusterMeshVPCPeeringReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1alpha1.ClusterMeshSecurityGroupsReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsFalse(clustermesh, clustermeshv1alpha1.ClusterMeshRoutesReadyCondition)).To(BeTrue())
 			} else {
-				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshVPCPeeringReadyCondition)).To(BeTrue())
-				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshSecurityGroupsReadyCondition)).To(BeTrue())
-				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1beta1.ClusterMeshRoutesReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1alpha1.ClusterMeshVPCPeeringReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1alpha1.ClusterMeshSecurityGroupsReadyCondition)).To(BeTrue())
+				g.Expect(conditions.IsTrue(clustermesh, clustermeshv1alpha1.ClusterMeshRoutesReadyCondition)).To(BeTrue())
 			}
 
 		})

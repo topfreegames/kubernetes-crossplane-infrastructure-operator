@@ -1,4 +1,4 @@
-package util
+package kops
 
 import (
 	"context"
@@ -13,6 +13,25 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+func GetRegionFromKopsControlPlane(ctx context.Context, kcp *kcontrolplanev1alpha1.KopsControlPlane) (*string, error) {
+	subnet, err := kops.GetSubnetFromKopsControlPlane(kcp)
+	if err != nil {
+		return nil, err
+	}
+
+	region, err := kops.GetRegionFromKopsSubnet(*subnet)
+	if err != nil {
+		return nil, err
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return region, nil
+
+}
+
 func awsConfigForCredential(ctx context.Context, region string, accessKey string, secretAccessKey string) (aws.Config, error) {
 	return config.LoadDefaultConfig(ctx,
 		config.WithRegion(region),
@@ -26,16 +45,7 @@ func awsConfigForCredential(ctx context.Context, region string, accessKey string
 }
 
 // returns (secretName, awsConfig, err)
-func AWSCredentialsFromKCP(ctx context.Context, c client.Client, kcp *kcontrolplanev1alpha1.KopsControlPlane) (string, *aws.Config, error) {
-	subnet, err := kops.GetSubnetFromKopsControlPlane(kcp)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to get subnet from kcp: %w", err)
-	}
-
-	region, err := kops.GetRegionFromKopsSubnet(*subnet)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to get region from subnet: %w", err)
-	}
+func RetrieveAWSCredentialsFromKCP(ctx context.Context, c client.Client, region *string, kcp *kcontrolplanev1alpha1.KopsControlPlane) (string, *aws.Config, error) {
 
 	secretName := kcp.Spec.IdentityRef.Name
 	namespace := kcp.Spec.IdentityRef.Namespace

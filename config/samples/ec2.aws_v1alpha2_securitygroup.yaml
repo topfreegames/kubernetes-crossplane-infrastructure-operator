@@ -1,0 +1,26 @@
+apiVersion: ec2.aws.wildlife.io/v1alpha2
+kind: SecurityGroup
+metadata:
+  labels:
+    app.kubernetes.io/name: securitygroup
+    app.kubernetes.io/instance: securitygroup-sample
+    app.kubernetes.io/part-of: provider-crossplane
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: provider-crossplane
+  name: securitygroup-sample
+spec:
+  infrastructureRef:
+  - apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: KopsMachinePool
+    name: nodes
+    namespace: k8s-test-cluster-a
+  - apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: KopsMachinePool
+    name: master
+    namespace: k8s-test-cluster-a
+  ingressRules:
+  - allowedCIDRs:
+    - 0.0.0.0/0
+    fromPort: 80
+    ipProtocol: udp
+    toPort: 80

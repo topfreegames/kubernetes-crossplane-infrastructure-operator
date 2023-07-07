@@ -1,0 +1,6 @@
+## Append samples of your project ##
+resources:
+- clustermesh_v1alpha1_clustermesh.yaml
+- ec2.aws_v1alpha1_securitygroup.yaml
+- ec2.aws_v1alpha2_securitygroup.yaml
+#+kubebuilder:scaffold:manifestskustomizesamples

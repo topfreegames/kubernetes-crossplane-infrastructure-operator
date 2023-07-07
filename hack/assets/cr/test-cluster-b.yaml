@@ -10,7 +10,6 @@ apiVersion: cluster.x-k8s.io/v1beta1
 kind: Cluster
 metadata:
   annotations:
-    clustermesh.infrastructure.wildlife.io: "true"
     kopscontrolplane.controlplane.wildlife.io/external-security-groups: "true"
   labels:
     clusterGroup: test-cluster

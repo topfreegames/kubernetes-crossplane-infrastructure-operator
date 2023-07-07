@@ -6,14 +6,14 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/api/clustermesh.infrastructure/v1alpha1"
-	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha1"
+	clustermeshv1alpha1 "github.com/topfreegames/provider-crossplane/api/clustermesh.infrastructure/v1alpha1"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	crossec2v1alphav1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	"github.com/google/go-cmp/cmp"
+	securitygroupv1alpha2 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha2"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,7 +26,7 @@ var (
 	vpcPeeringConnectionAPIVersion = "ec2.aws.crossplane.io/v1alpha1"
 )
 
-func NewCrossPlaneVPCPeeringConnection(clustermesh *clustermeshv1beta1.ClusterMesh, peeringRequester, peeringAccepter *clustermeshv1beta1.ClusterSpec, providerConfigName string) *crossec2v1alphav1.VPCPeeringConnection {
+func NewCrossPlaneVPCPeeringConnection(clustermesh *clustermeshv1alpha1.ClusterMesh, peeringRequester, peeringAccepter *clustermeshv1alpha1.ClusterSpec, providerConfigName string) *crossec2v1alphav1.VPCPeeringConnection {
 	crossplaneVPCPeeringConnection := &crossec2v1alphav1.VPCPeeringConnection{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: vpcPeeringConnectionAPIVersion,
@@ -64,7 +64,7 @@ func NewCrossPlaneVPCPeeringConnection(clustermesh *clustermeshv1beta1.ClusterMe
 	return crossplaneVPCPeeringConnection
 }
 
-func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha1.SecurityGroup, vpcId, region *string, providerConfigName string) *crossec2v1beta1.SecurityGroup {
+func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha2.SecurityGroup, vpcId, region *string, providerConfigName string) *crossec2v1beta1.SecurityGroup {
 	csg := &crossec2v1beta1.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        sg.GetName(),
@@ -126,7 +126,7 @@ func NewCrossplaneRoute(region, destinationCIDRBlock, routeTable string, provide
 	return croute
 }
 
-func CreateOrUpdateCrossplaneSecurityGroup(ctx context.Context, kubeClient client.Client, vpcId, region *string, providerConfigName string, sg *securitygroupv1alpha1.SecurityGroup) (*crossec2v1beta1.SecurityGroup, error) {
+func CreateOrUpdateCrossplaneSecurityGroup(ctx context.Context, kubeClient client.Client, vpcId, region *string, providerConfigName string, sg *securitygroupv1alpha2.SecurityGroup) (*crossec2v1beta1.SecurityGroup, error) {
 	csg := NewCrossplaneSecurityGroup(sg, vpcId, region, providerConfigName)
 	_, err := controllerutil.CreateOrUpdate(ctx, kubeClient, csg, func() error {
 		var ingressRules []crossec2v1beta1.IPPermission
@@ -164,7 +164,7 @@ func CreateOrUpdateCrossplaneSecurityGroup(ctx context.Context, kubeClient clien
 	return csg, nil
 }
 
-func CreateCrossplaneVPCPeeringConnection(ctx context.Context, kubeClient client.Client, clustermesh *clustermeshv1beta1.ClusterMesh, peeringRequester, peeringAccepter *clustermeshv1beta1.ClusterSpec, providerConfigName string) error {
+func CreateCrossplaneVPCPeeringConnection(ctx context.Context, kubeClient client.Client, clustermesh *clustermeshv1alpha1.ClusterMesh, peeringRequester, peeringAccepter *clustermeshv1alpha1.ClusterSpec, providerConfigName string) error {
 	log := ctrl.LoggerFrom(ctx)
 	crossplaneVPCPeeringConnection := NewCrossPlaneVPCPeeringConnection(clustermesh, peeringRequester, peeringAccepter, providerConfigName)
 
@@ -194,7 +194,7 @@ func CreateCrossplaneRoute(ctx context.Context, kubeClient client.Client, region
 	return nil
 }
 
-func DeleteCrossplaneVPCPeeringConnection(ctx context.Context, kubeClient client.Client, clustermesh *clustermeshv1beta1.ClusterMesh, vpcPeeringConnectionRef *corev1.ObjectReference) error {
+func DeleteCrossplaneVPCPeeringConnection(ctx context.Context, kubeClient client.Client, clustermesh *clustermeshv1alpha1.ClusterMesh, vpcPeeringConnectionRef *corev1.ObjectReference) error {
 	log := ctrl.LoggerFrom(ctx)
 	err := kubeClient.Delete(ctx, util.ObjectReferenceToUnstructured(*vpcPeeringConnectionRef))
 	if err != nil && !apierrors.IsNotFound(err) {
@@ -212,7 +212,7 @@ func DeleteCrossplaneVPCPeeringConnection(ctx context.Context, kubeClient client
 	return nil
 }
 
-func IsVPCPeeringAlreadyCreated(clustermesh *clustermeshv1beta1.ClusterMesh, peeringRequester, peeringAccepter *clustermeshv1beta1.ClusterSpec) bool {
+func IsVPCPeeringAlreadyCreated(clustermesh *clustermeshv1alpha1.ClusterMesh, peeringRequester, peeringAccepter *clustermeshv1alpha1.ClusterSpec) bool {
 	for _, objRef := range clustermesh.Status.CrossplanePeeringRef {
 		if objRef.Name == fmt.Sprintf("%s-%s", peeringRequester.Name, peeringAccepter.Name) || objRef.Name == fmt.Sprintf("%s-%s", peeringAccepter.Name, peeringRequester.Name) {
 			return true
@@ -275,9 +275,8 @@ func GetOwnedVPCPeeringConnectionsRef(ctx context.Context, owner client.Object, 
 	return vpcPeeringsRef, nil
 }
 
-// TODO: Add test coverage for this function
 func GetOwnedSecurityGroupsRef(ctx context.Context, owner client.Object, kubeclient client.Client) ([]*corev1.ObjectReference, error) {
-	securityGroups := &securitygroupv1alpha1.SecurityGroupList{}
+	securityGroups := &securitygroupv1alpha2.SecurityGroupList{}
 	err := kubeclient.List(ctx, securityGroups)
 	if err != nil {
 		return nil, err
