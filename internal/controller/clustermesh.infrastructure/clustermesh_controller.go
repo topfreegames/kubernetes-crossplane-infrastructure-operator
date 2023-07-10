@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	wildlifecrossec2v1alphav1 "github.com/topfreegames/crossplane-provider-aws/apis/ec2/manualv1alpha1"
+	crossec2v1alphav1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	"github.com/topfreegames/kubernetes-kops-operator/pkg/kops"
 	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/api/clustermesh.infrastructure/v1alpha1"
@@ -211,7 +211,9 @@ func (r *ClusterMeshReconciliation) reconcileNormal(ctx context.Context) (ctrl.R
 			return resultError, err
 		}
 		return resultDefault, nil
-	} else if !r.isClusterBelongToMesh(r.cluster.Name) {
+	}
+
+	if !r.isClusterBelongToMesh(r.cluster.Name) {
 		r.clustermesh.Spec.Clusters = append(r.clustermesh.Spec.Clusters, clSpec)
 		r.log.Info(fmt.Sprintf("adding %s to clustermesh %s\n", r.cluster.ObjectMeta.Name, r.clustermesh.Name))
 		// TODO: Verify if we need this with Patch
@@ -426,7 +428,7 @@ func ReconcileRoutes(r *ClusterMeshReconciliation, ctx context.Context, clSpec *
 	return resultDefault, nil
 }
 
-func manageCrossplaneRoutes(r *ClusterMeshReconciliation, ctx context.Context, clusterCIDR string, vpcPeeringConnection wildlifecrossec2v1alphav1.VPCPeeringConnection, clSpec *clustermeshv1beta1.ClusterSpec) error {
+func manageCrossplaneRoutes(r *ClusterMeshReconciliation, ctx context.Context, clusterCIDR string, vpcPeeringConnection crossec2v1alphav1.VPCPeeringConnection, clSpec *clustermeshv1beta1.ClusterSpec) error {
 	vpcPeeringConnectionID := vpcPeeringConnection.ObjectMeta.Annotations["crossplane.io/external-name"]
 	isRouteCreated, err := crossplane.IsRouteToVpcPeeringAlreadyCreated(ctx, clusterCIDR, vpcPeeringConnectionID, clSpec.RouteTableIDs, r.Client)
 	if err != nil {
