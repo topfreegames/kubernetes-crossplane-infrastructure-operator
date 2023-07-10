@@ -14,7 +14,6 @@ import (
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	"github.com/google/go-cmp/cmp"
-	wildlifecrossec2v1alphav1 "github.com/topfreegames/crossplane-provider-aws/apis/ec2/manualv1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,11 +23,11 @@ import (
 )
 
 var (
-	vpcPeeringConnectionAPIVersion = "ec2.aws.wildlife.io/v1alpha1"
+	vpcPeeringConnectionAPIVersion = "ec2.aws.crossplane.io/v1alpha1"
 )
 
-func NewCrossPlaneVPCPeeringConnection(clustermesh *clustermeshv1beta1.ClusterMesh, peeringRequester, peeringAccepter *clustermeshv1beta1.ClusterSpec, providerConfigName string) *wildlifecrossec2v1alphav1.VPCPeeringConnection {
-	crossplaneVPCPeeringConnection := &wildlifecrossec2v1alphav1.VPCPeeringConnection{
+func NewCrossPlaneVPCPeeringConnection(clustermesh *clustermeshv1beta1.ClusterMesh, peeringRequester, peeringAccepter *clustermeshv1beta1.ClusterSpec, providerConfigName string) *crossec2v1alphav1.VPCPeeringConnection {
+	crossplaneVPCPeeringConnection := &crossec2v1alphav1.VPCPeeringConnection{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: vpcPeeringConnectionAPIVersion,
 			Kind:       "VPCPeeringConnection",
@@ -44,17 +43,18 @@ func NewCrossPlaneVPCPeeringConnection(clustermesh *clustermeshv1beta1.ClusterMe
 				},
 			},
 		},
-		Spec: wildlifecrossec2v1alphav1.VPCPeeringConnectionSpec{
-			ForProvider: wildlifecrossec2v1alphav1.VPCPeeringConnectionParameters{
+		Spec: crossec2v1alphav1.VPCPeeringConnectionSpec{
+			ForProvider: crossec2v1alphav1.VPCPeeringConnectionParameters{
 				Region:     peeringRequester.Region,
 				PeerRegion: aws.String(peeringAccepter.Region),
-				CustomVPCPeeringConnectionParameters: wildlifecrossec2v1alphav1.CustomVPCPeeringConnectionParameters{
+				CustomVPCPeeringConnectionParameters: crossec2v1alphav1.CustomVPCPeeringConnectionParameters{
 					VPCID:         aws.String(peeringRequester.VPCID),
 					PeerVPCID:     aws.String(peeringAccepter.VPCID),
 					AcceptRequest: true,
 				},
 			},
 			ResourceSpec: crossplanev1.ResourceSpec{
+				DeletionPolicy: crossplanev1.DeletionOrphan,
 				ProviderConfigReference: &crossplanev1.Reference{
 					Name: providerConfigName,
 				},
@@ -88,7 +88,7 @@ func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha1.SecurityGroup, vpcId, 
 	return csg
 }
 
-func NewCrossplaneRoute(region, destinationCIDRBlock, routeTable string, providerConfigName string, vpcPeeringConnection wildlifecrossec2v1alphav1.VPCPeeringConnection) *crossec2v1alphav1.Route {
+func NewCrossplaneRoute(region, destinationCIDRBlock, routeTable string, providerConfigName string, vpcPeeringConnection crossec2v1alphav1.VPCPeeringConnection) *crossec2v1alphav1.Route {
 	vpcPeeringConnectionID := vpcPeeringConnection.ObjectMeta.Annotations["crossplane.io/external-name"]
 	croute := &crossec2v1alphav1.Route{
 		TypeMeta: metav1.TypeMeta{
@@ -182,7 +182,7 @@ func CreateCrossplaneVPCPeeringConnection(ctx context.Context, kubeClient client
 	return nil
 }
 
-func CreateCrossplaneRoute(ctx context.Context, kubeClient client.Client, region string, destinationCIDRBlock, providerConfigName string, routeTable string, vpcPeeringConnection wildlifecrossec2v1alphav1.VPCPeeringConnection) error {
+func CreateCrossplaneRoute(ctx context.Context, kubeClient client.Client, region string, destinationCIDRBlock, providerConfigName string, routeTable string, vpcPeeringConnection crossec2v1alphav1.VPCPeeringConnection) error {
 	log := ctrl.LoggerFrom(ctx)
 	crossplaneRoute := NewCrossplaneRoute(region, destinationCIDRBlock, routeTable, providerConfigName, vpcPeeringConnection)
 
@@ -255,12 +255,12 @@ func GetSecurityGroupReadyCondition(csg *crossec2v1beta1.SecurityGroup) *crosspl
 }
 
 func GetOwnedVPCPeeringConnectionsRef(ctx context.Context, owner client.Object, kubeclient client.Client) ([]*corev1.ObjectReference, error) {
-	vpcPeeringConnections := &wildlifecrossec2v1alphav1.VPCPeeringConnectionList{}
+	vpcPeeringConnections := &crossec2v1alphav1.VPCPeeringConnectionList{}
 	err := kubeclient.List(ctx, vpcPeeringConnections)
 	if err != nil {
 		return nil, err
 	}
-	var ss []*corev1.ObjectReference
+	var vpcPeeringsRef []*corev1.ObjectReference
 
 	for _, vpcPeeringConnection := range vpcPeeringConnections.Items {
 		if util.IsOwnedByObject(&vpcPeeringConnection, owner) {
@@ -269,10 +269,10 @@ func GetOwnedVPCPeeringConnectionsRef(ctx context.Context, owner client.Object, 
 				Kind:       vpcPeeringConnection.TypeMeta.Kind,
 				Name:       vpcPeeringConnection.ObjectMeta.Name,
 			}
-			ss = append(ss, objectRef)
+			vpcPeeringsRef = append(vpcPeeringsRef, objectRef)
 		}
 	}
-	return ss, nil
+	return vpcPeeringsRef, nil
 }
 
 // TODO: Add test coverage for this function
@@ -297,13 +297,13 @@ func GetOwnedSecurityGroupsRef(ctx context.Context, owner client.Object, kubecli
 	return ss, nil
 }
 
-func GetOwnedVPCPeeringConnections(ctx context.Context, owner client.Object, kubeclient client.Client) (*wildlifecrossec2v1alphav1.VPCPeeringConnectionList, error) {
-	vpcPeeringConnections := &wildlifecrossec2v1alphav1.VPCPeeringConnectionList{}
+func GetOwnedVPCPeeringConnections(ctx context.Context, owner client.Object, kubeclient client.Client) (*crossec2v1alphav1.VPCPeeringConnectionList, error) {
+	vpcPeeringConnections := &crossec2v1alphav1.VPCPeeringConnectionList{}
 	err := kubeclient.List(ctx, vpcPeeringConnections)
 	if err != nil {
 		return nil, err
 	}
-	var ownedVPCPeeringConnections wildlifecrossec2v1alphav1.VPCPeeringConnectionList
+	var ownedVPCPeeringConnections crossec2v1alphav1.VPCPeeringConnectionList
 
 	for _, vpcPeeringConnection := range vpcPeeringConnections.Items {
 		if util.IsOwnedByObject(&vpcPeeringConnection, owner) {

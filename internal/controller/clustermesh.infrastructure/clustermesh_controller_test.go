@@ -21,8 +21,6 @@ import (
 	"fmt"
 	"testing"
 
-	wildlifecrossec2v1alphav1 "github.com/topfreegames/crossplane-provider-aws/apis/ec2/manualv1alpha1"
-
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/api/clustermesh.infrastructure/v1alpha1"
 	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha1"
@@ -53,7 +51,7 @@ import (
 )
 
 var (
-	vpcPeeringConnectionAPIVersion = "ec2.aws.wildlife.io/v1alpha1"
+	vpcPeeringConnectionAPIVersion = "ec2.aws.crossplane.io/v1alpha1"
 )
 
 var defaultSecret = &corev1.Secret{
@@ -271,7 +269,7 @@ func TestClusterMeshReconciler(t *testing.T) {
 	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = wildlifecrossec2v1alphav1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	err = crossec2v1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = kcontrolplanev1alpha1.AddToScheme(scheme.Scheme)
@@ -1235,7 +1233,7 @@ func TestReconcileDelete(t *testing.T) {
 						},
 					},
 				},
-				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: vpcPeeringConnectionAPIVersion,
 						Kind:       "VPCPeeringConnection",
@@ -1249,7 +1247,7 @@ func TestReconcileDelete(t *testing.T) {
 						},
 					},
 				},
-				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: vpcPeeringConnectionAPIVersion,
 						Kind:       "VPCPeeringConnection",
@@ -1263,7 +1261,7 @@ func TestReconcileDelete(t *testing.T) {
 						},
 					},
 				},
-				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: vpcPeeringConnectionAPIVersion,
 						Kind:       "VPCPeeringConnection",
@@ -1368,7 +1366,7 @@ func TestReconcileDelete(t *testing.T) {
 						},
 					},
 				},
-				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: vpcPeeringConnectionAPIVersion,
 						Kind:       "VPCPeeringConnection",
@@ -1594,7 +1592,7 @@ func TestReconcileDelete(t *testing.T) {
 	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = wildlifecrossec2v1alphav1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	err = crossec2v1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = securitygroupv1alpha1.AddToScheme(scheme.Scheme)
@@ -1631,7 +1629,7 @@ func TestReconcileDelete(t *testing.T) {
 			}
 
 			for _, vpcPeeringConnectionName := range tc.expectedVpcPeeringConnections {
-				vpcPeeringConnection := &wildlifecrossec2v1alphav1.VPCPeeringConnection{}
+				vpcPeeringConnection := &crossec2v1alpha1.VPCPeeringConnection{}
 				key := client.ObjectKey{
 					Name: vpcPeeringConnectionName,
 				}
@@ -1640,7 +1638,7 @@ func TestReconcileDelete(t *testing.T) {
 			}
 
 			for _, vpcPeeringConnectionName := range tc.shouldBeDeletedVpcPeeringConnections {
-				vpcPeeringConnection := &wildlifecrossec2v1alphav1.VPCPeeringConnection{}
+				vpcPeeringConnection := &crossec2v1alpha1.VPCPeeringConnection{}
 				key := client.ObjectKey{
 					Name: vpcPeeringConnectionName,
 				}
@@ -1721,7 +1719,7 @@ func TestReconcilePeerings(t *testing.T) {
 		{
 			description: "should not create a vpcpeering when it already exists",
 			k8sObjects: []client.Object{
-				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: vpcPeeringConnectionAPIVersion,
 						Kind:       "VPCPeeringConnection",
@@ -1768,7 +1766,7 @@ func TestReconcilePeerings(t *testing.T) {
 		{
 			description: "should not create a vpcpeering when it already exists inverted",
 			k8sObjects: []client.Object{
-				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: vpcPeeringConnectionAPIVersion,
 						Kind:       "VPCPeeringConnection",
@@ -1815,7 +1813,7 @@ func TestReconcilePeerings(t *testing.T) {
 		{
 			description: "should create correctly with different spec orders",
 			k8sObjects: []client.Object{
-				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: vpcPeeringConnectionAPIVersion,
 						Kind:       "VPCPeeringConnection",
@@ -1861,7 +1859,7 @@ func TestReconcilePeerings(t *testing.T) {
 		},
 	}
 
-	err := wildlifecrossec2v1alphav1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	err := crossec2v1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = clustermeshv1beta1.AddToScheme(scheme.Scheme)
@@ -1887,7 +1885,7 @@ func TestReconcilePeerings(t *testing.T) {
 
 			_ = ReconcilePeerings(reconciliation, ctx, tc.clSpec)
 			for _, vpcPeeringConnectionName := range tc.expectedVpcPeeringConnections {
-				vpcPeeringConnection := &wildlifecrossec2v1alphav1.VPCPeeringConnection{}
+				vpcPeeringConnection := &crossec2v1alpha1.VPCPeeringConnection{}
 				key := client.ObjectKey{
 					Name: vpcPeeringConnectionName,
 				}
@@ -1925,7 +1923,7 @@ func TestReconcileRoutes(t *testing.T) {
 		},
 	}
 
-	vpcPeeringConnection := wildlifecrossec2v1alphav1.VPCPeeringConnection{
+	vpcPeeringConnection := crossec2v1alpha1.VPCPeeringConnection{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: vpcPeeringConnectionAPIVersion,
 			Kind:       "VPCPeeringConnection",
@@ -1943,15 +1941,15 @@ func TestReconcileRoutes(t *testing.T) {
 				},
 			},
 		},
-		Status: wildlifecrossec2v1alphav1.VPCPeeringConnectionStatus{
+		Status: crossec2v1alpha1.VPCPeeringConnectionStatus{
 			ResourceStatus: v1.ResourceStatus{
 				ConditionedStatus: *v1.NewConditionedStatus(v1.Available(), v1.ReconcileSuccess()),
 			},
-			AtProvider: wildlifecrossec2v1alphav1.VPCPeeringConnectionObservation{
-				AccepterVPCInfo: &wildlifecrossec2v1alphav1.VPCPeeringConnectionVPCInfo{
+			AtProvider: crossec2v1alpha1.VPCPeeringConnectionObservation{
+				AccepterVPCInfo: &crossec2v1alpha1.VPCPeeringConnectionVPCInfo{
 					CIDRBlock: aws.String("aaaaa"),
 				},
-				RequesterVPCInfo: &wildlifecrossec2v1alphav1.VPCPeeringConnectionVPCInfo{
+				RequesterVPCInfo: &crossec2v1alpha1.VPCPeeringConnectionVPCInfo{
 					CIDRBlock: aws.String("bbbbb"),
 				},
 			},
@@ -2006,7 +2004,7 @@ func TestReconcileRoutes(t *testing.T) {
 			description: "should not create routes and return without error if vpcPeering is not ready",
 			k8sObjects: []client.Object{
 				&clustermesh,
-				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: vpcPeeringConnectionAPIVersion,
 						Kind:       "VPCPeeringConnection",
@@ -2021,7 +2019,7 @@ func TestReconcileRoutes(t *testing.T) {
 							},
 						},
 					},
-					Status: wildlifecrossec2v1alphav1.VPCPeeringConnectionStatus{
+					Status: crossec2v1alpha1.VPCPeeringConnectionStatus{
 						ResourceStatus: v1.ResourceStatus{
 							ConditionedStatus: *v1.NewConditionedStatus(v1.Unavailable()),
 						},
@@ -2044,7 +2042,7 @@ func TestReconcileRoutes(t *testing.T) {
 			description: "should not create routes if cluster don't belong to any vpcPeering",
 			k8sObjects: []client.Object{
 				&clustermesh,
-				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: vpcPeeringConnectionAPIVersion,
 						Kind:       "VPCPeeringConnection",
@@ -2062,15 +2060,15 @@ func TestReconcileRoutes(t *testing.T) {
 							},
 						},
 					},
-					Status: wildlifecrossec2v1alphav1.VPCPeeringConnectionStatus{
+					Status: crossec2v1alpha1.VPCPeeringConnectionStatus{
 						ResourceStatus: v1.ResourceStatus{
 							ConditionedStatus: *v1.NewConditionedStatus(v1.Available()),
 						},
-						AtProvider: wildlifecrossec2v1alphav1.VPCPeeringConnectionObservation{
-							AccepterVPCInfo: &wildlifecrossec2v1alphav1.VPCPeeringConnectionVPCInfo{
+						AtProvider: crossec2v1alpha1.VPCPeeringConnectionObservation{
+							AccepterVPCInfo: &crossec2v1alpha1.VPCPeeringConnectionVPCInfo{
 								CIDRBlock: aws.String("ccccc"),
 							},
-							RequesterVPCInfo: &wildlifecrossec2v1alphav1.VPCPeeringConnectionVPCInfo{
+							RequesterVPCInfo: &crossec2v1alpha1.VPCPeeringConnectionVPCInfo{
 								CIDRBlock: aws.String("bbbbb"),
 							},
 						},
@@ -2172,7 +2170,7 @@ func TestReconcileRoutes(t *testing.T) {
 						},
 					},
 				},
-				&wildlifecrossec2v1alphav1.VPCPeeringConnection{
+				&crossec2v1alpha1.VPCPeeringConnection{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
 						Kind:       "VPCPeeringConnection",
@@ -2190,15 +2188,15 @@ func TestReconcileRoutes(t *testing.T) {
 							},
 						},
 					},
-					Status: wildlifecrossec2v1alphav1.VPCPeeringConnectionStatus{
+					Status: crossec2v1alpha1.VPCPeeringConnectionStatus{
 						ResourceStatus: v1.ResourceStatus{
 							ConditionedStatus: *v1.NewConditionedStatus(v1.Available(), v1.ReconcileSuccess()),
 						},
-						AtProvider: wildlifecrossec2v1alphav1.VPCPeeringConnectionObservation{
-							AccepterVPCInfo: &wildlifecrossec2v1alphav1.VPCPeeringConnectionVPCInfo{
+						AtProvider: crossec2v1alpha1.VPCPeeringConnectionObservation{
+							AccepterVPCInfo: &crossec2v1alpha1.VPCPeeringConnectionVPCInfo{
 								CIDRBlock: aws.String("ccccc"),
 							},
-							RequesterVPCInfo: &wildlifecrossec2v1alphav1.VPCPeeringConnectionVPCInfo{
+							RequesterVPCInfo: &crossec2v1alpha1.VPCPeeringConnectionVPCInfo{
 								CIDRBlock: aws.String("aaaaa"),
 							},
 						},
@@ -2221,7 +2219,7 @@ func TestReconcileRoutes(t *testing.T) {
 		},
 	}
 
-	err := wildlifecrossec2v1alphav1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	err := crossec2v1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = crossec2v1alpha1.AddToScheme(scheme.Scheme)
@@ -2257,7 +2255,7 @@ func TestReconcileRoutes(t *testing.T) {
 			} else {
 				g.Expect(routes.Items).To(Not(BeEmpty()))
 			}
-			vpcPeerings := &wildlifecrossec2v1alphav1.VPCPeeringConnectionList{}
+			vpcPeerings := &crossec2v1alpha1.VPCPeeringConnectionList{}
 			err = fakeClient.List(ctx, vpcPeerings)
 			g.Expect(err).To(BeNil())
 			g.Expect(vpcPeerings.Items).To(Not(BeEmpty()))
@@ -2439,7 +2437,7 @@ func TestReconcileSecurityGroups(t *testing.T) {
 			},
 		},
 	}
-	err := wildlifecrossec2v1alphav1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	err := crossec2v1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
@@ -2630,7 +2628,7 @@ func TestValidateClusterMesh(t *testing.T) {
 		},
 	}
 
-	vpcPeeringConnection := &wildlifecrossec2v1alphav1.VPCPeeringConnection{
+	vpcPeeringConnection := &crossec2v1alpha1.VPCPeeringConnection{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: vpcPeeringConnectionAPIVersion,
 			Kind:       "VPCPeeringConnection",
@@ -2645,7 +2643,7 @@ func TestValidateClusterMesh(t *testing.T) {
 				},
 			},
 		},
-		Status: wildlifecrossec2v1alphav1.VPCPeeringConnectionStatus{
+		Status: crossec2v1alpha1.VPCPeeringConnectionStatus{
 			ResourceStatus: v1.ResourceStatus{
 				ConditionedStatus: *v1.NewConditionedStatus(v1.Available(), v1.ReconcileSuccess()),
 			},
@@ -2653,7 +2651,7 @@ func TestValidateClusterMesh(t *testing.T) {
 	}
 
 	vpcPeeringConnectionNotReady := vpcPeeringConnection.DeepCopy()
-	vpcPeeringConnectionNotReady.Status = wildlifecrossec2v1alphav1.VPCPeeringConnectionStatus{
+	vpcPeeringConnectionNotReady.Status = crossec2v1alpha1.VPCPeeringConnectionStatus{
 		ResourceStatus: v1.ResourceStatus{
 			ConditionedStatus: *v1.NewConditionedStatus(v1.Unavailable(), v1.ReconcileError(fmt.Errorf("reconcile error"))),
 		},
@@ -2799,7 +2797,7 @@ func TestValidateClusterMesh(t *testing.T) {
 		},
 	}
 
-	err := wildlifecrossec2v1alphav1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	err := crossec2v1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = crossec2v1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme)
