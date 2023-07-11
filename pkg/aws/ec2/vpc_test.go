@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/smithy-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2/fake"
@@ -233,8 +234,8 @@ func TestAttachSecurityGroupToLaunchTemplate(t *testing.T) {
 						NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
 							{
 								Groups: []string{
-									"sg-old",
 									"sg-new",
+									"sg-old",
 								},
 							},
 						},
@@ -251,8 +252,8 @@ func TestAttachSecurityGroupToLaunchTemplate(t *testing.T) {
 					NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
 						{
 							Groups: []string{
-								"sg-old",
 								"sg-new",
+								"sg-old",
 							},
 						},
 					},
@@ -267,8 +268,8 @@ func TestAttachSecurityGroupToLaunchTemplate(t *testing.T) {
 						NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
 							{
 								Groups: []string{
-									"sg-old",
 									"sg-new",
+									"sg-old",
 								},
 							},
 						},
@@ -294,7 +295,11 @@ func TestAttachSecurityGroupToLaunchTemplate(t *testing.T) {
 			},
 			mockDescribeSecurityGroups: func(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns []func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error) {
 				if params.GroupIds[0] == "sg-removed" {
-					return nil, awserr.New("InvalidGroup.NotFound", "", errors.New("some error"))
+					return nil, &smithy.GenericAPIError{
+						Code:    "InvalidGroup.NotFound",
+						Message: "some error",
+						Fault:   smithy.FaultUnknown,
+					}
 				}
 				return &ec2.DescribeSecurityGroupsOutput{}, nil
 			},
@@ -307,8 +312,8 @@ func TestAttachSecurityGroupToLaunchTemplate(t *testing.T) {
 						NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
 							{
 								Groups: []string{
-									"sg-old",
 									"sg-new",
+									"sg-old",
 								},
 							},
 						},
