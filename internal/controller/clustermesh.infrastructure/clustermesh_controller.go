@@ -83,7 +83,7 @@ type ClusterMeshReconciliation struct {
 }
 
 //+kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
-//+kubebuilder:rbac:groups=ec2.aws.wildlife.io,resources=vpcpeeringconnections,verbs=list;watch;create;delete
+//+kubebuilder:rbac:groups=ec2.aws.crossplane.io,resources=vpcpeeringconnections,verbs=list;watch;create;delete
 //+kubebuilder:rbac:groups=ec2.aws.crossplane.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=clustermesh.infrastructure.wildlife.io,resources=clustermeshes,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=clustermesh.infrastructure.wildlife.io,resources=clustermeshes/status,verbs=get;update;patch
