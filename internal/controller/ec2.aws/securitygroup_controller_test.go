@@ -986,6 +986,9 @@ func TestAttachSGToVNG(t *testing.T) {
 					},
 				}, nil
 			}
+			fakeEC2Client.MockDescribeSecurityGroups = func(ctx context.Context, params *awsec2.DescribeSecurityGroupsInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeSecurityGroupsOutput, error) {
+				return &awsec2.DescribeSecurityGroupsOutput{}, nil
+			}
 			fakeEC2Client.MockModifyInstanceAttribute = func(ctx context.Context, params *awsec2.ModifyInstanceAttributeInput, opts []func(*awsec2.Options)) (*awsec2.ModifyInstanceAttributeOutput, error) {
 				g.Expect(params.Groups).To(BeEquivalentTo(tc.expectedSecurityGroups))
 				return &awsec2.ModifyInstanceAttributeOutput{}, nil

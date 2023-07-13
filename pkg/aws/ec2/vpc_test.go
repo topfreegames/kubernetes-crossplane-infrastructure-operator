@@ -187,7 +187,7 @@ func TestCheckSecurityGroupExists(t *testing.T) {
 			ctx := context.TODO()
 			fakeEC2Client := &fake.MockEC2Client{}
 			fakeEC2Client.MockDescribeSecurityGroups = tc["mockDescribeSecurityGroups"].(func(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns []func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error))
-			result, err := checkSecurityGroupExists(ctx, fakeEC2Client, "sg-xxxxx")
+			result, err := CheckSecurityGroupExists(ctx, fakeEC2Client, "sg-xxxxx")
 
 			if tc["expectedError"].(bool) {
 				g.Expect(err).ToNot(BeNil())

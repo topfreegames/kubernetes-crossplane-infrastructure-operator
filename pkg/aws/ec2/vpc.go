@@ -180,7 +180,7 @@ func GetLastLaunchTemplateVersion(ctx context.Context, ec2Client EC2Client, laun
 	return &result.LaunchTemplateVersions[0], nil
 }
 
-func checkSecurityGroupExists(ctx context.Context, ec2Client EC2Client, sgId string) (bool, error) {
+func CheckSecurityGroupExists(ctx context.Context, ec2Client EC2Client, sgId string) (bool, error) {
 	input := &ec2.DescribeSecurityGroupsInput{
 		GroupIds: []string{
 			sgId,
@@ -212,7 +212,7 @@ func AttachSecurityGroupToLaunchTemplate(ctx context.Context, ec2Client EC2Clien
 
 	sgIds := []string{}
 	for _, sgId := range currentSecurityGroups {
-		ok, err := checkSecurityGroupExists(ctx, ec2Client, sgId)
+		ok, err := CheckSecurityGroupExists(ctx, ec2Client, sgId)
 		if err != nil {
 			return nil, err
 		}

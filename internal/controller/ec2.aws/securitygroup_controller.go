@@ -20,19 +20,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"time"
 
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/google/go-cmp/cmp"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
 	"github.com/topfreegames/kubernetes-kops-operator/pkg/kops"
 	securitygroupv1alpha2 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha2"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/autoscaling"
-	kopsutils "github.com/topfreegames/provider-crossplane/pkg/kops"
-
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
 	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
+	kopsutils "github.com/topfreegames/provider-crossplane/pkg/kops"
 
 	oceanaws "github.com/spotinst/spotinst-sdk-go/service/ocean/providers/aws"
 	"github.com/topfreegames/provider-crossplane/pkg/spot"
@@ -405,8 +406,22 @@ func (r *SecurityGroupReconciliation) attachSGToVNG(ctx context.Context, oceanCl
 	for _, vng := range launchSpecs {
 		for _, labels := range vng.Labels {
 			if *labels.Key == "kops.k8s.io/instance-group-name" && *labels.Value == kmpName {
-				if !slices.Contains(vng.SecurityGroupIDs, csg.Status.AtProvider.SecurityGroupID) {
-					vng.SecurityGroupIDs = append(vng.SecurityGroupIDs, csg.Status.AtProvider.SecurityGroupID)
+				currentSecurityGroups := vng.SecurityGroupIDs
+				sort.Strings(currentSecurityGroups)
+				sgIds := []string{}
+				for _, sgId := range currentSecurityGroups {
+					ok, err := ec2.CheckSecurityGroupExists(ctx, r.ec2Client, sgId)
+					if err != nil {
+						return err
+					}
+					if ok && sgId != csg.Status.AtProvider.SecurityGroupID {
+						sgIds = append(sgIds, sgId)
+					}
+				}
+				sgIds = append(sgIds, csg.Status.AtProvider.SecurityGroupID)
+				sort.Strings(sgIds)
+				if !cmp.Equal(sgIds, currentSecurityGroups) {
+					vng.SecurityGroupIDs = sgIds
 					vng.SetSecurityGroupIDs(vng.SecurityGroupIDs)
 					// We need to clean these values because of the spot update API
 					vng.CreatedAt = nil
