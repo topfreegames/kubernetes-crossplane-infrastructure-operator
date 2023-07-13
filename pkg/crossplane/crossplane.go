@@ -134,10 +134,17 @@ func CreateOrUpdateCrossplaneSecurityGroup(ctx context.Context, kubeClient clien
 			// https://github.com/golang/go/discussions/56010
 			ingressRule := ingressRule
 			ipPermission := crossec2v1beta1.IPPermission{
-				FromPort:   &ingressRule.FromPort,
-				ToPort:     &ingressRule.ToPort,
 				IPProtocol: ingressRule.IPProtocol,
 			}
+
+			if ingressRule.ToPort != 0 {
+				ipPermission.ToPort = &ingressRule.ToPort
+			}
+
+			if ingressRule.FromPort != 0 {
+				ipPermission.FromPort = &ingressRule.FromPort
+			}
+
 			var allowedCIDRBlocks []crossec2v1beta1.IPRange
 			for _, allowedCIDR := range ingressRule.AllowedCIDRBlocks {
 				ipRange := crossec2v1beta1.IPRange{
