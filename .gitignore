@@ -28,6 +28,6 @@ bin/*
 
 tilt_modules/
 
-__debug_bin
+__debug_bin*
 
 *aws-credentials.yaml
