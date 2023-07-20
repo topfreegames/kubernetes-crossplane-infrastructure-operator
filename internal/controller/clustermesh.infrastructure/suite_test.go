@@ -30,7 +30,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	clustermeshinfrastructurev1alpha1 "github.com/topfreegames/provider-crossplane/api/clustermesh.infrastructure/v1alpha1"
+	clustermeshv1alpha1 "github.com/topfreegames/provider-crossplane/api/clustermesh.infrastructure/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -61,7 +61,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	err = clustermeshinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
+	err = clustermeshv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme
@@ -76,4 +76,98 @@ var _ = AfterSuite(func() {
 	By("tearing down the test environment")
 	err := testEnv.Stop()
 	Expect(err).NotTo(HaveOccurred())
+})
+
+var _ = Describe("Clustermesh", func() {
+	Context("Object creation", func() {
+		type args struct {
+			clMeshName string
+			clusters   []*clustermeshv1alpha1.ClusterSpec
+		}
+
+		tests := []struct {
+			description string
+			args        args
+			want        *clustermeshv1alpha1.ClusterMeshSpec
+		}{
+			{
+				description: "should create a clustermesh with two clusters",
+				args: args{
+					clMeshName: "clustermesh-test",
+					clusters: []*clustermeshv1alpha1.ClusterSpec{
+						{
+							Name:      "cl1",
+							Namespace: "kubernetes-cl1",
+						},
+						{
+							Name:      "cl2",
+							Namespace: "kubernetes-cl2",
+						},
+					},
+				},
+				want: &clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
+						{
+							Name:      "cl1",
+							Namespace: "kubernetes-cl1",
+						},
+						{
+							Name:      "cl2",
+							Namespace: "kubernetes-cl2",
+						},
+					},
+				},
+			},
+			{
+				description: "should create a clustermesh without clusters",
+				args: args{
+					clMeshName: "clustermesh-test",
+				},
+				want: &clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{},
+				},
+			},
+		}
+
+		for _, tt := range tests {
+			It(tt.description, func() {
+				result := New(tt.args.clMeshName)
+				Expect(result).ToNot(BeNil())
+				Expect(len(tt.want.Clusters)).To(Equal(len(result.Spec.Clusters)))
+				Expect(tt.args.clMeshName).To(Equal(result.ObjectMeta.Name))
+			})
+		}
+	})
+
+	Describe("Security Group naming for clusters inside a clustermesh", func() {
+
+		type args struct {
+			clusterName string
+		}
+		tests := []struct {
+			description string
+			args        args
+			want        string
+		}{
+			{
+				description: "must return a valid clustermesh security group name",
+				args: args{
+					clusterName: "test1",
+				},
+				want: "clustermesh-test1-sg",
+			},
+			{
+				description: "must return a name only with the default pre/post-fix",
+				args: args{
+					clusterName: "",
+				},
+				want: "clustermesh--sg",
+			},
+		}
+		for _, tt := range tests {
+			It(tt.description, func() {
+				Expect(getClusterMeshSecurityGroupName(tt.args.clusterName)).To(Equal(tt.want))
+			})
+		}
+	})
 })

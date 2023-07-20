@@ -18,7 +18,6 @@ require (
 	github.com/onsi/ginkgo/v2 v2.4.0
 	github.com/onsi/gomega v1.24.0
 	github.com/pkg/errors v0.9.1
-	github.com/topfreegames/crossplane-provider-aws v0.27.0-vpcpeering-only
 	github.com/topfreegames/kubernetes-kops-operator v0.3.10-alpha
 	go.uber.org/zap v1.23.0
 	k8s.io/api v0.25.5

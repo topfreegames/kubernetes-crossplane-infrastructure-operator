@@ -1,0 +1,53 @@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: mutating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /mutate-ec2-aws-wildlife-io-v1alpha2-securitygroup
+  failurePolicy: Fail
+  name: msecuritygroup.kb.io
+  rules:
+  - apiGroups:
+    - ec2.aws.wildlife.io
+    apiVersions:
+    - v1alpha2
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - securitygroups
+  sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: validating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-ec2-aws-wildlife-io-v1alpha2-securitygroup
+  failurePolicy: Fail
+  name: vsecuritygroup.kb.io
+  rules:
+  - apiGroups:
+    - ec2.aws.wildlife.io
+    apiVersions:
+    - v1alpha2
+    operations:
+    - CREATE
+    - UPDATE
+    - DELETE
+    resources:
+    - securitygroups
+  sideEffects: None

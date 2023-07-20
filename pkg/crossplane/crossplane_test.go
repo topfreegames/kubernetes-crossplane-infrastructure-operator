@@ -6,11 +6,10 @@ import (
 	"reflect"
 	"testing"
 
-	clmesh "github.com/topfreegames/provider-crossplane/pkg/clustermesh"
-
 	"github.com/aws/aws-sdk-go-v2/aws"
 	crossec2v1alphav1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
 	"github.com/google/go-cmp/cmp"
+	securitygroupv1alpha2 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
@@ -20,8 +19,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
-	clustermeshv1beta1 "github.com/topfreegames/provider-crossplane/api/clustermesh.infrastructure/v1alpha1"
-	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha1"
+	clustermeshv1alpha1 "github.com/topfreegames/provider-crossplane/api/clustermesh.infrastructure/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubectl/pkg/scheme"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -37,7 +35,7 @@ var (
 
 func TestGetOwnedVPCPeeringConnectionsRef(t *testing.T) {
 
-	owner := &clustermeshv1beta1.ClusterMesh{
+	owner := &clustermeshv1alpha1.ClusterMesh{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
 			Kind:       "ClusterMesh",
@@ -160,7 +158,7 @@ func TestGetOwnedVPCPeeringConnectionsRef(t *testing.T) {
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
 
-	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	err := clustermeshv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = crossec2v1alphav1.SchemeBuilder.AddToScheme(scheme.Scheme)
@@ -180,7 +178,7 @@ func TestGetOwnedVPCPeeringConnectionsRef(t *testing.T) {
 
 func TestGetOwnedVPCPeeringConnections(t *testing.T) {
 
-	owner := &clustermeshv1beta1.ClusterMesh{
+	owner := &clustermeshv1alpha1.ClusterMesh{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
 			Kind:       "ClusterMesh",
@@ -281,7 +279,7 @@ func TestGetOwnedVPCPeeringConnections(t *testing.T) {
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
 
-	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	err := clustermeshv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = crossec2v1alphav1.AddToScheme(scheme.Scheme)
@@ -299,9 +297,81 @@ func TestGetOwnedVPCPeeringConnections(t *testing.T) {
 	}
 }
 
+func TestGetOwnedSecurityGroupsRef(t *testing.T) {
+	testCases := []struct {
+		description                 string
+		input                       *clustermeshv1alpha1.ClusterMesh
+		objects                     []client.Object
+		expectedOwnedSecurityGroups []*corev1.ObjectReference
+	}{
+		{
+			description: "should return only securitygroupRef security-group-a",
+			input: &clustermeshv1alpha1.ClusterMesh{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "ClusterMesh",
+					APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-clustermesh",
+				},
+			},
+			objects: []client.Object{
+				&securitygroupv1alpha2.SecurityGroup{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "SecurityGroup",
+						APIVersion: "ec2.aws.wildlife.io/v1alpha2",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "security-group-a",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
+								Kind:       "ClusterMesh",
+								Name:       "test-clustermesh",
+							},
+						},
+					},
+				},
+				&securitygroupv1alpha2.SecurityGroup{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "SecurityGroup",
+						APIVersion: "ec2.aws.wildlife.io/v1alpha2",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "security-group-b",
+					},
+				},
+			},
+			expectedOwnedSecurityGroups: []*corev1.ObjectReference{
+				{
+					APIVersion: "ec2.aws.wildlife.io/v1alpha2",
+					Kind:       "SecurityGroup",
+					Name:       "security-group-a",
+				},
+			},
+		},
+	}
+
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	err := securitygroupv1alpha2.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			ctx := context.TODO()
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.objects...).Build()
+			ownedSecurityGroups, _ := GetOwnedSecurityGroupsRef(ctx, tc.input, fakeClient)
+			g.Expect(tc.expectedOwnedSecurityGroups).To(Equal(ownedSecurityGroups))
+
+		})
+	}
+}
+
 func TestGetOwnedSecurityGroups(t *testing.T) {
 
-	owner := &clustermeshv1beta1.ClusterMesh{
+	owner := &clustermeshv1alpha1.ClusterMesh{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
 			Kind:       "ClusterMesh",
@@ -402,7 +472,7 @@ func TestGetOwnedSecurityGroups(t *testing.T) {
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
 
-	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	err := clustermeshv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
@@ -422,7 +492,7 @@ func TestGetOwnedSecurityGroups(t *testing.T) {
 
 func TestGetOwnedRoutes(t *testing.T) {
 
-	clustermesh := &clustermeshv1beta1.ClusterMesh{
+	clustermesh := &clustermeshv1alpha1.ClusterMesh{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
 			Kind:       "ClusterMesh",
@@ -545,7 +615,7 @@ func TestGetOwnedRoutes(t *testing.T) {
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
 
-	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	err := clustermeshv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = crossec2v1alphav1.AddToScheme(scheme.Scheme)
@@ -565,7 +635,7 @@ func TestGetOwnedRoutes(t *testing.T) {
 
 func TestIsVPCPeeringAlreadyCreated(t *testing.T) {
 
-	clustermesh := &clustermeshv1beta1.ClusterMesh{
+	clustermesh := &clustermeshv1alpha1.ClusterMesh{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
 			Kind:       "ClusterMesh",
@@ -579,18 +649,18 @@ func TestIsVPCPeeringAlreadyCreated(t *testing.T) {
 	testCases := []struct {
 		description                     string
 		clustermeshCrossplanePeeringRef []*corev1.ObjectReference
-		peeringRequester                *clustermeshv1beta1.ClusterSpec
-		peeringAccepter                 *clustermeshv1beta1.ClusterSpec
+		peeringRequester                *clustermeshv1alpha1.ClusterSpec
+		peeringAccepter                 *clustermeshv1alpha1.ClusterSpec
 		expectedResult                  bool
 	}{
 		{
 			description: "should return true for A->B with nothing created",
-			peeringRequester: &clustermeshv1beta1.ClusterSpec{
+			peeringRequester: &clustermeshv1alpha1.ClusterSpec{
 				Name:   "A",
 				Region: "us-east-1",
 				VPCID:  "xxx",
 			},
-			peeringAccepter: &clustermeshv1beta1.ClusterSpec{
+			peeringAccepter: &clustermeshv1alpha1.ClusterSpec{
 				Name:   "B",
 				Region: "eu-central-1",
 				VPCID:  "yyy",
@@ -604,12 +674,12 @@ func TestIsVPCPeeringAlreadyCreated(t *testing.T) {
 					Name: "A-B",
 				},
 			},
-			peeringRequester: &clustermeshv1beta1.ClusterSpec{
+			peeringRequester: &clustermeshv1alpha1.ClusterSpec{
 				Name:   "A",
 				Region: "us-east-1",
 				VPCID:  "xxx",
 			},
-			peeringAccepter: &clustermeshv1beta1.ClusterSpec{
+			peeringAccepter: &clustermeshv1alpha1.ClusterSpec{
 				Name:   "B",
 				Region: "eu-central-1",
 				VPCID:  "yyy",
@@ -623,12 +693,12 @@ func TestIsVPCPeeringAlreadyCreated(t *testing.T) {
 					Name: "B-A",
 				},
 			},
-			peeringRequester: &clustermeshv1beta1.ClusterSpec{
+			peeringRequester: &clustermeshv1alpha1.ClusterSpec{
 				Name:   "A",
 				Region: "us-east-1",
 				VPCID:  "xxx",
 			},
-			peeringAccepter: &clustermeshv1beta1.ClusterSpec{
+			peeringAccepter: &clustermeshv1alpha1.ClusterSpec{
 				Name:   "B",
 				Region: "eu-central-1",
 				VPCID:  "yyy",
@@ -642,12 +712,12 @@ func TestIsVPCPeeringAlreadyCreated(t *testing.T) {
 					Name: "A-C",
 				},
 			},
-			peeringRequester: &clustermeshv1beta1.ClusterSpec{
+			peeringRequester: &clustermeshv1alpha1.ClusterSpec{
 				Name:   "A",
 				Region: "us-east-1",
 				VPCID:  "xxx",
 			},
-			peeringAccepter: &clustermeshv1beta1.ClusterSpec{
+			peeringAccepter: &clustermeshv1alpha1.ClusterSpec{
 				Name:   "B",
 				Region: "eu-central-1",
 				VPCID:  "yyy",
@@ -659,7 +729,7 @@ func TestIsVPCPeeringAlreadyCreated(t *testing.T) {
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
 
-	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	err := clustermeshv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
@@ -672,7 +742,7 @@ func TestIsVPCPeeringAlreadyCreated(t *testing.T) {
 }
 
 func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
-	clustermesh := &clustermeshv1beta1.ClusterMesh{
+	clustermesh := &clustermeshv1alpha1.ClusterMesh{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
 			Kind:       "ClusterMesh",
@@ -686,24 +756,24 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 	testCases := []struct {
 		description                   string
 		vpcPeeringConnections         []client.Object
-		clustermeshStatus             clustermeshv1beta1.ClusterMeshStatus
-		peeringRequester              *clustermeshv1beta1.ClusterSpec
-		peeringAccepter               *clustermeshv1beta1.ClusterSpec
+		clustermeshStatus             clustermeshv1alpha1.ClusterMeshStatus
+		peeringRequester              *clustermeshv1alpha1.ClusterSpec
+		peeringAccepter               *clustermeshv1alpha1.ClusterSpec
 		expectedVPCPeeringConnection  *crossec2v1alphav1.VPCPeeringConnection
 		expectedVPCPeeringConnections []*corev1.ObjectReference
 		providerConfigName            string
 	}{
 		{
 			description: "should create vpcPeeringConnection",
-			clustermeshStatus: clustermeshv1beta1.ClusterMeshStatus{
+			clustermeshStatus: clustermeshv1alpha1.ClusterMeshStatus{
 				CrossplanePeeringRef: []*corev1.ObjectReference{},
 			},
-			peeringRequester: &clustermeshv1beta1.ClusterSpec{
+			peeringRequester: &clustermeshv1alpha1.ClusterSpec{
 				Name:   "A",
 				Region: "us-east-1",
 				VPCID:  "xxx",
 			},
-			peeringAccepter: &clustermeshv1beta1.ClusterSpec{
+			peeringAccepter: &clustermeshv1alpha1.ClusterSpec{
 				Name:   "B",
 				Region: "eu-central-1",
 				VPCID:  "yyy",
@@ -797,7 +867,7 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 					},
 				},
 			},
-			clustermeshStatus: clustermeshv1beta1.ClusterMeshStatus{
+			clustermeshStatus: clustermeshv1alpha1.ClusterMeshStatus{
 				CrossplanePeeringRef: []*corev1.ObjectReference{
 					{
 						Name:       "A-B",
@@ -816,12 +886,12 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 					},
 				},
 			},
-			peeringRequester: &clustermeshv1beta1.ClusterSpec{
+			peeringRequester: &clustermeshv1alpha1.ClusterSpec{
 				Name:   "A",
 				Region: "us-east-1",
 				VPCID:  "xxx",
 			},
-			peeringAccepter: &clustermeshv1beta1.ClusterSpec{
+			peeringAccepter: &clustermeshv1alpha1.ClusterSpec{
 				Name:   "B",
 				Region: "eu-central-1",
 				VPCID:  "yyy",
@@ -895,7 +965,7 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 					},
 				},
 			},
-			clustermeshStatus: clustermeshv1beta1.ClusterMeshStatus{
+			clustermeshStatus: clustermeshv1alpha1.ClusterMeshStatus{
 				CrossplanePeeringRef: []*corev1.ObjectReference{
 					{
 						Name:       "A-B",
@@ -909,12 +979,12 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 					},
 				},
 			},
-			peeringRequester: &clustermeshv1beta1.ClusterSpec{
+			peeringRequester: &clustermeshv1alpha1.ClusterSpec{
 				Name:   "A",
 				Region: "us-east-1",
 				VPCID:  "xxx",
 			},
-			peeringAccepter: &clustermeshv1beta1.ClusterSpec{
+			peeringAccepter: &clustermeshv1alpha1.ClusterSpec{
 				Name:   "C",
 				Region: "eu-central-1",
 				VPCID:  "yyy",
@@ -968,15 +1038,15 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 		},
 		{
 			description: "should create vpcPeeringConnection with ProviderCOnfigReference",
-			clustermeshStatus: clustermeshv1beta1.ClusterMeshStatus{
+			clustermeshStatus: clustermeshv1alpha1.ClusterMeshStatus{
 				CrossplanePeeringRef: []*corev1.ObjectReference{},
 			},
-			peeringRequester: &clustermeshv1beta1.ClusterSpec{
+			peeringRequester: &clustermeshv1alpha1.ClusterSpec{
 				Name:   "A",
 				Region: "us-east-1",
 				VPCID:  "xxx",
 			},
-			peeringAccepter: &clustermeshv1beta1.ClusterSpec{
+			peeringAccepter: &clustermeshv1alpha1.ClusterSpec{
 				Name:   "B",
 				Region: "eu-central-1",
 				VPCID:  "yyy",
@@ -1024,7 +1094,7 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
 
-	err := clustermeshv1beta1.AddToScheme(scheme.Scheme)
+	err := clustermeshv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = crossec2v1alphav1.AddToScheme(scheme.Scheme)
@@ -1064,18 +1134,18 @@ func TestCreateCrossplaneVPCPeeringConnection(t *testing.T) {
 func TestDeleteCrossplaneVPCPeeringConnection(t *testing.T) {
 	testCases := []struct {
 		description                   string
-		clustermesh                   *clustermeshv1beta1.ClusterMesh
+		clustermesh                   *clustermeshv1alpha1.ClusterMesh
 		vpcPeeringConnections         []client.Object
 		vpcPeeringToBeDeleted         *corev1.ObjectReference
 		expectedVPCPeeringConnections []*corev1.ObjectReference
 	}{
 		{
 			description: "should remove A-B VPCPeeringConnection",
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
-				Status: clustermeshv1beta1.ClusterMeshStatus{
+				Status: clustermeshv1alpha1.ClusterMeshStatus{
 					CrossplanePeeringRef: []*corev1.ObjectReference{
 						{
 							Name:       "A-B",
@@ -1144,11 +1214,11 @@ func TestDeleteCrossplaneVPCPeeringConnection(t *testing.T) {
 		},
 		{
 			description: "should do nothing when removing a VPCPeeringConnection already deleted",
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
-				Status: clustermeshv1beta1.ClusterMeshStatus{
+				Status: clustermeshv1alpha1.ClusterMeshStatus{
 					CrossplanePeeringRef: []*corev1.ObjectReference{
 						{
 							Name:       "A-C",
@@ -1217,11 +1287,11 @@ func TestDeleteCrossplaneVPCPeeringConnection(t *testing.T) {
 		},
 		{
 			description: "should remove the only VPCPeeringConnection",
-			clustermesh: &clustermeshv1beta1.ClusterMesh{
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-clustermesh",
 				},
-				Status: clustermeshv1beta1.ClusterMeshStatus{
+				Status: clustermeshv1alpha1.ClusterMeshStatus{
 					CrossplanePeeringRef: []*corev1.ObjectReference{
 						{
 							Name:       "A-B",
@@ -1294,7 +1364,7 @@ func TestCrossPlaneClusterMeshResource(t *testing.T) {
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
 
-	err := clustermeshv1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	err := clustermeshv1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, tc := range testCases {
@@ -1313,11 +1383,20 @@ func TestCrossPlaneClusterMeshResource(t *testing.T) {
 					},
 				},
 			}
-			clSpec := &clustermeshv1beta1.ClusterSpec{
+			clSpec := &clustermeshv1alpha1.ClusterSpec{
 				Name:  "test-cluster",
 				VPCID: "vpc-asidjasidiasj",
 			}
-			sg := clmesh.New(cluster.Labels["clusterGroup"], clSpec)
+			sg := &clustermeshv1alpha1.ClusterMesh{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: cluster.Labels["clusterGroup"],
+				},
+				Spec: clustermeshv1alpha1.ClusterMeshSpec{
+					Clusters: []*clustermeshv1alpha1.ClusterSpec{
+						clSpec,
+					},
+				},
+			}
 			g.Expect(sg.ObjectMeta.Name).To(ContainSubstring("testmesh"))
 		})
 	}
@@ -1326,16 +1405,16 @@ func TestCrossPlaneClusterMeshResource(t *testing.T) {
 func TestNewCrossplaneSecurityGroup(t *testing.T) {
 	testCases := []struct {
 		description        string
-		ingressRules       []securitygroupv1alpha1.IngressRule
+		ingressRules       []securitygroupv1alpha2.IngressRule
 		providerConfigName string
 	}{
 		{
 			description:  "should return a Crossplane SecurityGroup",
-			ingressRules: []securitygroupv1alpha1.IngressRule{},
+			ingressRules: []securitygroupv1alpha2.IngressRule{},
 		},
 		{
 			description:        "should create a crossplane sg with the provided providerConfigName",
-			ingressRules:       []securitygroupv1alpha1.IngressRule{},
+			ingressRules:       []securitygroupv1alpha2.IngressRule{},
 			providerConfigName: "test",
 		},
 	}
@@ -1347,8 +1426,8 @@ func TestNewCrossplaneSecurityGroup(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			sg := &securitygroupv1alpha1.SecurityGroup{
-				Spec: securitygroupv1alpha1.SecurityGroupSpec{
+			sg := &securitygroupv1alpha2.SecurityGroup{
+				Spec: securitygroupv1alpha2.SecurityGroupSpec{
 					IngressRules: tc.ingressRules,
 				},
 			}
@@ -1370,17 +1449,17 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 	testCases := []struct {
 		description           string
 		k8sObjects            []client.Object
-		wildlifeSecurityGroup *securitygroupv1alpha1.SecurityGroup
-		validateOutput        func(sg *securitygroupv1alpha1.SecurityGroup, csg *crossec2v1beta1.SecurityGroup) bool
+		wildlifeSecurityGroup *securitygroupv1alpha2.SecurityGroup
+		validateOutput        func(sg *securitygroupv1alpha2.SecurityGroup, csg *crossec2v1beta1.SecurityGroup) bool
 	}{
 		{
 			description: "should create crossplane security group object",
-			wildlifeSecurityGroup: &securitygroupv1alpha1.SecurityGroup{
+			wildlifeSecurityGroup: &securitygroupv1alpha2.SecurityGroup{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-sg",
 				},
-				Spec: securitygroupv1alpha1.SecurityGroupSpec{
-					IngressRules: []securitygroupv1alpha1.IngressRule{
+				Spec: securitygroupv1alpha2.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha2.IngressRule{
 						{
 							IPProtocol: "TCP",
 							FromPort:   40000,
@@ -1392,7 +1471,7 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 					},
 				},
 			},
-			validateOutput: func(_ *securitygroupv1alpha1.SecurityGroup, csg *crossec2v1beta1.SecurityGroup) bool {
+			validateOutput: func(_ *securitygroupv1alpha2.SecurityGroup, csg *crossec2v1beta1.SecurityGroup) bool {
 				if len(csg.Spec.ForProvider.Ingress) != 1 {
 					return false
 				}
@@ -1419,15 +1498,15 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 					},
 				},
 			},
-			wildlifeSecurityGroup: &securitygroupv1alpha1.SecurityGroup{
+			wildlifeSecurityGroup: &securitygroupv1alpha2.SecurityGroup{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-sg",
 					Annotations: map[string]string{
-						securitygroupv1alpha1.ReasonReconcilePaused: "true",
+						securitygroupv1alpha2.ReasonReconcilePaused: "true",
 					},
 				},
-				Spec: securitygroupv1alpha1.SecurityGroupSpec{
-					IngressRules: []securitygroupv1alpha1.IngressRule{
+				Spec: securitygroupv1alpha2.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha2.IngressRule{
 						{
 							IPProtocol: "TCP",
 							FromPort:   40000,
@@ -1447,7 +1526,7 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 					},
 				},
 			},
-			validateOutput: func(_ *securitygroupv1alpha1.SecurityGroup, csg *crossec2v1beta1.SecurityGroup) bool {
+			validateOutput: func(_ *securitygroupv1alpha2.SecurityGroup, csg *crossec2v1beta1.SecurityGroup) bool {
 				if len(csg.Spec.ForProvider.Ingress) != 2 {
 					return false
 				}
@@ -1455,7 +1534,7 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 					return false
 				}
 				if !reflect.DeepEqual(csg.Annotations, map[string]string{
-					securitygroupv1alpha1.ReasonReconcilePaused: "true",
+					securitygroupv1alpha2.ReasonReconcilePaused: "true",
 				}) {
 					return false
 				}
@@ -1464,15 +1543,15 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 		},
 		{
 			description: "should correctly deal with different port numbers",
-			wildlifeSecurityGroup: &securitygroupv1alpha1.SecurityGroup{
+			wildlifeSecurityGroup: &securitygroupv1alpha2.SecurityGroup{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-sg",
 					Annotations: map[string]string{
-						securitygroupv1alpha1.ReasonReconcilePaused: "true",
+						securitygroupv1alpha2.ReasonReconcilePaused: "true",
 					},
 				},
-				Spec: securitygroupv1alpha1.SecurityGroupSpec{
-					IngressRules: []securitygroupv1alpha1.IngressRule{
+				Spec: securitygroupv1alpha2.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha2.IngressRule{
 						{
 							IPProtocol: "TCP",
 							FromPort:   40000,
@@ -1492,7 +1571,7 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 					},
 				},
 			},
-			validateOutput: func(sg *securitygroupv1alpha1.SecurityGroup, csg *crossec2v1beta1.SecurityGroup) bool {
+			validateOutput: func(sg *securitygroupv1alpha2.SecurityGroup, csg *crossec2v1beta1.SecurityGroup) bool {
 				if len(csg.Spec.ForProvider.Ingress) != len(sg.Spec.IngressRules) {
 					return false
 				}
@@ -1508,7 +1587,7 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 					}
 				}
 				return reflect.DeepEqual(csg.Annotations, map[string]string{
-					securitygroupv1alpha1.ReasonReconcilePaused: "true",
+					securitygroupv1alpha2.ReasonReconcilePaused: "true",
 				})
 			},
 		},
@@ -1648,7 +1727,7 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 	testCases := []struct {
 		description            string
 		vpcPeeringConnectionID string
-		clusterSpec            *clustermeshv1beta1.ClusterSpec
+		clusterSpec            *clustermeshv1alpha1.ClusterSpec
 		destinationCIDRBlock   string
 		route                  []client.Object
 		routeTableIDs          []string
@@ -1656,7 +1735,7 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 	}{
 		{
 			description: "should return true for cidr bbbb to vpcPeering ab",
-			clusterSpec: &clustermeshv1beta1.ClusterSpec{
+			clusterSpec: &clustermeshv1alpha1.ClusterSpec{
 				RouteTableIDs: []string{
 					"rt-xxxx",
 				},
@@ -1668,7 +1747,7 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 		},
 		{
 			description: "should return false for cidr bbbb to vpcPeering ac",
-			clusterSpec: &clustermeshv1beta1.ClusterSpec{
+			clusterSpec: &clustermeshv1alpha1.ClusterSpec{
 				RouteTableIDs: []string{
 					"rt-xxxx",
 				},
@@ -1680,7 +1759,7 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 		},
 		{
 			description: "should return false for cidr cccc to vpcPeering ab",
-			clusterSpec: &clustermeshv1beta1.ClusterSpec{
+			clusterSpec: &clustermeshv1alpha1.ClusterSpec{
 				RouteTableIDs: []string{
 					"rt-xxxx",
 				},
@@ -1692,7 +1771,7 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 		},
 		{
 			description: "should return false if no roule is found",
-			clusterSpec: &clustermeshv1beta1.ClusterSpec{
+			clusterSpec: &clustermeshv1alpha1.ClusterSpec{
 				RouteTableIDs: []string{
 					"rt-xxxx",
 				},
@@ -1704,7 +1783,7 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 		},
 		{
 			description: "should return false if roule does not exists in both route tables",
-			clusterSpec: &clustermeshv1beta1.ClusterSpec{
+			clusterSpec: &clustermeshv1alpha1.ClusterSpec{
 				RouteTableIDs: []string{
 					"rt-xxxx",
 					"rt-zzzz",
@@ -1721,7 +1800,7 @@ func TestIsRouteToVpcPeeringAlreadyCreated(t *testing.T) {
 		},
 		{
 			description: "should return false if roule does not exists in both route tables but exists in one of them",
-			clusterSpec: &clustermeshv1beta1.ClusterSpec{
+			clusterSpec: &clustermeshv1alpha1.ClusterSpec{
 				RouteTableIDs: []string{
 					"rt-xxxx",
 					"rt-zzzz",
@@ -1771,14 +1850,14 @@ func TestCreateCrossplaneRoute(t *testing.T) {
 	testCases := []struct {
 		description        string
 		routeTable         string
-		clusterSpec        *clustermeshv1beta1.ClusterSpec
+		clusterSpec        *clustermeshv1alpha1.ClusterSpec
 		expectedResult     bool
 		providerConfigName string
 	}{
 		{
 			description: "should create route",
 			routeTable:  "rt-xxx",
-			clusterSpec: &clustermeshv1beta1.ClusterSpec{
+			clusterSpec: &clustermeshv1alpha1.ClusterSpec{
 				Name:   "A",
 				Region: "us-east-1",
 				VPCID:  "xxx",
@@ -1789,7 +1868,7 @@ func TestCreateCrossplaneRoute(t *testing.T) {
 		{
 			description: "should create route with providerConfigReference",
 			routeTable:  "rt-xxx",
-			clusterSpec: &clustermeshv1beta1.ClusterSpec{
+			clusterSpec: &clustermeshv1alpha1.ClusterSpec{
 				Name:   "A",
 				Region: "us-east-1",
 				VPCID:  "xxx",

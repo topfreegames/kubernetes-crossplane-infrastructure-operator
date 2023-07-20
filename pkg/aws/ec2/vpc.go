@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/smithy-go"
+	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
 )
 
@@ -178,7 +180,7 @@ func GetLastLaunchTemplateVersion(ctx context.Context, ec2Client EC2Client, laun
 	return &result.LaunchTemplateVersions[0], nil
 }
 
-func checkSecurityGroupExists(ctx context.Context, ec2Client EC2Client, sgId string) (bool, error) {
+func CheckSecurityGroupExists(ctx context.Context, ec2Client EC2Client, sgId string) (bool, error) {
 	input := &ec2.DescribeSecurityGroupsInput{
 		GroupIds: []string{
 			sgId,
@@ -187,13 +189,11 @@ func checkSecurityGroupExists(ctx context.Context, ec2Client EC2Client, sgId str
 
 	_, err := ec2Client.DescribeSecurityGroups(ctx, input)
 	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok {
-			switch aerr.Code() {
-			case "InvalidGroup.NotFound":
-				return false, nil
-			default:
-				return false, err
-			}
+		var apiError smithy.APIError
+		if errors.As(err, &apiError) && apiError.ErrorCode() == "InvalidGroup.NotFound" {
+			return false, nil
+		} else {
+			return false, err
 		}
 	}
 	return true, nil
@@ -206,29 +206,31 @@ func AttachSecurityGroupToLaunchTemplate(ctx context.Context, ec2Client EC2Clien
 	}
 
 	networkInterface := launchTemplateVersion.LaunchTemplateData.NetworkInterfaces[0]
-	for _, group := range networkInterface.Groups {
-		if group == securityGroupId {
-			return &ec2.CreateLaunchTemplateVersionOutput{
-				LaunchTemplateVersion: launchTemplateVersion,
-			}, nil
-		}
-	}
+
+	currentSecurityGroups := networkInterface.Groups
+	sort.Strings(currentSecurityGroups)
 
 	sgIds := []string{}
-	for _, sgId := range networkInterface.Groups {
-		ok, err := checkSecurityGroupExists(ctx, ec2Client, sgId)
+	for _, sgId := range currentSecurityGroups {
+		ok, err := CheckSecurityGroupExists(ctx, ec2Client, sgId)
 		if err != nil {
 			return nil, err
 		}
-		if ok {
+		if ok && sgId != securityGroupId {
 			sgIds = append(sgIds, sgId)
 		}
 	}
 
 	sgIds = append(sgIds, securityGroupId)
+	sort.Strings(sgIds)
+
+	if cmp.Equal(sgIds, currentSecurityGroups) {
+		return &ec2.CreateLaunchTemplateVersionOutput{
+			LaunchTemplateVersion: launchTemplateVersion,
+		}, nil
+	}
 
 	networkInterface.Groups = sgIds
-
 	b, err := json.Marshal(networkInterface)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to marshal networkInterface")

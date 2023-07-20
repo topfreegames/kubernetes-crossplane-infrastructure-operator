@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/smithy-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2/fake"
@@ -186,7 +187,7 @@ func TestCheckSecurityGroupExists(t *testing.T) {
 			ctx := context.TODO()
 			fakeEC2Client := &fake.MockEC2Client{}
 			fakeEC2Client.MockDescribeSecurityGroups = tc["mockDescribeSecurityGroups"].(func(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns []func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error))
-			result, err := checkSecurityGroupExists(ctx, fakeEC2Client, "sg-xxxxx")
+			result, err := CheckSecurityGroupExists(ctx, fakeEC2Client, "sg-xxxxx")
 
 			if tc["expectedError"].(bool) {
 				g.Expect(err).ToNot(BeNil())
@@ -233,8 +234,8 @@ func TestAttachSecurityGroupToLaunchTemplate(t *testing.T) {
 						NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
 							{
 								Groups: []string{
-									"sg-old",
 									"sg-new",
+									"sg-old",
 								},
 							},
 						},
@@ -251,8 +252,8 @@ func TestAttachSecurityGroupToLaunchTemplate(t *testing.T) {
 					NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
 						{
 							Groups: []string{
-								"sg-old",
 								"sg-new",
+								"sg-old",
 							},
 						},
 					},
@@ -267,8 +268,8 @@ func TestAttachSecurityGroupToLaunchTemplate(t *testing.T) {
 						NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
 							{
 								Groups: []string{
-									"sg-old",
 									"sg-new",
+									"sg-old",
 								},
 							},
 						},
@@ -294,7 +295,11 @@ func TestAttachSecurityGroupToLaunchTemplate(t *testing.T) {
 			},
 			mockDescribeSecurityGroups: func(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns []func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error) {
 				if params.GroupIds[0] == "sg-removed" {
-					return nil, awserr.New("InvalidGroup.NotFound", "", errors.New("some error"))
+					return nil, &smithy.GenericAPIError{
+						Code:    "InvalidGroup.NotFound",
+						Message: "some error",
+						Fault:   smithy.FaultUnknown,
+					}
 				}
 				return &ec2.DescribeSecurityGroupsOutput{}, nil
 			},
@@ -307,8 +312,8 @@ func TestAttachSecurityGroupToLaunchTemplate(t *testing.T) {
 						NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
 							{
 								Groups: []string{
-									"sg-old",
 									"sg-new",
+									"sg-old",
 								},
 							},
 						},
@@ -736,6 +741,21 @@ func TestAttachSecurityGroupToInstances(t *testing.T) {
 			expected: []string{"sg-xxx", "sg-yyy"},
 		},
 		{
+			description: "should do nothing when sg-xxx is already attached in instance i-xxx",
+			input:       []string{"i-xxx"},
+			instances: []ec2types.Instance{
+				{
+					InstanceId: aws.String("i-xxx"),
+					SecurityGroups: []ec2types.GroupIdentifier{
+						{
+							GroupId: aws.String("sg-xxx"),
+						},
+					},
+				},
+			},
+			expected: []string{"sg-xxx", "sg-yyy"},
+		},
+		{
 			description: "should do nothing if list of instance ids is empty",
 			input:       []string{},
 			instances: []ec2types.Instance{
@@ -803,6 +823,62 @@ func TestAttachSecurityGroupToInstances(t *testing.T) {
 			} else {
 				g.Expect(err).To(BeNil())
 			}
+		})
+	}
+}
+
+func TestGetReservationsUsingFilters(t *testing.T) {
+	testCases := []struct {
+		description string
+		input       []ec2types.GroupIdentifier
+		expected    bool
+	}{
+		{
+			description: "should return true when the sg is already attached",
+			input: []ec2types.GroupIdentifier{
+				{
+					GroupId: aws.String("sg-xxx"),
+				},
+			},
+			expected: true,
+		},
+		{
+			description: "should return true when the sg is already attached alongside with other sgs",
+			input: []ec2types.GroupIdentifier{
+				{
+					GroupId: aws.String("sg-yyy"),
+				},
+				{
+					GroupId: aws.String("sg-xxx"),
+				},
+			},
+			expected: true,
+		},
+		{
+			description: "should return false when the sg isn't attached",
+			input: []ec2types.GroupIdentifier{
+				{
+					GroupId: aws.String("sg-yyy"),
+				},
+				{
+					GroupId: aws.String("sg-zzz"),
+				},
+			},
+			expected: false,
+		},
+		{
+			description: "should return false when the sg list is empty",
+			input:       []ec2types.GroupIdentifier{},
+			expected:    false,
+		},
+	}
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			output := isSGAttached(tc.input, "sg-xxx")
+			g.Expect(output).To(BeEquivalentTo(tc.expected))
 		})
 	}
 }
