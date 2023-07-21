@@ -1018,7 +1018,7 @@ spec:
               key: account
               name: spotinst-credentials
               optional: true
-        image: tfgco/provider-crossplane:v0.2.0-alpha
+        image: tfgco/provider-crossplane:v0.3.0-alpha
         livenessProbe:
           httpGet:
             path: /healthz
