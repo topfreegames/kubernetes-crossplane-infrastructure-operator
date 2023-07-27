@@ -93,17 +93,6 @@ func AttachSecurityGroupToInstances(ctx context.Context, ec2Client EC2Client, in
 	return nil
 }
 
-func GetReservationsUsingFilters(ctx context.Context, ec2Client EC2Client, filters []ec2types.Filter) ([]ec2types.Reservation, error) {
-	instances, err := ec2Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
-		Filters: filters,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return instances.Reservations, nil
-}
-
 func GetVPCIdWithCIDRAndClusterName(ctx context.Context, ec2Client EC2Client, clusterName, CIDR string) (*string, error) {
 
 	result, err := ec2Client.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{
@@ -328,20 +317,4 @@ func GetLaunchTemplateFromInstanceGroup(ctx context.Context, ec2Client EC2Client
 	}
 
 	return &launchTemplate.LaunchTemplates[0], nil
-}
-
-func GetReservationsUsingLaunchTemplate(ctx context.Context, ec2Client EC2Client, launchTemplateID string) ([]ec2types.Reservation, error) {
-	instances, err := ec2Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
-		Filters: []ec2types.Filter{
-			{
-				Name:   aws.String("tag:aws:ec2launchtemplate:id"),
-				Values: []string{launchTemplateID},
-			},
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return instances.Reservations, nil
 }

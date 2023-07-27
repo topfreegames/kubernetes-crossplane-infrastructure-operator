@@ -11,7 +11,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/smithy-go"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -147,10 +146,15 @@ func TestGetLastLaunchTemplateVersion(t *testing.T) {
 }
 
 func TestCheckSecurityGroupExists(t *testing.T) {
-	testCases := []map[string]interface{}{
+	testCases := []struct {
+		description                string
+		mockDescribeSecurityGroups func(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns []func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error)
+		expectedError              bool
+		expectedResult             bool
+	}{
 		{
-			"description": "should return true with SG existing",
-			"mockDescribeSecurityGroups": func(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns []func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error) {
+			description: "should return true with SG existing",
+			mockDescribeSecurityGroups: func(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns []func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error) {
 				return &ec2.DescribeSecurityGroupsOutput{
 					SecurityGroups: []ec2types.SecurityGroup{
 						{
@@ -159,41 +163,51 @@ func TestCheckSecurityGroupExists(t *testing.T) {
 					},
 				}, nil
 			},
-			"expectedError":  false,
-			"expectedResult": true,
+			expectedError:  false,
+			expectedResult: true,
 		},
 		{
-			"description": "should return false when not finding SG",
-			"mockDescribeSecurityGroups": func(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns []func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error) {
-				return nil, awserr.New("InvalidGroup.NotFound", "", errors.New("some error"))
+			description: "should return false when not finding SG",
+			mockDescribeSecurityGroups: func(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns []func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error) {
+				return nil, &smithy.GenericAPIError{
+					Code:    "InvalidGroup.NotFound",
+					Message: "some error",
+					Fault:   smithy.FaultUnknown,
+				}
 			},
-			"expectedError":  false,
-			"expectedResult": false,
+			expectedError:  false,
+			expectedResult: false,
 		},
 		{
-			"description": "should return false when not finding SG",
-			"mockDescribeSecurityGroups": func(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns []func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error) {
-				return nil, awserr.New("InvalidGroup.BadRequest", "", errors.New("some other error"))
+			description: "should return false when not finding SG",
+			mockDescribeSecurityGroups: func(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns []func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error) {
+				return nil, &smithy.GenericAPIError{
+					Code:    "InvalidGroup.BadRequest",
+					Message: "some error",
+					Fault:   smithy.FaultUnknown,
+				}
 			},
-			"expectedError":  true,
-			"expectedResult": false,
+			expectedError:  true,
+			expectedResult: false,
 		},
 	}
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
 
 	for _, tc := range testCases {
-		t.Run(tc["description"].(string), func(t *testing.T) {
+		t.Run(tc.description, func(t *testing.T) {
 			ctx := context.TODO()
 			fakeEC2Client := &fake.MockEC2Client{}
-			fakeEC2Client.MockDescribeSecurityGroups = tc["mockDescribeSecurityGroups"].(func(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns []func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error))
+			fakeEC2Client.MockDescribeSecurityGroups = tc.mockDescribeSecurityGroups
 			result, err := CheckSecurityGroupExists(ctx, fakeEC2Client, "sg-xxxxx")
 
-			if tc["expectedError"].(bool) {
+			if tc.expectedError {
 				g.Expect(err).ToNot(BeNil())
+			} else {
+				g.Expect(err).To(BeNil())
 			}
-			if tc["expectedResult"].(bool) {
-				g.Expect(result).To(Equal(tc["expectedResult"].(bool)))
+			if tc.expectedResult {
+				g.Expect(result).To(Equal(tc.expectedResult))
 			}
 		})
 	}
@@ -736,6 +750,9 @@ func TestAttachSecurityGroupToInstances(t *testing.T) {
 							GroupId: aws.String("sg-yyy"),
 						},
 					},
+					State: &ec2types.InstanceState{
+						Name: ec2types.InstanceStateNameRunning,
+					},
 				},
 			},
 			expected: []string{"sg-xxx", "sg-yyy"},
@@ -750,6 +767,9 @@ func TestAttachSecurityGroupToInstances(t *testing.T) {
 						{
 							GroupId: aws.String("sg-xxx"),
 						},
+					},
+					State: &ec2types.InstanceState{
+						Name: ec2types.InstanceStateNameRunning,
 					},
 				},
 			},
@@ -766,6 +786,9 @@ func TestAttachSecurityGroupToInstances(t *testing.T) {
 							GroupId: aws.String("sg-yyy"),
 						},
 					},
+					State: &ec2types.InstanceState{
+						Name: ec2types.InstanceStateNameRunning,
+					},
 				},
 			},
 		},
@@ -779,6 +802,9 @@ func TestAttachSecurityGroupToInstances(t *testing.T) {
 						{
 							GroupId: aws.String("sg-yyy"),
 						},
+					},
+					State: &ec2types.InstanceState{
+						Name: ec2types.InstanceStateNameRunning,
 					},
 				},
 			},
@@ -827,49 +853,25 @@ func TestAttachSecurityGroupToInstances(t *testing.T) {
 	}
 }
 
-func TestGetReservationsUsingFilters(t *testing.T) {
+func TestGetLaunchTemplateFromInstanceGroup(t *testing.T) {
 	testCases := []struct {
-		description string
-		input       []ec2types.GroupIdentifier
-		expected    bool
+		description                 string
+		expectedError               error
+		errorDescribeLaunchTemplate bool
+		emptyDescribeLaunchTemplate bool
 	}{
 		{
-			description: "should return true when the sg is already attached",
-			input: []ec2types.GroupIdentifier{
-				{
-					GroupId: aws.String("sg-xxx"),
-				},
-			},
-			expected: true,
+			description: "should return launch template from instance group",
 		},
 		{
-			description: "should return true when the sg is already attached alongside with other sgs",
-			input: []ec2types.GroupIdentifier{
-				{
-					GroupId: aws.String("sg-yyy"),
-				},
-				{
-					GroupId: aws.String("sg-xxx"),
-				},
-			},
-			expected: true,
+			description:                 "should return error when failt to get launch template",
+			expectedError:               errors.New("failed to retrieve launch template from instance group"),
+			errorDescribeLaunchTemplate: true,
 		},
 		{
-			description: "should return false when the sg isn't attached",
-			input: []ec2types.GroupIdentifier{
-				{
-					GroupId: aws.String("sg-yyy"),
-				},
-				{
-					GroupId: aws.String("sg-zzz"),
-				},
-			},
-			expected: false,
-		},
-		{
-			description: "should return false when the sg list is empty",
-			input:       []ec2types.GroupIdentifier{},
-			expected:    false,
+			description:                 "should return error when launch template is empty",
+			expectedError:               errors.New("failed to get launch template"),
+			emptyDescribeLaunchTemplate: true,
 		},
 	}
 	RegisterFailHandler(Fail)
@@ -877,8 +879,46 @@ func TestGetReservationsUsingFilters(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			output := isSGAttached(tc.input, "sg-xxx")
-			g.Expect(output).To(BeEquivalentTo(tc.expected))
+			ctx := context.TODO()
+			fakeEC2Client := &fake.MockEC2Client{}
+			if tc.errorDescribeLaunchTemplate {
+				fakeEC2Client.MockDescribeLaunchTemplates = func(ctx context.Context, params *ec2.DescribeLaunchTemplatesInput, optFns []func(*ec2.Options)) (*ec2.DescribeLaunchTemplatesOutput, error) {
+					return nil, errors.New("failed to retrieve launch template from instance group")
+				}
+			} else if tc.emptyDescribeLaunchTemplate {
+				fakeEC2Client.MockDescribeLaunchTemplates = func(ctx context.Context, params *ec2.DescribeLaunchTemplatesInput, optFns []func(*ec2.Options)) (*ec2.DescribeLaunchTemplatesOutput, error) {
+					return &ec2.DescribeLaunchTemplatesOutput{}, nil
+				}
+			} else {
+				fakeEC2Client.MockDescribeLaunchTemplates = func(ctx context.Context, params *ec2.DescribeLaunchTemplatesInput, optFns []func(*ec2.Options)) (*ec2.DescribeLaunchTemplatesOutput, error) {
+					return &ec2.DescribeLaunchTemplatesOutput{
+						LaunchTemplates: []ec2types.LaunchTemplate{
+							{
+								LaunchTemplateId:    aws.String("lt-xxx"),
+								LaunchTemplateName:  aws.String("lt-name"),
+								LatestVersionNumber: aws.Int64(1),
+								Tags: []ec2types.Tag{
+									{
+										Key:   aws.String("tag:KubernetesCluster"),
+										Value: aws.String("cluster-xxx"),
+									},
+									{
+										Key:   aws.String("tag:Name"),
+										Value: aws.String("lt-name"),
+									},
+								},
+							},
+						},
+					}, nil
+				}
+			}
+
+			_, err := GetLaunchTemplateFromInstanceGroup(ctx, fakeEC2Client, "cluster-xxx", "lt-name")
+			if tc.expectedError != nil {
+				g.Expect(err).To(MatchError(tc.expectedError))
+			} else {
+				g.Expect(err).To(BeNil())
+			}
 		})
 	}
 }

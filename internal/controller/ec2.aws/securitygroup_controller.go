@@ -39,6 +39,7 @@ import (
 	"github.com/topfreegames/provider-crossplane/pkg/spot"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	ec2service "github.com/aws/aws-sdk-go-v2/service/ec2"
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
@@ -445,18 +446,20 @@ func (r *SecurityGroupReconciliation) attachSGToVNG(ctx context.Context, oceanCl
 					}
 				}
 
-				reservations, err := ec2.GetReservationsUsingFilters(ctx, r.ec2Client, []ec2types.Filter{
-					{
-						Name:   aws.String("tag:spotinst:ocean:launchspec:name"),
-						Values: []string{*vng.Name},
-					},
-					{
-						Name:   aws.String("tag:spotinst:aws:ec2:group:createdBy"),
-						Values: []string{"spotinst"},
-					},
-					{
-						Name:   aws.String("instance-state-name"),
-						Values: []string{"running"},
+				outputDescribeInstances, err := r.ec2Client.DescribeInstances(ctx, &ec2service.DescribeInstancesInput{
+					Filters: []ec2types.Filter{
+						{
+							Name:   aws.String("tag:spotinst:ocean:launchspec:name"),
+							Values: []string{*vng.Name},
+						},
+						{
+							Name:   aws.String("tag:spotinst:aws:ec2:group:createdBy"),
+							Values: []string{"spotinst"},
+						},
+						{
+							Name:   aws.String("instance-state-name"),
+							Values: []string{"running"},
+						},
 					},
 				})
 				if err != nil {
@@ -464,7 +467,7 @@ func (r *SecurityGroupReconciliation) attachSGToVNG(ctx context.Context, oceanCl
 				}
 
 				instanceIDs := []string{}
-				for _, reservation := range reservations {
+				for _, reservation := range outputDescribeInstances.Reservations {
 					for _, instance := range reservation.Instances {
 						instanceIDs = append(instanceIDs, *instance.InstanceId)
 					}
@@ -538,13 +541,20 @@ func (r *SecurityGroupReconciliation) attachSGToLaunchTemplate(ctx context.Conte
 		return err
 	}
 
-	reservations, err := ec2.GetReservationsUsingLaunchTemplate(ctx, r.ec2Client, *launchTemplate.LaunchTemplateId)
+	outputDescribeInstances, err := r.ec2Client.DescribeInstances(ctx, &ec2service.DescribeInstancesInput{
+		Filters: []ec2types.Filter{
+			{
+				Name:   aws.String("tag:aws:ec2launchtemplate:id"),
+				Values: []string{*launchTemplate.LaunchTemplateId},
+			},
+		},
+	})
 	if err != nil {
 		return err
 	}
 
 	instanceIDs := []string{}
-	for _, reservation := range reservations {
+	for _, reservation := range outputDescribeInstances.Reservations {
 		for _, instance := range reservation.Instances {
 			instanceIDs = append(instanceIDs, *instance.InstanceId)
 		}
@@ -553,6 +563,7 @@ func (r *SecurityGroupReconciliation) attachSGToLaunchTemplate(ctx context.Conte
 	err = ec2.AttachSecurityGroupToInstances(ctx, r.ec2Client, instanceIDs, sgID)
 	if err != nil {
 		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesAttachmentFailed", err.Error())
+		return err
 	}
 
 	return nil
