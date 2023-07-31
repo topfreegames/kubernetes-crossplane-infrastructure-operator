@@ -296,7 +296,7 @@ func DetachSecurityGroupFromLaunchTemplate(ctx context.Context, ec2Client EC2Cli
 }
 
 func GetLaunchTemplateFromInstanceGroup(ctx context.Context, ec2Client EC2Client, kubernetesClusterName, launchTemplateName string) (*ec2types.LaunchTemplate, error) {
-	launchTemplate, err := ec2Client.DescribeLaunchTemplates(ctx, &ec2.DescribeLaunchTemplatesInput{
+	paginator := ec2.NewDescribeLaunchTemplatesPaginator(ec2Client, &ec2.DescribeLaunchTemplatesInput{
 		Filters: []ec2types.Filter{
 			{
 				Name:   aws.String("tag:KubernetesCluster"),
@@ -308,13 +308,19 @@ func GetLaunchTemplateFromInstanceGroup(ctx context.Context, ec2Client EC2Client
 			},
 		},
 	})
-	if err != nil {
-		return nil, err
+
+	var launchTemplates []ec2types.LaunchTemplate
+	for paginator.HasMorePages() {
+		output, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		}
+		launchTemplates = append(launchTemplates, output.LaunchTemplates...)
 	}
 
-	if len(launchTemplate.LaunchTemplates) == 0 {
+	if len(launchTemplates) == 0 {
 		return nil, fmt.Errorf("failed to get launch template")
 	}
 
-	return &launchTemplate.LaunchTemplates[0], nil
+	return &launchTemplates[0], nil
 }
