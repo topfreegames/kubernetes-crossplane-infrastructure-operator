@@ -25,7 +25,6 @@ import (
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
-	securitygroupv1alpha1 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha1"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -57,7 +56,6 @@ func init() {
 	utilruntime.Must(kcontrolplanev1alpha1.AddToScheme(scheme))
 	utilruntime.Must(clusterv1beta1.AddToScheme(scheme))
 	utilruntime.Must(clustermeshv1alpha1.AddToScheme(scheme))
-	utilruntime.Must(securitygroupv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(securitygroupv1alpha2.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
@@ -101,17 +99,6 @@ func main() {
 	if err = sgcontroller.DefaultReconciler(mgr).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityGroup")
 		os.Exit(1)
-	}
-
-	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
-		if err = (&securitygroupv1alpha1.SecurityGroup{}).SetupWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", "SecurityGroup")
-			os.Exit(1)
-		}
-		if err = (&securitygroupv1alpha2.SecurityGroup{}).SetupWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", "SecurityGroup")
-			os.Exit(1)
-		}
 	}
 
 	//+kubebuilder:scaffold:builder
