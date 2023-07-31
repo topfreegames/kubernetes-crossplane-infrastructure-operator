@@ -30,7 +30,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	ec2awsv1alpha1 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha1"
+	ec2awsv1alpha2 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha2"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -62,7 +62,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	err = ec2awsv1alpha1.AddToScheme(scheme.Scheme)
+	err = ec2awsv1alpha2.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme
