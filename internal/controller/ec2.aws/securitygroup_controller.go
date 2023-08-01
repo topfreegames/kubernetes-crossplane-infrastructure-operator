@@ -39,6 +39,7 @@ import (
 	"github.com/topfreegames/provider-crossplane/pkg/spot"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	ec2service "github.com/aws/aws-sdk-go-v2/service/ec2"
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
@@ -370,8 +371,18 @@ func (r *SecurityGroupReconciliation) attachKopsMachinePool(ctx context.Context,
 				continue
 			}
 		} else if kmp.Spec.KopsInstanceGroupSpec.Manager == "Karpenter" {
-			r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, "Karpenter is not supported yet")
-			continue
+			launchTemplateName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
+			if err != nil {
+				attachErr = multierror.Append(attachErr, err)
+				continue
+			}
+
+			err = r.attachSGToLaunchTemplate(ctx, kcp.Name, launchTemplateName, csg.Status.AtProvider.SecurityGroupID)
+			if err != nil {
+				r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, err.Error())
+				attachErr = multierror.Append(attachErr, err)
+				continue
+			}
 		} else {
 			asgName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
 			if err != nil {
@@ -435,18 +446,20 @@ func (r *SecurityGroupReconciliation) attachSGToVNG(ctx context.Context, oceanCl
 					}
 				}
 
-				reservations, err := ec2.GetReservationsUsingFilters(ctx, r.ec2Client, []ec2types.Filter{
-					{
-						Name:   aws.String("tag:spotinst:ocean:launchspec:name"),
-						Values: []string{*vng.Name},
-					},
-					{
-						Name:   aws.String("tag:spotinst:aws:ec2:group:createdBy"),
-						Values: []string{"spotinst"},
-					},
-					{
-						Name:   aws.String("instance-state-name"),
-						Values: []string{"running"},
+				outputDescribeInstances, err := r.ec2Client.DescribeInstances(ctx, &ec2service.DescribeInstancesInput{
+					Filters: []ec2types.Filter{
+						{
+							Name:   aws.String("tag:spotinst:ocean:launchspec:name"),
+							Values: []string{*vng.Name},
+						},
+						{
+							Name:   aws.String("tag:spotinst:aws:ec2:group:createdBy"),
+							Values: []string{"spotinst"},
+						},
+						{
+							Name:   aws.String("instance-state-name"),
+							Values: []string{"running"},
+						},
 					},
 				})
 				if err != nil {
@@ -454,7 +467,7 @@ func (r *SecurityGroupReconciliation) attachSGToVNG(ctx context.Context, oceanCl
 				}
 
 				instanceIDs := []string{}
-				for _, reservation := range reservations {
+				for _, reservation := range outputDescribeInstances.Reservations {
 					for _, instance := range reservation.Instances {
 						instanceIDs = append(instanceIDs, *instance.InstanceId)
 					}
@@ -506,6 +519,51 @@ func (r *SecurityGroupReconciliation) attachSGToASG(ctx context.Context, asgName
 	err = ec2.AttachSecurityGroupToInstances(ctx, r.ec2Client, instanceIDs, sgID)
 	if err != nil {
 		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesAttachmentFailed", err.Error())
+	}
+
+	return nil
+}
+
+func (r *SecurityGroupReconciliation) attachSGToLaunchTemplate(ctx context.Context, kubernetesClusterName, launchTemplateName, sgID string) error {
+
+	launchTemplate, err := ec2.GetLaunchTemplateFromInstanceGroup(ctx, r.ec2Client, kubernetesClusterName, launchTemplateName)
+	if err != nil {
+		return err
+	}
+
+	launchTemplateVersion, err := ec2.GetLastLaunchTemplateVersion(ctx, r.ec2Client, *launchTemplate.LaunchTemplateId)
+	if err != nil {
+		return err
+	}
+
+	_, err = ec2.AttachSecurityGroupToLaunchTemplate(ctx, r.ec2Client, sgID, launchTemplateVersion)
+	if err != nil {
+		return err
+	}
+
+	outputDescribeInstances, err := r.ec2Client.DescribeInstances(ctx, &ec2service.DescribeInstancesInput{
+		Filters: []ec2types.Filter{
+			{
+				Name:   aws.String("tag:aws:ec2launchtemplate:id"),
+				Values: []string{*launchTemplate.LaunchTemplateId},
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	instanceIDs := []string{}
+	for _, reservation := range outputDescribeInstances.Reservations {
+		for _, instance := range reservation.Instances {
+			instanceIDs = append(instanceIDs, *instance.InstanceId)
+		}
+	}
+
+	err = ec2.AttachSecurityGroupToInstances(ctx, r.ec2Client, instanceIDs, sgID)
+	if err != nil {
+		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesAttachmentFailed", err.Error())
+		return err
 	}
 
 	return nil
@@ -593,8 +651,18 @@ func (r *SecurityGroupReconciliation) detachSGFromKopsMachinePool(ctx context.Co
 				continue
 			}
 		} else if kmp.Spec.KopsInstanceGroupSpec.Manager == "Karpenter" {
-			r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, "Karpenter is not supported yet")
-			continue
+			launchTemplateName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
+			if err != nil {
+				detachErr = multierror.Append(detachErr, err)
+				continue
+			}
+
+			err = r.detachSGFromLaunchTemplate(ctx, kmp.Spec.ClusterName, launchTemplateName, csg.Status.AtProvider.SecurityGroupID)
+			if err != nil {
+				r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, err.Error())
+				detachErr = multierror.Append(detachErr, err)
+				continue
+			}
 		} else {
 			asgName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
 			if err != nil {
@@ -673,4 +741,24 @@ func (r *SecurityGroupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&securitygroupv1alpha2.SecurityGroup{}).
 		Complete(r)
+}
+
+func (r *SecurityGroupReconciliation) detachSGFromLaunchTemplate(ctx context.Context, kubernetesClusterName, launchTemplateName, sgID string) error {
+
+	launchTemplate, err := ec2.GetLaunchTemplateFromInstanceGroup(ctx, r.ec2Client, kubernetesClusterName, launchTemplateName)
+	if err != nil {
+		return err
+	}
+
+	launchTemplateVersion, err := ec2.GetLastLaunchTemplateVersion(ctx, r.ec2Client, *launchTemplate.LaunchTemplateId)
+	if err != nil {
+		return err
+	}
+
+	_, err = ec2.DetachSecurityGroupFromLaunchTemplate(ctx, r.ec2Client, sgID, launchTemplateVersion)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

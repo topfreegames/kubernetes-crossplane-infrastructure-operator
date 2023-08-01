@@ -16,6 +16,7 @@ import (
 
 type EC2Client interface {
 	DescribeVpcs(ctx context.Context, input *ec2.DescribeVpcsInput, opts ...func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error)
+	DescribeLaunchTemplates(ctx context.Context, params *ec2.DescribeLaunchTemplatesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeLaunchTemplatesOutput, error)
 	DescribeInstances(ctx context.Context, input *ec2.DescribeInstancesInput, opts ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error)
 	DescribeLaunchTemplateVersions(ctx context.Context, params *ec2.DescribeLaunchTemplateVersionsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeLaunchTemplateVersionsOutput, error)
 	CreateLaunchTemplateVersion(ctx context.Context, params *ec2.CreateLaunchTemplateVersionInput, optFns ...func(*ec2.Options)) (*ec2.CreateLaunchTemplateVersionOutput, error)
@@ -70,7 +71,7 @@ func AttachSecurityGroupToInstances(ctx context.Context, ec2Client EC2Client, in
 	}
 
 	for _, instance := range instances {
-		if isSGAttached(instance.SecurityGroups, securityGroupID) {
+		if instance.State.Name == ec2types.InstanceStateNameTerminated || isSGAttached(instance.SecurityGroups, securityGroupID) {
 			continue
 		}
 
@@ -90,17 +91,6 @@ func AttachSecurityGroupToInstances(ctx context.Context, ec2Client EC2Client, in
 		}
 	}
 	return nil
-}
-
-func GetReservationsUsingFilters(ctx context.Context, ec2Client EC2Client, filters []ec2types.Filter) ([]ec2types.Reservation, error) {
-	instances, err := ec2Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
-		Filters: filters,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return instances.Reservations, nil
 }
 
 func GetVPCIdWithCIDRAndClusterName(ctx context.Context, ec2Client EC2Client, clusterName, CIDR string) (*string, error) {
@@ -303,4 +293,34 @@ func DetachSecurityGroupFromLaunchTemplate(ctx context.Context, ec2Client EC2Cli
 	}
 
 	return output, nil
+}
+
+func GetLaunchTemplateFromInstanceGroup(ctx context.Context, ec2Client EC2Client, kubernetesClusterName, launchTemplateName string) (*ec2types.LaunchTemplate, error) {
+	paginator := ec2.NewDescribeLaunchTemplatesPaginator(ec2Client, &ec2.DescribeLaunchTemplatesInput{
+		Filters: []ec2types.Filter{
+			{
+				Name:   aws.String("tag:KubernetesCluster"),
+				Values: []string{kubernetesClusterName},
+			},
+			{
+				Name:   aws.String("tag:Name"),
+				Values: []string{launchTemplateName},
+			},
+		},
+	})
+
+	var launchTemplates []ec2types.LaunchTemplate
+	for paginator.HasMorePages() {
+		output, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		}
+		launchTemplates = append(launchTemplates, output.LaunchTemplates...)
+	}
+
+	if len(launchTemplates) == 0 {
+		return nil, fmt.Errorf("failed to get launch template")
+	}
+
+	return &launchTemplates[0], nil
 }
