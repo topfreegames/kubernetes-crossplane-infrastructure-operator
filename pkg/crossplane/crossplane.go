@@ -54,7 +54,6 @@ func NewCrossPlaneVPCPeeringConnection(clustermesh *clustermeshv1alpha1.ClusterM
 				},
 			},
 			ResourceSpec: crossplanev1.ResourceSpec{
-				DeletionPolicy: crossplanev1.DeletionOrphan,
 				ProviderConfigReference: &crossplanev1.Reference{
 					Name: providerConfigName,
 				},
