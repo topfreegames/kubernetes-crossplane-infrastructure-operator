@@ -46,7 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/source"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const (
@@ -590,7 +590,7 @@ func PopulateClusterSpec(r *ClusterMeshReconciliation, ctx context.Context, clus
 		return clusterSpec, err
 	}
 
-	vpcId, err := ec2.GetVPCIdWithCIDRAndClusterName(ctx, r.ec2Client, r.kcp.Name, r.kcp.Spec.KopsClusterSpec.NetworkCIDR)
+	vpcId, err := ec2.GetVPCIdWithCIDRAndClusterName(ctx, r.ec2Client, r.kcp.Name, r.kcp.Spec.KopsClusterSpec.Networking.NetworkCIDR)
 	if err != nil {
 		return clusterSpec, err
 	}
@@ -604,7 +604,7 @@ func PopulateClusterSpec(r *ClusterMeshReconciliation, ctx context.Context, clus
 	clusterSpec.Namespace = cluster.Namespace
 	clusterSpec.Region = *region
 	clusterSpec.VPCID = *vpcId
-	clusterSpec.CIDR = r.kcp.Spec.KopsClusterSpec.NetworkCIDR
+	clusterSpec.CIDR = r.kcp.Spec.KopsClusterSpec.Networking.NetworkCIDR
 	clusterSpec.RouteTableIDs = routeTableIDs
 
 	return clusterSpec, nil
@@ -627,13 +627,13 @@ func (r *ClusterMeshReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&clusterv1beta1.Cluster{}).
 		Watches(
-			&source.Kind{Type: &clusterv1beta1.Cluster{}},
+			&clusterv1beta1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(r.clusterToClustersMapFunc),
 		).
 		Complete(r)
 }
 
-func (r *ClusterMeshReconciler) clusterToClustersMapFunc(o client.Object) []ctrl.Request {
+func (r *ClusterMeshReconciler) clusterToClustersMapFunc(ctx context.Context, o client.Object) []reconcile.Request {
 	c, ok := o.(*clusterv1beta1.Cluster)
 	if !ok {
 		panic(fmt.Sprintf("Expected a Cluster but got a %T", o))

@@ -71,14 +71,16 @@ var defaultKcp = &kcontrolplanev1alpha1.KopsControlPlane{
 	},
 	Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
 		KopsClusterSpec: kopsapi.ClusterSpec{
-			Subnets: []kopsapi.ClusterSubnetSpec{
-				{
-					Name: "us-east-1a",
-					Zone: "us-east-1a",
+			Networking: kopsapi.NetworkingSpec{
+				Subnets: []kopsapi.ClusterSubnetSpec{
+					{
+						Name: "us-east-1a",
+						Zone: "us-east-1a",
+					},
 				},
 			},
 		},
-		IdentityRef: &corev1.ObjectReference{
+		IdentityRef: kcontrolplanev1alpha1.IdentityRefSpec{
 			Name:      "default",
 			Namespace: "kubernetes-kops-operator-system",
 		},
@@ -418,10 +420,12 @@ func TestPopulateClusterSpec(t *testing.T) {
 					},
 					Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
 						KopsClusterSpec: kopsapi.ClusterSpec{
-							Subnets: []kopsapi.ClusterSubnetSpec{
-								{
-									Name: "us-east-1a",
-									Zone: "us-east-1a",
+							Networking: kopsapi.NetworkingSpec{
+								Subnets: []kopsapi.ClusterSubnetSpec{
+									{
+										Name: "us-east-1a",
+										Zone: "us-east-1a",
+									},
 								},
 							},
 						},
@@ -475,10 +479,12 @@ func TestPopulateClusterSpec(t *testing.T) {
 					},
 					Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
 						KopsClusterSpec: kopsapi.ClusterSpec{
-							Subnets: []kopsapi.ClusterSubnetSpec{
-								{
-									Name: "us-east-1a",
-									Zone: "us-east-1a",
+							Networking: kopsapi.NetworkingSpec{
+								Subnets: []kopsapi.ClusterSubnetSpec{
+									{
+										Name: "us-east-1a",
+										Zone: "us-east-1a",
+									},
 								},
 							},
 						},
@@ -2594,9 +2600,9 @@ func TestClusterToClustersMapFunc(t *testing.T) {
 
 			var results []reconcile.Request
 			if tc.wantPanic {
-				results = reconciler.clusterToClustersMapFunc(clustermesh)
+				results = reconciler.clusterToClustersMapFunc(context.TODO(), clustermesh)
 			} else {
-				results = reconciler.clusterToClustersMapFunc(clusterA)
+				results = reconciler.clusterToClustersMapFunc(context.TODO(), clusterA)
 			}
 
 			if tc.meshCreated {

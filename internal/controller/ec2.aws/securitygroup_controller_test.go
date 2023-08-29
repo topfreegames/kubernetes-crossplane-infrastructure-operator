@@ -215,16 +215,18 @@ var (
 		},
 		Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
 			KopsClusterSpec: kopsapi.ClusterSpec{
-				Subnets: []kopsapi.ClusterSubnetSpec{
-					{
-						Name: "test-subnet",
-						CIDR: "0.0.0.0/26",
-						Zone: "us-east-1d",
+				Networking: kopsapi.NetworkingSpec{
+					Subnets: []kopsapi.ClusterSubnetSpec{
+						{
+							Name: "test-subnet",
+							CIDR: "0.0.0.0/26",
+							Zone: "us-east-1d",
+						},
 					},
+					NetworkCIDR: "0.0.0.0/24",
 				},
-				NetworkCIDR: "0.0.0.0/24",
 			},
-			IdentityRef: &corev1.ObjectReference{
+			IdentityRef: kcontrolplanev1alpha1.IdentityRefSpec{
 				Name:      "default",
 				Namespace: "kubernetes-kops-operator-system",
 			},
@@ -238,15 +240,17 @@ var (
 		},
 		Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
 			KopsClusterSpec: kopsapi.ClusterSpec{
-				Subnets: []kopsapi.ClusterSubnetSpec{
-					{
-						Name: "test-subnet",
-						CIDR: "0.0.0.0/26",
-						Zone: "us-east-1d",
+				Networking: kopsapi.NetworkingSpec{
+					Subnets: []kopsapi.ClusterSubnetSpec{
+						{
+							Name: "test-subnet",
+							CIDR: "0.0.0.0/26",
+							Zone: "us-east-1d",
+						},
 					},
 				},
 			},
-			IdentityRef: &corev1.ObjectReference{
+			IdentityRef: kcontrolplanev1alpha1.IdentityRefSpec{
 				Name:      "test-secret",
 				Namespace: "kubernetes-kops-operator-system",
 			},
@@ -474,7 +478,8 @@ func TestSecurityGroupReconciler(t *testing.T) {
 				return &awsautoscaling.UpdateAutoScalingGroupOutput{}, nil
 			}
 			reconciler := &SecurityGroupReconciler{
-				Client: fakeClient,
+				Client:   fakeClient,
+				Recorder: record.NewFakeRecorder(5),
 				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
 					return fakeEC2Client
 				},
@@ -556,11 +561,13 @@ func TestAttachKopsMachinePool(t *testing.T) {
 					},
 					Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
 						KopsClusterSpec: kopsapi.ClusterSpec{
-							Subnets: []kopsapi.ClusterSubnetSpec{
-								{
-									Name: "test-subnet",
-									CIDR: "0.0.0.0/26",
-									Zone: "us-east-1d",
+							Networking: kopsapi.NetworkingSpec{
+								Subnets: []kopsapi.ClusterSubnetSpec{
+									{
+										Name: "test-subnet",
+										CIDR: "0.0.0.0/26",
+										Zone: "us-east-1d",
+									},
 								},
 							},
 						},
@@ -649,11 +656,13 @@ func TestAttachKopsMachinePool(t *testing.T) {
 					},
 					Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
 						KopsClusterSpec: kopsapi.ClusterSpec{
-							Subnets: []kopsapi.ClusterSubnetSpec{
-								{
-									Name: "test-subnet",
-									CIDR: "0.0.0.0/26",
-									Zone: "us-east-1d",
+							Networking: kopsapi.NetworkingSpec{
+								Subnets: []kopsapi.ClusterSubnetSpec{
+									{
+										Name: "test-subnet",
+										CIDR: "0.0.0.0/26",
+										Zone: "us-east-1d",
+									},
 								},
 							},
 						},
@@ -2300,7 +2309,7 @@ func TestSecurityGroupStatus(t *testing.T) {
 		t.Run(tc.description, func(t *testing.T) {
 			ctx := context.TODO()
 
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).WithStatusSubresource(sg).Build()
 			fakeEC2Client := &fakeec2.MockEC2Client{}
 			fakeEC2Client.MockDescribeVpcs = func(ctx context.Context, input *awsec2.DescribeVpcsInput, opts []func(*awsec2.Options)) (*awsec2.DescribeVpcsOutput, error) {
 				return &awsec2.DescribeVpcsOutput{
