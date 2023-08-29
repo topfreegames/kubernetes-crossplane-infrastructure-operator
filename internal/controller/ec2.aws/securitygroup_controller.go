@@ -50,7 +50,6 @@ import (
 	"k8s.io/utils/strings/slices"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/conditions"
-	"sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -136,17 +135,9 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	r.log.Info(fmt.Sprintf("starting reconcile loop for %s", r.sg.ObjectMeta.GetName()))
 
-	// Initialize the patch helper.
-	patchHelper, err := patch.NewHelper(r.sg, r.Client)
-	if err != nil {
-		r.log.Error(err, "failed to initialize patch helper")
-		return resultError, err
-	}
-
 	defer func() {
-		err = patchHelper.Patch(ctx, r.sg)
-		if err != nil {
-			r.log.Error(rerr, "Failed to patch security group", "sgName", r.sg.Name)
+		if err := r.Status().Update(ctx, r.sg); err != nil {
+			r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdateStatus", "failed to update security group status %s: %s", r.sg.Name, err)
 			if rerr == nil {
 				rerr = err
 			}
@@ -154,7 +145,7 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		r.log.Info(fmt.Sprintf("finished reconcile loop for %s", r.sg.ObjectMeta.GetName()))
 	}()
 
-	err = r.retrieveInfraRefInfo(ctx)
+	err := r.retrieveInfraRefInfo(ctx)
 	if err != nil {
 		return resultError, err
 	}
@@ -204,7 +195,7 @@ func (r *SecurityGroupReconciliation) retrieveInfraRefInfo(ctx context.Context) 
 		r.ec2Client = r.NewEC2ClientFactory(*awsCfg)
 		r.asgClient = r.NewAutoScalingClientFactory(*awsCfg)
 
-		vpcId, err := ec2.GetVPCIdWithCIDRAndClusterName(ctx, r.ec2Client, kcp.Name, kcp.Spec.KopsClusterSpec.NetworkCIDR)
+		vpcId, err := ec2.GetVPCIdWithCIDRAndClusterName(ctx, r.ec2Client, kcp.Name, kcp.Spec.KopsClusterSpec.Networking.NetworkCIDR)
 		if err != nil {
 			return fmt.Errorf("error retrieving vpcID: %w", err)
 		}
@@ -237,7 +228,7 @@ func (r *SecurityGroupReconciliation) retrieveInfraRefInfo(ctx context.Context) 
 		r.ec2Client = r.NewEC2ClientFactory(*awsCfg)
 		r.asgClient = r.NewAutoScalingClientFactory(*awsCfg)
 
-		vpcId, err := ec2.GetVPCIdWithCIDRAndClusterName(ctx, r.ec2Client, kcp.Name, kcp.Spec.KopsClusterSpec.NetworkCIDR)
+		vpcId, err := ec2.GetVPCIdWithCIDRAndClusterName(ctx, r.ec2Client, kcp.Name, kcp.Spec.KopsClusterSpec.Networking.NetworkCIDR)
 		if err != nil {
 			return fmt.Errorf("error retrieving vpcID: %w", err)
 		}

@@ -35,10 +35,12 @@ func TestGetRegionFromKopsControlPlane(t *testing.T) {
 				},
 				Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
 					KopsClusterSpec: kopsapi.ClusterSpec{
-						Subnets: []kopsapi.ClusterSubnetSpec{
-							{
-								Name: "us-east-1a",
-								Zone: "us-east-1a",
+						Networking: kopsapi.NetworkingSpec{
+							Subnets: []kopsapi.ClusterSubnetSpec{
+								{
+									Name: "us-east-1a",
+									Zone: "us-east-1a",
+								},
 							},
 						},
 					},
@@ -66,10 +68,12 @@ func TestGetRegionFromKopsControlPlane(t *testing.T) {
 				},
 				Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
 					KopsClusterSpec: kopsapi.ClusterSpec{
-						Subnets: []kopsapi.ClusterSubnetSpec{
-							{
-								Name: "",
-								Zone: "",
+						Networking: kopsapi.NetworkingSpec{
+							Subnets: []kopsapi.ClusterSubnetSpec{
+								{
+									Name: "",
+									Zone: "",
+								},
 							},
 						},
 					},
@@ -111,7 +115,7 @@ func TestRetrieveAWSCredentialsFromKCP(t *testing.T) {
 					Name: "kcp-test",
 				},
 				Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
-					IdentityRef: &corev1.ObjectReference{
+					IdentityRef: kcontrolplanev1alpha1.IdentityRefSpec{
 						Name:      "aws-credentials",
 						Namespace: corev1.NamespaceDefault,
 					},
@@ -137,7 +141,7 @@ func TestRetrieveAWSCredentialsFromKCP(t *testing.T) {
 					Name: "kcp-test",
 				},
 				Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
-					IdentityRef: &corev1.ObjectReference{
+					IdentityRef: kcontrolplanev1alpha1.IdentityRefSpec{
 						Name:      "aws-credentials",
 						Namespace: corev1.NamespaceDefault,
 					},
@@ -163,7 +167,7 @@ func TestRetrieveAWSCredentialsFromKCP(t *testing.T) {
 					Name: "kcp-test",
 				},
 				Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
-					IdentityRef: &corev1.ObjectReference{
+					IdentityRef: kcontrolplanev1alpha1.IdentityRefSpec{
 						Name:      "aws-credentials",
 						Namespace: corev1.NamespaceDefault,
 					},
@@ -190,7 +194,7 @@ func TestRetrieveAWSCredentialsFromKCP(t *testing.T) {
 					Name: "kcp-test",
 				},
 				Spec: kcontrolplanev1alpha1.KopsControlPlaneSpec{
-					IdentityRef: &corev1.ObjectReference{
+					IdentityRef: kcontrolplanev1alpha1.IdentityRefSpec{
 						Name:      "aws-credentials",
 						Namespace: corev1.NamespaceDefault,
 					},
