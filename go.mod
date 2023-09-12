@@ -18,18 +18,16 @@ require (
 	github.com/onsi/ginkgo/v2 v2.11.0
 	github.com/onsi/gomega v1.27.8
 	github.com/pkg/errors v0.9.1
-	github.com/topfreegames/kubernetes-kops-operator v0.7.0-alpha
+	github.com/topfreegames/kubernetes-kops-operator v0.7.1-alpha
 	go.uber.org/zap v1.24.0
 	k8s.io/api v0.27.3
 	k8s.io/apimachinery v0.27.3
 	k8s.io/client-go v0.27.3
-	k8s.io/kops v1.27.0
+	k8s.io/kops v1.27.1
 	k8s.io/kubectl v0.27.3
 	sigs.k8s.io/cluster-api v1.5.0
 	sigs.k8s.io/controller-runtime v0.15.1
 )
-
-replace k8s.io/kops v1.27.0 => github.com/topfreegames/kops v1.27.0-fix
 
 require (
 	github.com/aws/karpenter-core v0.29.0 // indirect
