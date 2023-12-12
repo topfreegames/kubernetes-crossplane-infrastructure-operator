@@ -1,8 +1,8 @@
 ---
 apiVersion: v1
 data:
-  AccessKeyID: 
-  SecretAccessKey: 
+  AccessKeyID: aws_access_key_id
+  SecretAccessKey: aws_secret_access_key
 kind: Secret
 metadata:
   name: aws-credentials
@@ -12,6 +12,7 @@ type: Opaque
 apiVersion: v1
 data:
   creds:
+    aws_full_credentials
 kind: Secret
 metadata:
   name: aws-credentials
