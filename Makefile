@@ -191,13 +191,23 @@ KIND_CLUSTER_NAME ?= kaas-cluster
 
 setup-dev-env: create-kind init-tilt
 
+cleanup-dev-env: cleanup-resources stop-tilt delete-kind
+
 create-kind:
-	bash ./hack/scripts/kind.sh $(KIND_CLUSTER_NAME) $(KIND_IMAGE_VERSION)
+	bash ./hack/scripts/create-kind-cluster.sh $(KIND_CLUSTER_NAME) $(KIND_IMAGE_VERSION)
+
+delete-kind:
+	bash ./hack/scripts/delete-kind-cluster.sh $(KIND_CLUSTER_NAME)
 
 init-tilt:
 	kind export kubeconfig --name $(KIND_CLUSTER_NAME)
-	tilt down
 	tilt up
+
+stop-tilt:
+	tilt down
+
+cleanup-resources:
+	bash ./hack/scripts/cleanup-resources.sh $(KIND_CLUSTER_NAME)
 
 # Tilt targets
 apply-crossplane:

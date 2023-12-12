@@ -2,18 +2,6 @@
 apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
-  name: crossplane-provider-aws-peering-only
-spec:
-  ignoreCrossplaneConstraints: false
-  package: quay.io/tfgco/provider-aws:v0.27.0-peering-only
-  packagePullPolicy: Always
-  revisionActivationPolicy: Automatic
-  revisionHistoryLimit: 0
-  skipDependencyResolution: false
----
-apiVersion: pkg.crossplane.io/v1
-kind: Provider
-metadata:
   name: crossplane-provider-aws
 spec:
   ignoreCrossplaneConstraints: false

@@ -11,7 +11,7 @@ type: Opaque
 ---
 apiVersion: v1
 data:
-  creds: 
+  creds:
 kind: Secret
 metadata:
   name: aws-credentials

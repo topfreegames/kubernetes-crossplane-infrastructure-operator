@@ -1,0 +1,14 @@
+apiVersion: ec2.aws.wildlife.io/v1alpha2
+kind: SecurityGroup
+metadata:
+  name: test-sg-cluster-a
+spec:
+  infrastructureRef:
+  - apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: KopsMachinePool
+    name: nodes
+    namespace: k8s-test-cluster-a
+  ingressRules:
+  - allowedCIDRs:
+    - 10.0.0.0/16
+    ipProtocol: "-1"
