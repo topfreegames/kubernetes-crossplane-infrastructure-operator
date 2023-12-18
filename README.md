@@ -23,5 +23,5 @@ If the script is successful you should see that all the components on tilt UI ar
 Now run the following script to create your testing resources
 
 ```
-KOPS_DOMAIN=k8s.us-east-1.test.playground.wildlife.io KOPS_BUCKET=kubernetes-playground-config KOPS_ZONE=us-east-1a hack/scripts/apply-cluster-crs.sh kaas-cluster
+KOPS_DOMAIN=your.k8s.domain KOPS_BUCKET=kops-config-bucket KOPS_ZONE=aws-zone hack/scripts/apply-cluster-crs.sh kaas-cluster
 ```
