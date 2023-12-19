@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsautoscaling "github.com/aws/aws-sdk-go-v2/service/autoscaling"
@@ -349,42 +348,6 @@ func TestSecurityGroupReconciler(t *testing.T) {
 				},
 			},
 			errorExpected: errors.New("infrastructureRef not supported"),
-		},
-		{
-			description: "should remove SecurityGroup with DeletionTimestamp",
-			k8sObjects: []client.Object{
-				kmp, cluster, kcp, defaultSecret, csg,
-				&securitygroupv1alpha2.SecurityGroup{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:              "test-security-group",
-						DeletionTimestamp: &metav1.Time{Time: time.Now()},
-						Finalizers: []string{
-							"securitygroup.wildlife.infrastructure.io",
-						},
-					},
-					Spec: securitygroupv1alpha2.SecurityGroupSpec{
-						IngressRules: []securitygroupv1alpha2.IngressRule{
-							{
-								IPProtocol: "TCP",
-								FromPort:   40000,
-								ToPort:     60000,
-								AllowedCIDRBlocks: []string{
-									"0.0.0.0/0",
-								},
-							},
-						},
-						InfrastructureRef: []*corev1.ObjectReference{
-							{
-								APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
-								Kind:       "KopsControlPlane",
-								Name:       "test-cluster",
-								Namespace:  metav1.NamespaceDefault,
-							},
-						},
-					},
-				},
-			},
-			expectedDeletion: true,
 		},
 		{
 			description: "should create a SecurityGroup with the same providerConfigName",

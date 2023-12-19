@@ -54,8 +54,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var (
@@ -156,17 +154,14 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}()
 
 	if r.sg.Spec.InfrastructureRef == nil {
-		r.sg.ObjectMeta.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+		// r.sg.ObjectMeta.DeletionTimestamp = &metav1.Time{Time: time.Now()}
 		// return resultDefault, fmt.Errorf("infrastructureRef not supported")
+		return r.reconcileDelete(ctx, r.sg)
 	} else {
 		err := r.retrieveInfraRefInfo(ctx)
 		if err != nil {
 			return resultError, err
 		}
-	}
-
-	if !r.sg.ObjectMeta.DeletionTimestamp.IsZero() {
-		return r.reconcileDelete(ctx, r.sg)
 	}
 
 	return r.reconcileNormal(ctx)
