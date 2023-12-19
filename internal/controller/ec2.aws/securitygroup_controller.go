@@ -136,12 +136,24 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	r.log.Info(fmt.Sprintf("starting reconcile loop for %s", r.sg.ObjectMeta.GetName()))
 
 	defer func() {
-		if err := r.Status().Update(ctx, r.sg); err != nil {
-			r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdateStatus", "failed to update security group status %s: %s", r.sg.Name, err)
+		securityGroupHelper := r.sg.DeepCopy()
+		if err := r.Update(ctx, r.sg); err != nil {
+			r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to update security group %s: %s", r.sg.Name, err)
 			if rerr == nil {
 				rerr = err
 			}
 		}
+
+		if securityGroupHelper.ObjectMeta.DeletionTimestamp.IsZero() {
+			r.sg.Status = securityGroupHelper.Status
+			if err := r.Status().Update(ctx, r.sg); err != nil {
+				r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdateStatus", "failed to update security group status %s: %s", r.sg.Name, err)
+				if rerr == nil {
+					rerr = err
+				}
+			}
+		}
+
 		r.log.Info(fmt.Sprintf("finished reconcile loop for %s", r.sg.ObjectMeta.GetName()))
 	}()
 
