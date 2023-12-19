@@ -54,6 +54,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var (
@@ -123,10 +125,6 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return resultError, client.IgnoreNotFound(err)
 	}
 
-	if r.sg.Spec.InfrastructureRef == nil {
-		return resultDefault, fmt.Errorf("infrastructureRef not supported")
-	}
-
 	if r.sg.GetAnnotations()[AnnotationKeyReconciliationPaused] == "true" {
 		r.log.Info("Reconciliation is paused via the pause annotation", "annotation", AnnotationKeyReconciliationPaused, "value", "true")
 		r.Recorder.Eventf(r.sg, corev1.EventTypeNormal, securitygroupv1alpha2.ReasonReconcilePaused, "Reconciliation is paused via the pause annotation")
@@ -145,9 +143,14 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		r.log.Info(fmt.Sprintf("finished reconcile loop for %s", r.sg.ObjectMeta.GetName()))
 	}()
 
-	err := r.retrieveInfraRefInfo(ctx)
-	if err != nil {
-		return resultError, err
+	if r.sg.Spec.InfrastructureRef == nil {
+		r.sg.ObjectMeta.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+		// return resultDefault, fmt.Errorf("infrastructureRef not supported")
+	} else {
+		err := r.retrieveInfraRefInfo(ctx)
+		if err != nil {
+			return resultError, err
+		}
 	}
 
 	if !r.sg.ObjectMeta.DeletionTimestamp.IsZero() {
