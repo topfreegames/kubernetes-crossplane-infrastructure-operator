@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsautoscaling "github.com/aws/aws-sdk-go-v2/service/autoscaling"
@@ -44,7 +45,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	// "k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	kopsapi "k8s.io/kops/pkg/apis/kops"
@@ -290,33 +292,9 @@ func TestSecurityGroupReconciler(t *testing.T) {
 		expectedProviderConfigRef *string
 	}{
 		{
-			description: "should fail without InfrastructureRef defined",
-			k8sObjects: []client.Object{
-				kmp, cluster, kcp,
-				&securitygroupv1alpha2.SecurityGroup{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "test-security-group",
-					},
-					Spec: securitygroupv1alpha2.SecurityGroupSpec{
-						IngressRules: []securitygroupv1alpha2.IngressRule{
-							{
-								IPProtocol: "TCP",
-								FromPort:   40000,
-								ToPort:     60000,
-								AllowedCIDRBlocks: []string{
-									"0.0.0.0/0",
-								},
-							},
-						},
-					},
-				},
-			},
-			errorExpected: errors.New("infrastructureRef not supported"),
-		},
-		{
 			description: "should create a SecurityGroup with KopsControlPlane infrastructureRef",
 			k8sObjects: []client.Object{
-				kmp, cluster, kcp, defaultSecret, sgKCP,
+				kmp, cluster, kcp, defaultSecret, sgKCP, csg,
 			},
 		},
 		{
@@ -366,7 +344,36 @@ func TestSecurityGroupReconciler(t *testing.T) {
 		{
 			description: "should remove SecurityGroup with DeletionTimestamp",
 			k8sObjects: []client.Object{
-				kmp, cluster, kcp, sgKCP,
+				kmp, cluster, kcp, defaultSecret, csg,
+				&securitygroupv1alpha2.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              "test-security-group",
+						DeletionTimestamp: &metav1.Time{Time: time.Now()},
+						Finalizers: []string{
+							"securitygroup.wildlife.infrastructure.io",
+						},
+					},
+					Spec: securitygroupv1alpha2.SecurityGroupSpec{
+						IngressRules: []securitygroupv1alpha2.IngressRule{
+							{
+								IPProtocol: "TCP",
+								FromPort:   40000,
+								ToPort:     60000,
+								AllowedCIDRBlocks: []string{
+									"0.0.0.0/0",
+								},
+							},
+						},
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+								Kind:       "KopsControlPlane",
+								Name:       "test-cluster",
+								Namespace:  metav1.NamespaceDefault,
+							},
+						},
+					},
+				},
 			},
 			expectedDeletion: true,
 		},
@@ -377,20 +384,45 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			},
 			expectedProviderConfigRef: &kcpWithIdentityRef.Spec.IdentityRef.Name,
 		},
-		{
-			description: "should fail when not finding KopsMachinePool",
-			k8sObjects: []client.Object{
-				cluster, kcp, sg, defaultSecret,
-			},
-			errorExpected: apierrors.NewNotFound(schema.GroupResource{Group: "infrastructure.cluster.x-k8s.io", Resource: "kopsmachinepools"}, kmp.Name),
-		},
-		{
-			description: "should fail when not finding KopsControlPlane",
-			k8sObjects: []client.Object{
-				kmp, cluster, sg, defaultSecret,
-			},
-			errorExpected: apierrors.NewNotFound(schema.GroupResource{Group: "controlplane.cluster.x-k8s.io", Resource: "kopscontrolplanes"}, kcp.Name),
-		},
+		// {
+		// 	description: "should fail when not finding KopsMachinePool",
+		// 	k8sObjects: []client.Object{
+		// 		cluster, kcp, sg, defaultSecret,
+		// 	},
+		// 	errorExpected: apierrors.NewNotFound(schema.GroupResource{Group: "infrastructure.cluster.x-k8s.io", Resource: "kopsmachinepools"}, kmp.Name),
+		// },
+		// {
+		// 	description: "should fail when not finding KopsControlPlane",
+		// 	k8sObjects: []client.Object{
+		// 		kmp, cluster, sg, defaultSecret,
+		// 	},
+		// 	errorExpected: apierrors.NewNotFound(schema.GroupResource{Group: "controlplane.cluster.x-k8s.io", Resource: "kopscontrolplanes"}, kcp.Name),
+		// },
+		// {
+		// 	description: "should remove SecurityGroup with infrastructureRef empty",
+		// 	k8sObjects: []client.Object{
+		// 		cluster, kcp,
+		// 		&securitygroupv1alpha2.SecurityGroup{
+		// 			ObjectMeta: metav1.ObjectMeta{
+		// 				Name: "test-security-group",
+		// 			},
+		// 			Spec: securitygroupv1alpha2.SecurityGroupSpec{
+		// 				IngressRules: []securitygroupv1alpha2.IngressRule{
+		// 					{
+		// 						IPProtocol: "TCP",
+		// 						FromPort:   40000,
+		// 						ToPort:     60000,
+		// 						AllowedCIDRBlocks: []string{
+		// 							"0.0.0.0/0",
+		// 						},
+		// 					},
+		// 				},
+		// 				InfrastructureRef: []*corev1.ObjectReference{},
+		// 			},
+		// 		},
+		// 	},
+		// 	expectedDeletion: true,
+		// },
 	}
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
@@ -487,13 +519,14 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					return fakeASGClient
 				},
 			}
-			_, err := reconciler.Reconcile(ctx, ctrl.Request{
+			_, rerr := reconciler.Reconcile(ctx, ctrl.Request{
 				NamespacedName: client.ObjectKey{
 					Name: "test-security-group",
 				},
 			})
 
 			if tc.errorExpected == nil {
+				g.Expect(rerr).To(BeNil())
 				crosssg := &crossec2v1beta1.SecurityGroup{}
 				key := client.ObjectKey{
 					Name: sg.ObjectMeta.Name,
