@@ -336,9 +336,29 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			},
 		},
 		{
-			description: "should create a SecurityGroup with KopsMachinePool infrastructureRef",
+			description: "should create a Crossplane SecurityGroup with KopsControlPlane infrastructureRef and return that SecurityGroups isn't available",
 			k8sObjects: []client.Object{
 				kmp, cluster, kcp, defaultSecret, sg,
+			},
+			errorExpected: ErrSecurityGroupNotAvailable,
+		},
+		{
+			description: "should update an available Crossplane SecurityGroup with KopsControlPlane infrastructureRef",
+			k8sObjects: []client.Object{
+				kmp, cluster, kcp, defaultSecret, sgKCP, csg,
+			},
+		},
+		{
+			description: "should create a Crossplane SecurityGroup with KopsMachinePool infrastructureRef and return that SecurityGroups isn't available",
+			k8sObjects: []client.Object{
+				kmp, cluster, kcp, defaultSecret, sg,
+			},
+			errorExpected: ErrSecurityGroupNotAvailable,
+		},
+		{
+			description: "should update an available Crossplane SecurityGroup with KopsMachinePool infrastructureRef",
+			k8sObjects: []client.Object{
+				kmp, cluster, kcp, defaultSecret, sg, csg,
 			},
 		},
 		{
@@ -383,13 +403,13 @@ func TestSecurityGroupReconciler(t *testing.T) {
 		{
 			description: "should create a SecurityGroup with the same providerConfigName",
 			k8sObjects: []client.Object{
-				kmp, cluster, kcpWithIdentityRef, secretForIdentityRef, sgKCP,
+				kmp, cluster, kcpWithIdentityRef, secretForIdentityRef, sgKCP, csg,
 			},
 			expectedProviderConfigRef: &kcpWithIdentityRef.Spec.IdentityRef.Name,
 		},
 		{
 			// change this test, we will not fail reconciliation anymore, we will log and continue
-			description: "should not fail when not finding KopsMachinePool",
+			description: "should fail when not finding KopsMachinePool",
 			k8sObjects: []client.Object{
 				cluster, kcp, sg, defaultSecret,
 			},
@@ -397,7 +417,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 		},
 		{
 			// change this test, we will not fail reconciliation anymore, we will log and continue
-			description: "should not fail when not finding KopsControlPlane",
+			description: "should fail when not finding KopsControlPlane",
 			k8sObjects: []client.Object{
 				kmp, cluster, sg, defaultSecret,
 			},
@@ -426,7 +446,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 		t.Run(tc.description, func(t *testing.T) {
 			ctx := context.TODO()
 
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).WithStatusSubresource(tc.k8sObjects...).Build()
 			fakeEC2Client := &fakeec2.MockEC2Client{}
 			fakeEC2Client.MockDescribeVpcs = func(ctx context.Context, input *awsec2.DescribeVpcsInput, opts []func(*awsec2.Options)) (*awsec2.DescribeVpcsOutput, error) {
 				return &awsec2.DescribeVpcsOutput{
