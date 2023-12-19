@@ -38,6 +38,7 @@ metadata:
   name: test-cluster-c.<DOMAIN>
   namespace: k8s-test-cluster-c
 spec:
+  controllerClass: dev
   identityRef:
     kind: Secret
     name: aws-credentials
@@ -46,7 +47,7 @@ spec:
     ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCo+0yqHFl+nPcg3t0NKXb8duQ/9yTuxZm/rYkNBdEOi+SeiQL8iXJFCbiSKhdwzIyM7fwqSYNE4FV//rNnkVw9Lm1zDiDL8JcRRmO0qnWOb+q68AOJkm5sYELFdQBddO6DFI1oWjMJ083LzvWQTu6OYaSoHNUbFvx8/LvBIfCGdkWhxrhroh6UTVA1ePHn3a+WAZylko/gMlobEvVCkWtKtCfIpgeuXm8Y+l0I5Lj6rejxBpcms7GgvxRh5rUkkCkrSUkjg4ngC0bfucit3vjWO+TBJdHOnDZkfS3MA473VpftMM2DI2rK5K2YnMr2CJWYYk7fM5gMS9q+hKcny63nzIrZTxNqGY6F64sm8grEv9yabIk+QumWYdu/g8CmImsQC1wNJEv/uNTpffC/eFjXkhtMqpn+Yk+q8KYe7VaXWcHmdX0XHVwM/EByTzqMhnM4cm8H40XttQTYV1QvFrHDNw1aPDgKcmlFGIjmtP0Ek6f/uvbC4v+X9pUZb3fnOG4XK/d1jDZChaQn1XnbcaCjDipq/yYo7WlS3lagR6nk8KeQTasMGrJGwaxVOj/LjIfynARDql9tRXUFmHepiEOE01+30ycVcAgBrgJ/gjxGy0zqOVZFV+oYXo4AXxUrWYislwGh5MHHWxbp6NN+6qMO33D+UzKMifB5vFoqQw+9fQ==
   kopsClusterSpec:
     additionalPolicies:
-      master: |
+      control-plane: |
         [
           {
             "Effect": "Allow",
@@ -73,10 +74,9 @@ spec:
           }
         ]
     api:
-      loadBalancer:
-        class: Classic
-        idleTimeoutSeconds: 4000
-        type: Public
+      access:
+      - 0.0.0.0/0
+      publicName: api.test-cluster-c.<DOMAIN>
     authorization:
       rbac: {}
     channel: stable
@@ -120,7 +120,7 @@ spec:
     externalPolicies:
       bastion:
       - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-      master:
+      control-plane:
       - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
       node:
       - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
@@ -165,36 +165,31 @@ spec:
       authenticationTokenWebhook: true
       authorizationMode: Webhook
       readOnlyPort: 0
-    kubernetesAPIAccess:
+    sshAccess:
     - 0.0.0.0/0
     kubernetesVersion: 1.24.14
-    masterPublicName: api.test-cluster-c.<DOMAIN>
-    networkCIDR: 172.24.234.0/24
-    nonMasqueradeCIDR: 10.2.0.0/16
     networking:
+      networkCIDR: 172.24.234.0/24
+      nonMasqueradeCIDR: 10.2.0.0/16
       cilium: {}
+      topology:
+        controlPlane: public
+        dns: Public
+        nodes: public
+      subnets:
+      - cidr: 172.24.234.0/25
+        name: default
+        type: Private
+        zone: <ZONE> 
+      - cidr: 172.24.234.128/25
+        name: utility
+        type: Utility
+        zone: <ZONE>
     rollingUpdate:
       maxSurge: 1
       maxUnavailable: 0
     sshAccess:
     - 0.0.0.0/0
-    subnets:
-    - cidr: 172.24.234.0/25
-      name: default
-      type: Private
-      zone: <ZONE> 
-    - cidr: 172.24.234.128/25
-      name: utility
-      type: Utility
-      zone: <ZONE>
-    topology:
-      dns:
-        type: Public
-      bastion:
-        publicName: bastion.test-cluster-c.<DOMAIN>
-        idleTimeoutSeconds: 3600
-      masters: private
-      nodes: private
   kopsSecret:
     apiVersion: v1
     kind: Secret
@@ -228,8 +223,9 @@ spec:
       kops.k8s.io/managed-by: kops-controller
       nodes: "true"
     role: Node
-    rootVolumeSize: 60
-    rootVolumeType: gp3
+    rootVolume: 
+      size: 60
+      type: gp3
     subnets:
     - default
 ---
@@ -258,8 +254,9 @@ spec:
       kops.k8s.io/instancegroup: bastions
       kops.k8s.io/managed-by: kops-controller
     role: Bastion
-    rootVolumeSize: 60
-    rootVolumeType: gp3
+    rootVolume: 
+      size: 60
+      type: gp3
     subnets:
     - utility
 ---
@@ -287,9 +284,10 @@ spec:
       kops.k8s.io/instance-group-role: Master
       kops.k8s.io/instancegroup: master
       kops.k8s.io/managed-by: kops-controller
-    role: Master
-    rootVolumeSize: 50
-    rootVolumeType: gp3
+    role: ControlPlane
+    rootVolume: 
+      size: 60
+      type: gp3
     subnets:
     - default
 ---
