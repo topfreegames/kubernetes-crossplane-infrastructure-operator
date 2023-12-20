@@ -153,7 +153,36 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		r.log.Info(fmt.Sprintf("finished reconcile loop for %s", r.sg.ObjectMeta.GetName()))
 	}()
 
-	if r.sg.Spec.InfrastructureRef == nil {
+	existingInfrastructureRef := []*corev1.ObjectReference{}
+
+	for _, infrastructureRef := range r.sg.Spec.InfrastructureRef {
+		switch infrastructureRef.Kind {
+		case "KopsMachinePool":
+			kmp := kinfrastructurev1alpha1.KopsMachinePool{}
+			key := client.ObjectKey{
+				Name:      infrastructureRef.Name,
+				Namespace: infrastructureRef.Namespace,
+			}
+			if err := r.Client.Get(ctx, key, &kmp); err == nil {
+				existingInfrastructureRef = append(existingInfrastructureRef, infrastructureRef)
+			}
+		case "KopsControlPlane":
+			kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+			key := client.ObjectKey{
+				Name:      infrastructureRef.Name,
+				Namespace: infrastructureRef.Namespace,
+			}
+			err := r.Client.Get(ctx, key, kcp)
+			if err == nil {
+				existingInfrastructureRef = append(existingInfrastructureRef, infrastructureRef)
+			}
+		default:
+			existingInfrastructureRef = append(existingInfrastructureRef, infrastructureRef)
+		}
+	}
+	r.sg.Spec.InfrastructureRef = existingInfrastructureRef
+
+	if len(r.sg.Spec.InfrastructureRef) == 0 {
 		// r.sg.ObjectMeta.DeletionTimestamp = &metav1.Time{Time: time.Now()}
 		// return resultDefault, fmt.Errorf("infrastructureRef not supported")
 		return r.reconcileDelete(ctx, r.sg)
@@ -168,10 +197,13 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 }
 
 func (r *SecurityGroupReconciliation) retrieveInfraRefInfo(ctx context.Context) error {
-	if len(r.sg.Spec.InfrastructureRef) == 0 {
-		return fmt.Errorf("no infrastructureRef found")
-	}
+	// TODO: add unit tests to this function that ensures it returns error if infraref is empty
+	// if len(r.sg.Spec.InfrastructureRef) == 0 {
+	// 	return fmt.Errorf("no infrastructureRef found")
+	// }
 
+	/* Only need to use the first infrastructureRef element cause SecurityGroups are region and VPC bounded,
+	no need to iterate over all, they all belong to the same region and VPC.*/
 	switch r.sg.Spec.InfrastructureRef[0].Kind {
 	case "KopsMachinePool":
 		kmp := kinfrastructurev1alpha1.KopsMachinePool{}
