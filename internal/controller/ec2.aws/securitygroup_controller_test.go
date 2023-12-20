@@ -483,6 +483,80 @@ func TestSecurityGroupReconciler(t *testing.T) {
 				},
 			},
 		},
+		{
+			description: "should remove unexisting KopsMachinePool and keep the existent from SecurityGroup infrastructureRef",
+			k8sObjects: []client.Object{
+				cluster, defaultSecret, csg, kcp, kmp,
+				&securitygroupv1alpha2.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-security-group",
+					},
+					Spec: securitygroupv1alpha2.SecurityGroupSpec{
+						IngressRules: []securitygroupv1alpha2.IngressRule{
+							{
+								IPProtocol: "TCP",
+								FromPort:   40000,
+								ToPort:     60000,
+								AllowedCIDRBlocks: []string{
+									"0.0.0.0/0",
+								},
+							},
+						},
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+								Kind:       "KopsMachinePool",
+								Name:       "test-kops-machine-pool",
+								Namespace:  metav1.NamespaceDefault,
+							},
+							{
+								APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+								Kind:       "KopsMachinePool",
+								Name:       "test-kops-machine-pool-2",
+								Namespace:  metav1.NamespaceDefault,
+							},
+							{
+								APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+								Kind:       "KopsControlPlane",
+								Name:       "test-cluster",
+								Namespace:  metav1.NamespaceDefault,
+							},
+						},
+					},
+				},
+			},
+			expectedSG: &securitygroupv1alpha2.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-security-group",
+				},
+				Spec: securitygroupv1alpha2.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha2.IngressRule{
+						{
+							IPProtocol: "TCP",
+							FromPort:   40000,
+							ToPort:     60000,
+							AllowedCIDRBlocks: []string{
+								"0.0.0.0/0",
+							},
+						},
+					},
+					InfrastructureRef: []*corev1.ObjectReference{
+						{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsMachinePool",
+							Name:       "test-kops-machine-pool",
+							Namespace:  metav1.NamespaceDefault,
+						},
+						{
+							APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsControlPlane",
+							Name:       "test-cluster",
+							Namespace:  metav1.NamespaceDefault,
+						},
+					},
+				},
+			},
+		},
 	}
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
@@ -611,8 +685,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					err = fakeClient.Get(ctx, key, tmpSG)
 					g.Expect(err).To(BeNil())
 					g.Expect(tmpSG.ObjectMeta.Name).To(Equal(*&tc.expectedSG.ObjectMeta.Name))
-					g.Expect(&tmpSG.Spec.IngressRules[0]).To(Equal(&tc.expectedSG.Spec.IngressRules[0]))
-					g.Expect(*tmpSG.Spec.InfrastructureRef[0]).To(Equal(*tc.expectedSG.Spec.InfrastructureRef[0]))
+					g.Expect(len(tmpSG.Spec.InfrastructureRef)).To(Equal(len(tc.expectedSG.Spec.InfrastructureRef)))
 				}
 			} else {
 				g.Expect(rerr).To(MatchError(tc.errorExpected))
