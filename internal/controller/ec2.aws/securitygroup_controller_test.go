@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsautoscaling "github.com/aws/aws-sdk-go-v2/service/autoscaling"
@@ -44,6 +45,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	// "k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -290,6 +292,8 @@ func TestSecurityGroupReconciler(t *testing.T) {
 		expectedDeletion          bool
 		expectedProviderConfigRef *string
 		expectedSG                *securitygroupv1alpha2.SecurityGroup
+		expectedKMPKept           bool
+		expectedKCPKept           bool
 	}{
 		{
 			description: "should create a Crossplane SecurityGroup with KopsControlPlane infrastructureRef and return that SecurityGroups isn't available",
@@ -356,20 +360,28 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			},
 			expectedProviderConfigRef: &kcpWithIdentityRef.Spec.IdentityRef.Name,
 		},
+		{
+			description: "should fail when not finding KopsMachinePool",
+			k8sObjects: []client.Object{
+				cluster, kcp, sgKCP, defaultSecret,
+			},
+			errorExpected: errors.New("security group not available"),
+		},
 		// {
-		// 	description: "should fail when not finding KopsMachinePool",
+		// 	description: "should fail when nothing is ready yet",
 		// 	k8sObjects: []client.Object{
-		// 		cluster, kcp, sg, defaultSecret,
+		// 		cluster, sg, defaultSecret,
 		// 	},
 		// 	errorExpected: apierrors.NewNotFound(schema.GroupResource{Group: "infrastructure.cluster.x-k8s.io", Resource: "kopsmachinepools"}, kmp.Name),
+		// 	// errorExpected: errors.New("security group not available"),
 		// },
-		// {
-		// 	description: "should fail when not finding KopsControlPlane",
-		// 	k8sObjects: []client.Object{
-		// 		kmp, cluster, sg, defaultSecret,
-		// 	},
-		// 	errorExpected: apierrors.NewNotFound(schema.GroupResource{Group: "controlplane.cluster.x-k8s.io", Resource: "kopscontrolplanes"}, kcp.Name),
-		// },
+		{
+			description: "should fail when not finding KopsControlPlane",
+			k8sObjects: []client.Object{
+				kmp, cluster, sg, defaultSecret,
+			},
+			errorExpected: apierrors.NewNotFound(schema.GroupResource{Group: "controlplane.cluster.x-k8s.io", Resource: "kopscontrolplanes"}, kcp.Name),
+		},
 		{
 			description: "should remove SecurityGroup with infrastructureRef empty",
 			k8sObjects: []client.Object{
@@ -557,6 +569,50 @@ func TestSecurityGroupReconciler(t *testing.T) {
 				},
 			},
 		},
+		{
+			description: "should remove SecurityGroup with DeletionTimestamp and keep referenced pools",
+			k8sObjects: []client.Object{
+				cluster, kcp, defaultSecret, csg, kmp,
+				&securitygroupv1alpha2.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              "test-security-group",
+						DeletionTimestamp: &metav1.Time{Time: time.Now()},
+						Finalizers: []string{
+							"securitygroup.wildlife.infrastructure.io",
+						},
+					},
+					Spec: securitygroupv1alpha2.SecurityGroupSpec{
+						IngressRules: []securitygroupv1alpha2.IngressRule{
+							{
+								IPProtocol: "TCP",
+								FromPort:   40000,
+								ToPort:     60000,
+								AllowedCIDRBlocks: []string{
+									"0.0.0.0/0",
+								},
+							},
+						},
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+								Kind:       "KopsMachinePool",
+								Name:       "test-kops-machine-pool",
+								Namespace:  metav1.NamespaceDefault,
+							},
+							{
+								APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+								Kind:       "KopsControlPlane",
+								Name:       "test-cluster",
+								Namespace:  metav1.NamespaceDefault,
+							},
+						},
+					},
+				},
+			},
+			expectedDeletion: true,
+			expectedKCPKept:  true,
+			expectedKMPKept:  true,
+		},
 	}
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
@@ -686,6 +742,26 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					g.Expect(err).To(BeNil())
 					g.Expect(tmpSG.ObjectMeta.Name).To(Equal(*&tc.expectedSG.ObjectMeta.Name))
 					g.Expect(len(tmpSG.Spec.InfrastructureRef)).To(Equal(len(tc.expectedSG.Spec.InfrastructureRef)))
+				}
+
+				if tc.expectedKCPKept {
+					controlplane := &kcontrolplanev1alpha1.KopsControlPlane{}
+					key := client.ObjectKey{
+						Name:      kcp.Name,
+						Namespace: kcp.Namespace,
+					}
+					err = fakeClient.Get(ctx, key, controlplane)
+					g.Expect(err).To(BeNil())
+				}
+
+				if tc.expectedKMPKept {
+					machinepool := &kinfrastructurev1alpha1.KopsMachinePool{}
+					key := client.ObjectKey{
+						Name:      kmp.Name,
+						Namespace: kmp.Namespace,
+					}
+					err = fakeClient.Get(ctx, key, machinepool)
+					g.Expect(err).To(BeNil())
 				}
 			} else {
 				g.Expect(rerr).To(MatchError(tc.errorExpected))

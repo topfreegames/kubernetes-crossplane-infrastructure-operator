@@ -182,107 +182,103 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 	r.sg.Spec.InfrastructureRef = existingInfrastructureRef
 
-	if len(r.sg.Spec.InfrastructureRef) == 0 {
-		// r.sg.ObjectMeta.DeletionTimestamp = &metav1.Time{Time: time.Now()}
-		// return resultDefault, fmt.Errorf("infrastructureRef not supported")
+	err := r.retrieveInfraRefInfo(ctx)
+	if err != nil {
+		return resultError, err
+	}
+
+	if len(r.sg.Spec.InfrastructureRef) == 0 || !r.sg.ObjectMeta.DeletionTimestamp.IsZero() {
 		return r.reconcileDelete(ctx, r.sg)
-	} else {
-		err := r.retrieveInfraRefInfo(ctx)
-		if err != nil {
-			return resultError, err
-		}
 	}
 
 	return r.reconcileNormal(ctx)
 }
 
 func (r *SecurityGroupReconciliation) retrieveInfraRefInfo(ctx context.Context) error {
-	// TODO: add unit tests to this function that ensures it returns error if infraref is empty
-	// if len(r.sg.Spec.InfrastructureRef) == 0 {
-	// 	return fmt.Errorf("no infrastructureRef found")
-	// }
-
 	/* Only need to use the first infrastructureRef element cause SecurityGroups are region and VPC bounded,
 	no need to iterate over all, they all belong to the same region and VPC.*/
-	switch r.sg.Spec.InfrastructureRef[0].Kind {
-	case "KopsMachinePool":
-		kmp := kinfrastructurev1alpha1.KopsMachinePool{}
-		key := client.ObjectKey{
-			Name:      r.sg.Spec.InfrastructureRef[0].Name,
-			Namespace: r.sg.Spec.InfrastructureRef[0].Namespace,
+	if len(r.sg.Spec.InfrastructureRef) != 0 {
+		switch r.sg.Spec.InfrastructureRef[0].Kind {
+		case "KopsMachinePool":
+			kmp := kinfrastructurev1alpha1.KopsMachinePool{}
+			key := client.ObjectKey{
+				Name:      r.sg.Spec.InfrastructureRef[0].Name,
+				Namespace: r.sg.Spec.InfrastructureRef[0].Namespace,
+			}
+			if err := r.Client.Get(ctx, key, &kmp); err != nil {
+				return err
+			}
+
+			kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+			key = client.ObjectKey{
+				Name:      kmp.Spec.ClusterName,
+				Namespace: kmp.ObjectMeta.Namespace,
+			}
+			if err := r.Client.Get(ctx, key, kcp); err != nil {
+				return err
+			}
+
+			region, err := kopsutils.GetRegionFromKopsControlPlane(ctx, kcp)
+			if err != nil {
+				return fmt.Errorf("error retrieving region: %w", err)
+			}
+
+			providerConfigName, awsCfg, err := kopsutils.RetrieveAWSCredentialsFromKCP(ctx, r.Client, region, kcp)
+			if err != nil {
+				return err
+			}
+
+			r.ec2Client = r.NewEC2ClientFactory(*awsCfg)
+			r.asgClient = r.NewAutoScalingClientFactory(*awsCfg)
+
+			vpcId, err := ec2.GetVPCIdWithCIDRAndClusterName(ctx, r.ec2Client, kcp.Name, kcp.Spec.KopsClusterSpec.Networking.NetworkCIDR)
+			if err != nil {
+				return fmt.Errorf("error retrieving vpcID: %w", err)
+			}
+
+			r.providerConfigName = providerConfigName
+			r.region = region
+			r.vpcId = vpcId
+
+			return nil
+		case "KopsControlPlane":
+			kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+			key := client.ObjectKey{
+				Name:      r.sg.Spec.InfrastructureRef[0].Name,
+				Namespace: r.sg.Spec.InfrastructureRef[0].Namespace,
+			}
+			if err := r.Client.Get(ctx, key, kcp); err != nil {
+				return err
+			}
+
+			region, err := kopsutils.GetRegionFromKopsControlPlane(ctx, kcp)
+			if err != nil {
+				return fmt.Errorf("error retrieving region: %w", err)
+			}
+
+			providerConfigName, awsCfg, err := kopsutils.RetrieveAWSCredentialsFromKCP(ctx, r.Client, region, kcp)
+			if err != nil {
+				return err
+			}
+
+			r.ec2Client = r.NewEC2ClientFactory(*awsCfg)
+			r.asgClient = r.NewAutoScalingClientFactory(*awsCfg)
+
+			vpcId, err := ec2.GetVPCIdWithCIDRAndClusterName(ctx, r.ec2Client, kcp.Name, kcp.Spec.KopsClusterSpec.Networking.NetworkCIDR)
+			if err != nil {
+				return fmt.Errorf("error retrieving vpcID: %w", err)
+			}
+
+			r.providerConfigName = providerConfigName
+			r.region = region
+			r.vpcId = vpcId
+
+			return nil
+		default:
+			return fmt.Errorf("infrastructureRef not supported")
 		}
-		if err := r.Client.Get(ctx, key, &kmp); err != nil {
-			return err
-		}
-
-		kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
-		key = client.ObjectKey{
-			Name:      kmp.Spec.ClusterName,
-			Namespace: kmp.ObjectMeta.Namespace,
-		}
-		if err := r.Client.Get(ctx, key, kcp); err != nil {
-			return err
-		}
-
-		region, err := kopsutils.GetRegionFromKopsControlPlane(ctx, kcp)
-		if err != nil {
-			return fmt.Errorf("error retrieving region: %w", err)
-		}
-
-		providerConfigName, awsCfg, err := kopsutils.RetrieveAWSCredentialsFromKCP(ctx, r.Client, region, kcp)
-		if err != nil {
-			return err
-		}
-
-		r.ec2Client = r.NewEC2ClientFactory(*awsCfg)
-		r.asgClient = r.NewAutoScalingClientFactory(*awsCfg)
-
-		vpcId, err := ec2.GetVPCIdWithCIDRAndClusterName(ctx, r.ec2Client, kcp.Name, kcp.Spec.KopsClusterSpec.Networking.NetworkCIDR)
-		if err != nil {
-			return fmt.Errorf("error retrieving vpcID: %w", err)
-		}
-
-		r.providerConfigName = providerConfigName
-		r.region = region
-		r.vpcId = vpcId
-
-		return nil
-	case "KopsControlPlane":
-		kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
-		key := client.ObjectKey{
-			Name:      r.sg.Spec.InfrastructureRef[0].Name,
-			Namespace: r.sg.Spec.InfrastructureRef[0].Namespace,
-		}
-		if err := r.Client.Get(ctx, key, kcp); err != nil {
-			return err
-		}
-
-		region, err := kopsutils.GetRegionFromKopsControlPlane(ctx, kcp)
-		if err != nil {
-			return fmt.Errorf("error retrieving region: %w", err)
-		}
-
-		providerConfigName, awsCfg, err := kopsutils.RetrieveAWSCredentialsFromKCP(ctx, r.Client, region, kcp)
-		if err != nil {
-			return err
-		}
-
-		r.ec2Client = r.NewEC2ClientFactory(*awsCfg)
-		r.asgClient = r.NewAutoScalingClientFactory(*awsCfg)
-
-		vpcId, err := ec2.GetVPCIdWithCIDRAndClusterName(ctx, r.ec2Client, kcp.Name, kcp.Spec.KopsClusterSpec.Networking.NetworkCIDR)
-		if err != nil {
-			return fmt.Errorf("error retrieving vpcID: %w", err)
-		}
-
-		r.providerConfigName = providerConfigName
-		r.region = region
-		r.vpcId = vpcId
-
-		return nil
-	default:
-		return fmt.Errorf("infrastructureRef not supported")
 	}
+	return nil
 }
 
 func (r *SecurityGroupReconciliation) reconcileNormal(ctx context.Context) (ctrl.Result, error) {
