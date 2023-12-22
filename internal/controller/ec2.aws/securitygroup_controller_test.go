@@ -736,11 +736,11 @@ func TestSecurityGroupReconciler(t *testing.T) {
 				if tc.expectedSG != nil {
 					tmpSG := &securitygroupv1alpha2.SecurityGroup{}
 					key := client.ObjectKey{
-						Name: *&tc.expectedSG.Name,
+						Name: tc.expectedSG.Name,
 					}
 					err = fakeClient.Get(ctx, key, tmpSG)
 					g.Expect(err).To(BeNil())
-					g.Expect(tmpSG.ObjectMeta.Name).To(Equal(*&tc.expectedSG.ObjectMeta.Name))
+					g.Expect(tmpSG.ObjectMeta.Name).To(Equal(tc.expectedSG.ObjectMeta.Name))
 					g.Expect(len(tmpSG.Spec.InfrastructureRef)).To(Equal(len(tc.expectedSG.Spec.InfrastructureRef)))
 				}
 
