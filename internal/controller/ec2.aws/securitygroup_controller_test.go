@@ -85,6 +85,16 @@ var (
 		},
 	}
 
+	sgEmpty = &securitygroupv1alpha2.SecurityGroup{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-security-group",
+		},
+		Spec: securitygroupv1alpha2.SecurityGroupSpec{
+			IngressRules:      []securitygroupv1alpha2.IngressRule{},
+			InfrastructureRef: []*corev1.ObjectReference{},
+		},
+	}
+
 	sgKCP = &securitygroupv1alpha2.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-security-group",
@@ -326,9 +336,9 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			},
 		},
 		{
-			description: "should create a SecurityGroup with KopsControlPlane infrastructureRef",
+			description: "should create a SecurityGroup with KopsMachinePool infrastructureRef",
 			k8sObjects: []client.Object{
-				kmp, cluster, kcp, defaultSecret, sgKCP,
+				kmp, cluster, kcp, defaultSecret, sg,
 			},
 		},
 		{
@@ -378,14 +388,16 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			expectedProviderConfigRef: &kcpWithIdentityRef.Spec.IdentityRef.Name,
 		},
 		{
-			description: "should fail when not finding KopsMachinePool",
+			// change this test, we will not fail reconciliation anymore, we will log and continue
+			description: "should not fail when not finding KopsMachinePool",
 			k8sObjects: []client.Object{
 				cluster, kcp, sg, defaultSecret,
 			},
 			errorExpected: apierrors.NewNotFound(schema.GroupResource{Group: "infrastructure.cluster.x-k8s.io", Resource: "kopsmachinepools"}, kmp.Name),
 		},
 		{
-			description: "should fail when not finding KopsControlPlane",
+			// change this test, we will not fail reconciliation anymore, we will log and continue
+			description: "should not fail when not finding KopsControlPlane",
 			k8sObjects: []client.Object{
 				kmp, cluster, sg, defaultSecret,
 			},
@@ -511,6 +523,155 @@ func TestSecurityGroupReconciler(t *testing.T) {
 				}
 			} else {
 				g.Expect(err).To(MatchError(tc.errorExpected))
+			}
+		})
+	}
+}
+
+func TestRetrieveInfraRefInfo(t *testing.T) {
+
+	testCases := []struct {
+		description          string
+		k8sObjects           []client.Object
+		errorExpected        error
+		targetSG             *securitygroupv1alpha2.SecurityGroup
+		mockUpdateLaunchSpec func(context.Context, *oceanaws.UpdateLaunchSpecInput) (*oceanaws.UpdateLaunchSpecOutput, error)
+	}{
+		{
+			description: "should return error when infrastructureRef empty",
+			k8sObjects: []client.Object{
+				cluster,
+				defaultSecret,
+			},
+			targetSG:      sgEmpty,
+			errorExpected: errors.New("no infrastructureRef found"),
+		},
+		{
+			description: "should return error when all refs fail to get KMP",
+			k8sObjects: []client.Object{
+				cluster,
+				defaultSecret,
+			},
+			targetSG:      sg,
+			errorExpected: apierrors.NewNotFound(schema.GroupResource{Group: "infrastructure.cluster.x-k8s.io", Resource: "kopsmachinepools"}, kmp.Name),
+		},
+		{
+			description: "should return error when all refs fail to get KCP of KMP",
+			k8sObjects: []client.Object{
+				cluster,
+				kmp,
+				defaultSecret,
+			},
+			targetSG:      sg,
+			errorExpected: apierrors.NewNotFound(schema.GroupResource{Group: "controlplane.cluster.x-k8s.io", Resource: "kopscontrolplanes"}, cluster.Name),
+		},
+		{
+			description: "should return nil",
+			k8sObjects: []client.Object{
+				cluster,
+				kmp,
+				kcp,
+				defaultSecret,
+			},
+			targetSG: sg,
+		},
+		{
+			description: "should return error when all refs fail to get KCP",
+			k8sObjects: []client.Object{
+				cluster,
+				defaultSecret,
+			},
+			targetSG:      sgKCP,
+			errorExpected: apierrors.NewNotFound(schema.GroupResource{Group: "controlplane.cluster.x-k8s.io", Resource: "kopscontrolplanes"}, cluster.Name),
+		},
+		{
+			description: "should return error when all refs are from unknown type",
+			k8sObjects: []client.Object{
+				cluster,
+				defaultSecret,
+			},
+			targetSG: &securitygroupv1alpha2.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-security-group",
+				},
+				Spec: securitygroupv1alpha2.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha2.IngressRule{},
+					InfrastructureRef: []*corev1.ObjectReference{
+						{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "FakeMachinePool",
+							Name:       "test-fake-machine-pool",
+							Namespace:  metav1.NamespaceDefault,
+						},
+					},
+				},
+			},
+			errorExpected: errors.New("infrastructureRef not supported"),
+		},
+	}
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	err := clusterv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = securitygroupv1alpha2.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = kcontrolplanev1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			ctx := context.TODO()
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
+			fakeEC2Client := &fakeec2.MockEC2Client{}
+
+			fakeEC2Client.MockDescribeVpcs = func(ctx context.Context, input *awsec2.DescribeVpcsInput, opts []func(*awsec2.Options)) (*awsec2.DescribeVpcsOutput, error) {
+				return &awsec2.DescribeVpcsOutput{
+					Vpcs: []ec2types.Vpc{
+						{
+							VpcId: aws.String("x.x.x.x"),
+						},
+					},
+				}, nil
+			}
+
+			fakeASGClient := &fakeasg.MockAutoScalingClient{}
+
+			reconciler := SecurityGroupReconciler{
+				Client: fakeClient,
+				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
+					return fakeEC2Client
+				},
+				NewAutoScalingClientFactory: func(cfg aws.Config) autoscaling.AutoScalingClient {
+					return fakeASGClient
+				},
+			}
+
+			reconciliation := &SecurityGroupReconciliation{
+				SecurityGroupReconciler: reconciler,
+				log:                     ctrl.LoggerFrom(ctx),
+				sg:                      tc.targetSG,
+				ec2Client:               reconciler.NewEC2ClientFactory(aws.Config{}),
+				asgClient:               reconciler.NewAutoScalingClientFactory(aws.Config{}),
+			}
+
+			err = reconciliation.retrieveInfraRefInfo(ctx)
+			if tc.errorExpected == nil {
+				if !errors.Is(err, ErrSecurityGroupNotAvailable) {
+					g.Expect(err).To(BeNil())
+				}
+
+			} else {
+				g.Expect(tc.errorExpected).To(MatchError(err))
 			}
 		})
 	}
