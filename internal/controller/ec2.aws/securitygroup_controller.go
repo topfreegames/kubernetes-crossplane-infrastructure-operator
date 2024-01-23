@@ -147,6 +147,8 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	err := r.retrieveInfraRefInfo(ctx)
 	if err != nil {
+		r.log.Error(err, fmt.Sprintf("could not retrieve infra info from any of refs of security group %v", r.sg))
+		// should we fail reconciliation here?
 		return resultError, err
 	}
 
