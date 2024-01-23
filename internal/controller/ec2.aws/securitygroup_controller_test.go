@@ -608,6 +608,342 @@ func TestRetrieveInfraRefInfo(t *testing.T) {
 			},
 			errorExpected: errors.New("infrastructureRef not supported"),
 		},
+		{
+			description: "should not fail when one of the refs kmp does not exists",
+			k8sObjects: []client.Object{
+				cluster,
+				kmp,
+				kcp,
+				defaultSecret,
+			},
+			targetSG: &securitygroupv1alpha2.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-security-group",
+				},
+				Spec: securitygroupv1alpha2.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha2.IngressRule{},
+					InfrastructureRef: []*corev1.ObjectReference{
+						{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsMachinePool",
+							Name:       "test-kops-machine-pool-fake",
+							Namespace:  metav1.NamespaceDefault,
+						},
+						{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsMachinePool",
+							Name:       "test-kops-machine-pool",
+							Namespace:  metav1.NamespaceDefault,
+						},
+					},
+				},
+			},
+		},
+		{
+			description: "should not fail when one of the refs kmp does not exists but kcp exists",
+			k8sObjects: []client.Object{
+				cluster,
+				kcp,
+				defaultSecret,
+			},
+			targetSG: &securitygroupv1alpha2.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-security-group",
+				},
+				Spec: securitygroupv1alpha2.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha2.IngressRule{},
+					InfrastructureRef: []*corev1.ObjectReference{
+						{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsMachinePool",
+							Name:       "test-kops-machine-pool",
+							Namespace:  metav1.NamespaceDefault,
+						},
+						{
+							APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsControlPlane",
+							Name:       "test-cluster",
+							Namespace:  metav1.NamespaceDefault,
+						},
+					},
+				},
+			},
+		},
+		{
+			description: "should fail when all refs are incomplete kmp",
+			k8sObjects: []client.Object{
+				cluster,
+				kmp,
+				defaultSecret,
+			},
+			targetSG: &securitygroupv1alpha2.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-security-group",
+				},
+				Spec: securitygroupv1alpha2.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha2.IngressRule{},
+					InfrastructureRef: []*corev1.ObjectReference{
+						{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsMachinePool",
+							Name:       "test-kops-machine-pool-fake",
+							Namespace:  metav1.NamespaceDefault,
+						},
+						{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsMachinePool",
+							Name:       "test-kops-machine-pool",
+							Namespace:  metav1.NamespaceDefault,
+						},
+					},
+				},
+			},
+			errorExpected: apierrors.NewNotFound(schema.GroupResource{Group: "controlplane.cluster.x-k8s.io", Resource: "kopscontrolplanes"}, cluster.Name),
+		},
+		{
+			description: "should not fail when one of the refs kcp does not exists but kmp exists",
+			k8sObjects: []client.Object{
+				cluster,
+				kmp,
+				kcp,
+				defaultSecret,
+			},
+			targetSG: &securitygroupv1alpha2.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-security-group",
+				},
+				Spec: securitygroupv1alpha2.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha2.IngressRule{},
+					InfrastructureRef: []*corev1.ObjectReference{
+						{
+							APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsControlPlane",
+							Name:       "test-cluster-fake",
+							Namespace:  metav1.NamespaceDefault,
+						},
+						{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsMachinePool",
+							Name:       "test-kops-machine-pool",
+							Namespace:  metav1.NamespaceDefault,
+						},
+					},
+				},
+			},
+		},
+		{
+			description: "should not fail when one of the refs kcp does not exists",
+			k8sObjects: []client.Object{
+				cluster,
+				kcp,
+				defaultSecret,
+			},
+			targetSG: &securitygroupv1alpha2.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-security-group",
+				},
+				Spec: securitygroupv1alpha2.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha2.IngressRule{},
+					InfrastructureRef: []*corev1.ObjectReference{
+						{
+							APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsControlPlane",
+							Name:       "test-cluster-fake",
+							Namespace:  metav1.NamespaceDefault,
+						},
+						{
+							APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsControlPlane",
+							Name:       "test-cluster",
+							Namespace:  metav1.NamespaceDefault,
+						},
+					},
+				},
+			},
+		},
+		{
+			description: "should fail when all refs are incomplete",
+			k8sObjects: []client.Object{
+				cluster,
+				kmp,
+				defaultSecret,
+			},
+			targetSG: &securitygroupv1alpha2.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-security-group",
+				},
+				Spec: securitygroupv1alpha2.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha2.IngressRule{},
+					InfrastructureRef: []*corev1.ObjectReference{
+						{
+							APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsControlPlane",
+							Name:       "test-cluster",
+							Namespace:  metav1.NamespaceDefault,
+						},
+						{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsMachinePool",
+							Name:       "test-kops-machine-pool",
+							Namespace:  metav1.NamespaceDefault,
+						},
+					},
+				},
+			},
+			errorExpected: apierrors.NewNotFound(schema.GroupResource{Group: "controlplane.cluster.x-k8s.io", Resource: "kopscontrolplanes"}, cluster.Name),
+		},
+		{
+			description: "should fail when all refs are incomplete kcp",
+			k8sObjects: []client.Object{
+				cluster,
+				defaultSecret,
+			},
+			targetSG: &securitygroupv1alpha2.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-security-group",
+				},
+				Spec: securitygroupv1alpha2.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha2.IngressRule{},
+					InfrastructureRef: []*corev1.ObjectReference{
+						{
+							APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsControlPlane",
+							Name:       "test-cluster",
+							Namespace:  metav1.NamespaceDefault,
+						},
+						{
+							APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsControlPlane",
+							Name:       "test-cluster-2",
+							Namespace:  metav1.NamespaceDefault,
+						},
+					},
+				},
+			},
+			errorExpected: apierrors.NewNotFound(schema.GroupResource{Group: "controlplane.cluster.x-k8s.io", Resource: "kopscontrolplanes"}, "test-cluster-2"),
+		},
+		{
+			description: "should not fail when one of the refs is type unknown but kmp exists",
+			k8sObjects: []client.Object{
+				cluster,
+				kmp,
+				kcp,
+				defaultSecret,
+			},
+			targetSG: &securitygroupv1alpha2.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-security-group",
+				},
+				Spec: securitygroupv1alpha2.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha2.IngressRule{},
+					InfrastructureRef: []*corev1.ObjectReference{
+						{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "FakeMachinePool",
+							Name:       "test-mp",
+							Namespace:  metav1.NamespaceDefault,
+						},
+						{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsMachinePool",
+							Name:       "test-kops-machine-pool",
+							Namespace:  metav1.NamespaceDefault,
+						},
+					},
+				},
+			},
+		},
+		{
+			description: "should fail when one of the refs is type unknown but kmp does not have kcp",
+			k8sObjects: []client.Object{
+				cluster,
+				kmp,
+				defaultSecret,
+			},
+			targetSG: &securitygroupv1alpha2.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-security-group",
+				},
+				Spec: securitygroupv1alpha2.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha2.IngressRule{},
+					InfrastructureRef: []*corev1.ObjectReference{
+						{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "FakeMachinePool",
+							Name:       "test-mp",
+							Namespace:  metav1.NamespaceDefault,
+						},
+						{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsMachinePool",
+							Name:       "test-kops-machine-pool",
+							Namespace:  metav1.NamespaceDefault,
+						},
+					},
+				},
+			},
+			errorExpected: apierrors.NewNotFound(schema.GroupResource{Group: "controlplane.cluster.x-k8s.io", Resource: "kopscontrolplanes"}, cluster.Name),
+		},
+		{
+			description: "should not fail when one of the refs is type unknown and kcp exist",
+			k8sObjects: []client.Object{
+				cluster,
+				kcp,
+				defaultSecret,
+			},
+			targetSG: &securitygroupv1alpha2.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-security-group",
+				},
+				Spec: securitygroupv1alpha2.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha2.IngressRule{},
+					InfrastructureRef: []*corev1.ObjectReference{
+						{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "FakeMachinePool",
+							Name:       "test-mp",
+							Namespace:  metav1.NamespaceDefault,
+						},
+						{
+							APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsControlPlane",
+							Name:       "test-cluster",
+							Namespace:  metav1.NamespaceDefault,
+						},
+					},
+				},
+			},
+		},
+		{
+			description: "should fail when one of the refs is type unknown but kcp does not exist",
+			k8sObjects: []client.Object{
+				cluster,
+				defaultSecret,
+			},
+			targetSG: &securitygroupv1alpha2.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-security-group",
+				},
+				Spec: securitygroupv1alpha2.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha2.IngressRule{},
+					InfrastructureRef: []*corev1.ObjectReference{
+						{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "FakeMachinePool",
+							Name:       "test-mp",
+							Namespace:  metav1.NamespaceDefault,
+						},
+						{
+							APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsControlPlane",
+							Name:       "test-cluster",
+							Namespace:  metav1.NamespaceDefault,
+						},
+					},
+				},
+			},
+			errorExpected: apierrors.NewNotFound(schema.GroupResource{Group: "controlplane.cluster.x-k8s.io", Resource: "kopscontrolplanes"}, cluster.Name),
+		},
 	}
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
