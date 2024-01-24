@@ -342,7 +342,8 @@ func (r *ClusterMeshReconciliation) reconcileDelete(ctx context.Context) error {
 		return err
 	}
 
-	sg := &securitygroupv1alpha2.SecurityGroup{}
+	// SG
+	wsg := &securitygroupv1alpha2.SecurityGroup{}
 	sgKey := client.ObjectKey{
 		Name: getClusterMeshSecurityGroupName(r.cluster.Name),
 	}
@@ -351,13 +352,13 @@ func (r *ClusterMeshReconciliation) reconcileDelete(ctx context.Context) error {
 			r.clustermesh.Status.CrossplaneSecurityGroupRef = append(r.clustermesh.Status.CrossplaneSecurityGroupRef[:i], r.clustermesh.Status.CrossplaneSecurityGroupRef[i+1:]...)
 		}
 	}
-	err := r.Get(ctx, sgKey, sg)
+	err := r.Get(ctx, sgKey, wsg)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return err
 		}
 	} else {
-		err := r.Delete(ctx, sg)
+		err := r.Delete(ctx, wsg)
 		if err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
@@ -365,6 +366,8 @@ func (r *ClusterMeshReconciliation) reconcileDelete(ctx context.Context) error {
 
 	r.log.Info(fmt.Sprintf("deleted security group for cluster %s\n", r.cluster.ObjectMeta.Name))
 
+
+	// VPC Peering e Routes
 	clustermeshCopy := r.clustermesh.DeepCopy()
 
 	for _, vpcPeeringConnectionRef := range clustermeshCopy.Status.CrossplanePeeringRef {
