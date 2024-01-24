@@ -227,3 +227,6 @@ apply-cluster-crs:
 
 apply-crds: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) apply -f - --context kind-$(KIND_CLUSTER_NAME)
+
+gen-docs-images:
+	$(CONTAINER_TOOL) run --rm -v $(pwd):/data dstockhammer/plantuml:1.2024.2 docs/**/*.puml

@@ -1,0 +1,21 @@
+@startuml sg-controller
+start
+:Get Wildlife SecurityGroup CR;
+if (CR has Pause annotation?) is (false) then
+    if (Is Wildlife SecurityGroup CR marked for deletion?) is (false) then
+        :Add finalizer to Wildlife SecurityGroup CR;
+        :Create or Update Crossplane SecurityGroup;
+        if (Is Crossplane SecurityGroup available?) is (true) then
+            :Attach SecurityGroup to InfrastructureRef;
+        else (false)
+        endif
+    else (true)
+        :Get Crossplane SecurityGroup;
+        :Detach SecurityGroup from InfrastructureRef;
+        :Delete Crossplane SecurityGroup;
+        :Remove finalizer from Wildlife SecurityGroup CR;
+    endif
+else
+endif
+stop
+@enduml

@@ -1,0 +1,27 @@
+@startuml clustermesh-controller
+start
+:Get Cluster CR;
+if (Is clustermesh enabled for that Cluster?) is (true) then
+    if (Clustermesh CR exists?) is (true) then
+        if (Is Cluster belongs to Clustermesh already?) is (false) then
+            :Add Cluster to Clustermesh CR;
+        endif
+        :Create a VPC Peering to each Cluster of the Clustermesh;
+        :Create or Update a Security Group to the Cluster allowing the Clusters of the Clustermesh;
+        :Create Routes for each VPC Peering;
+        :Validate Clustermesh;
+    else (false) 
+        :Create Clustermesh CR with the Cluster;
+    endif
+else (false)
+    if (Is Cluster belongs to any Clustermesh?) is (true) then
+        :Delete Wildlife Security Group of the Cluster;
+        :Delete VPC Peerings related to the Cluster;
+        :Remove Cluster from Clustermesh;
+        if (Is the cluster the only one in the Clustermesh?) is (true) then
+            :Delete Clustermesh CR;
+        endif
+    endif
+endif
+stop
+@enduml
