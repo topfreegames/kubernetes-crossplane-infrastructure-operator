@@ -160,7 +160,6 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	err := r.retrieveInfraRefInfo(ctx)
 	if err != nil {
 		r.log.Error(err, fmt.Sprintf("could not retrieve infra info from any of refs of security group %v", r.sg))
-		// should we fail reconciliation here?
 		return resultError, err
 	}
 
@@ -650,7 +649,9 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	r.log.Info(fmt.Sprintf("Finished deletion of Crossplane SecurityGroup %s\n", csg.Name))
 
+	// is this all that's necessary to delete it? since this controller manages WSG then we should probably also call the k8s deletion
 	controllerutil.RemoveFinalizer(sg, securityGroupFinalizer)
 	return ctrl.Result{}, nil
 }
