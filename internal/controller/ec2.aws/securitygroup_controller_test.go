@@ -408,7 +408,6 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			expectedProviderConfigRef: &kcpWithIdentityRef.Spec.IdentityRef.Name,
 		},
 		{
-			// change this test, we will not fail reconciliation anymore, we will log and continue
 			description: "should fail when not finding KopsMachinePool",
 			k8sObjects: []client.Object{
 				cluster, kcp, sg, defaultSecret,
@@ -416,10 +415,9 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			errorExpected: apierrors.NewNotFound(schema.GroupResource{Group: "infrastructure.cluster.x-k8s.io", Resource: "kopsmachinepools"}, kmp.Name),
 		},
 		{
-			// change this test, we will not fail reconciliation anymore, we will log and continue
 			description: "should fail when not finding KopsControlPlane",
 			k8sObjects: []client.Object{
-				kmp, cluster, sg, defaultSecret,
+				kmp, cluster, sgKCP, defaultSecret,
 			},
 			errorExpected: apierrors.NewNotFound(schema.GroupResource{Group: "controlplane.cluster.x-k8s.io", Resource: "kopscontrolplanes"}, kcp.Name),
 		},
