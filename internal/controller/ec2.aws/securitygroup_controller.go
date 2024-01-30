@@ -329,28 +329,34 @@ func (r *SecurityGroupReconciliation) reconcileNormal(ctx context.Context) (ctrl
 				return resultError, err
 			}
 
-			kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+			kcp := kcontrolplanev1alpha1.KopsControlPlane{}
 			key = client.ObjectKey{
 				Name:      kmp.Spec.ClusterName,
 				Namespace: kmp.ObjectMeta.Namespace,
 			}
-			if err := r.Client.Get(ctx, key, kcp); err != nil {
+			if err := r.Client.Get(ctx, key, &kcp); err != nil {
 				return resultError, err
 			}
-			err := r.attachKopsMachinePool(ctx, csg, kcp, kmp)
+			err := r.attachKopsMachinePool(ctx, csg, &kcp, kmp)
 			if err != nil {
 				if errors.Is(err, ErrSecurityGroupNotAvailable) {
 					return requeue30seconds, nil
 				}
 				return resultError, err
 			}
+			if !controllerutil.ContainsFinalizer(&kmp, securityGroupFinalizer) {
+				controllerutil.AddFinalizer(&kmp, securityGroupFinalizer)
+				if err := r.Update(ctx, &kmp); err != nil {
+					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to add finalizer in %s: %s", kmp.Name, err)
+				}
+			}
 		case "KopsControlPlane":
-			kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+			kcp := kcontrolplanev1alpha1.KopsControlPlane{}
 			key := client.ObjectKey{
 				Name:      infrastructureRef.Name,
 				Namespace: infrastructureRef.Namespace,
 			}
-			if err := r.Client.Get(ctx, key, kcp); err != nil {
+			if err := r.Client.Get(ctx, key, &kcp); err != nil {
 				return resultError, err
 			}
 
@@ -358,12 +364,26 @@ func (r *SecurityGroupReconciliation) reconcileNormal(ctx context.Context) (ctrl
 			if err != nil {
 				return resultError, err
 			}
-			err = r.attachKopsMachinePool(ctx, csg, kcp, kmps...)
+			err = r.attachKopsMachinePool(ctx, csg, &kcp, kmps...)
 			if err != nil {
 				if errors.Is(err, ErrSecurityGroupNotAvailable) {
 					return requeue30seconds, nil
 				}
 				return resultError, err
+			}
+			if !controllerutil.ContainsFinalizer(&kcp, securityGroupFinalizer) {
+				controllerutil.AddFinalizer(&kcp, securityGroupFinalizer)
+				if err := r.Update(ctx, &kcp); err != nil {
+					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to add finalizer in %s: %s", kcp.Name, err)
+				}
+			}
+			for _, kmp := range kmps {
+				if !controllerutil.ContainsFinalizer(&kmp, securityGroupFinalizer) {
+					controllerutil.AddFinalizer(&kmp, securityGroupFinalizer)
+					if err := r.Update(ctx, &kmp); err != nil {
+						r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to add finalizer in %s: %s", kmp.Name, err)
+					}
+				}
 			}
 		default:
 			return resultError, fmt.Errorf("infrastructureRef not supported")
@@ -620,6 +640,12 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 			err := r.detachSGFromKopsMachinePool(ctx, csg, kmp)
 			if err != nil {
 				return resultError, err
+			}
+			if !controllerutil.ContainsFinalizer(&kmp, securityGroupFinalizer) {
+				controllerutil.RemoveFinalizer(&kmp, securityGroupFinalizer)
+				if err := r.Update(ctx, &kmp); err != nil {
+					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to add finalizer in %s: %s", kmp.Name, err)
+				}
 			}
 		case "KopsControlPlane":
 			kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
