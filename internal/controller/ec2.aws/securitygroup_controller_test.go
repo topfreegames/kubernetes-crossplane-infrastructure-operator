@@ -86,6 +86,32 @@ var (
 		},
 	}
 
+	anotherSg = &securitygroupv1alpha2.SecurityGroup{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "another-test-security-group",
+		},
+		Spec: securitygroupv1alpha2.SecurityGroupSpec{
+			IngressRules: []securitygroupv1alpha2.IngressRule{
+				{
+					IPProtocol: "TCP",
+					FromPort:   40000,
+					ToPort:     60000,
+					AllowedCIDRBlocks: []string{
+						"0.0.0.0/0",
+					},
+				},
+			},
+			InfrastructureRef: []*corev1.ObjectReference{
+				{
+					APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+					Kind:       "KopsMachinePool",
+					Name:       "test-kops-machine-pool",
+					Namespace:  metav1.NamespaceDefault,
+				},
+			},
+		},
+	}
+
 	sgEmpty = &securitygroupv1alpha2.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-security-group",
@@ -122,9 +148,56 @@ var (
 		},
 	}
 
+	anotherSgKCP = &securitygroupv1alpha2.SecurityGroup{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "another-test-security-group",
+		},
+		Spec: securitygroupv1alpha2.SecurityGroupSpec{
+			IngressRules: []securitygroupv1alpha2.IngressRule{
+				{
+					IPProtocol: "TCP",
+					FromPort:   40000,
+					ToPort:     60000,
+					AllowedCIDRBlocks: []string{
+						"0.0.0.0/0",
+					},
+				},
+			},
+			InfrastructureRef: []*corev1.ObjectReference{
+				{
+					APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+					Kind:       "KopsControlPlane",
+					Name:       "test-cluster",
+					Namespace:  metav1.NamespaceDefault,
+				},
+			},
+		},
+	}
+
 	csg = &crossec2v1beta1.SecurityGroup{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-security-group",
+		},
+		Status: crossec2v1beta1.SecurityGroupStatus{
+			ResourceStatus: crossplanev1.ResourceStatus{
+				ConditionedStatus: crossplanev1.ConditionedStatus{
+					Conditions: []crossplanev1.Condition{
+						{
+							Type:   "Ready",
+							Status: corev1.ConditionTrue,
+						},
+					},
+				},
+			},
+			AtProvider: crossec2v1beta1.SecurityGroupObservation{
+				SecurityGroupID: "sg-1",
+			},
+		},
+	}
+
+	anotherCsg = &crossec2v1beta1.SecurityGroup{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "another-test-security-group",
 		},
 		Status: crossec2v1beta1.SecurityGroupStatus{
 			ResourceStatus: crossplanev1.ResourceStatus{
@@ -292,9 +365,10 @@ var (
 )
 
 type ReferencedPool struct {
-	Namespace string
-	Name      string
-	Kind      string
+	Namespace     string
+	Name          string
+	Kind          string
+	FinalizerName string
 }
 
 func TestSecurityGroupReconciler(t *testing.T) {
@@ -303,9 +377,10 @@ func TestSecurityGroupReconciler(t *testing.T) {
 		description               string
 		k8sObjects                []client.Object
 		errorExpected             error
+		sgNames                   []string
 		expectedDeletion          bool
 		expectedProviderConfigRef *string
-		expectedFinalizerAt       *ReferencedPool
+		expectedFinalizersAt      []*ReferencedPool
 	}{
 		// {
 		// 	description: "should fail without InfrastructureRef defined",
@@ -336,10 +411,34 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			k8sObjects: []client.Object{
 				kmp, cluster, kcp, defaultSecret, sgKCP, csg,
 			},
-			expectedFinalizerAt: &ReferencedPool{
-				Name:      kcp.ObjectMeta.Name,
-				Namespace: kcp.ObjectMeta.Namespace,
-				Kind:      "KopsControlPlane",
+			sgNames: []string{sgKCP.ObjectMeta.Name},
+			expectedFinalizersAt: []*ReferencedPool{{
+				Name:          kcp.ObjectMeta.Name,
+				Namespace:     kcp.ObjectMeta.Namespace,
+				Kind:          "KopsControlPlane",
+				FinalizerName: getFinalizerName(sgKCP.ObjectMeta.Name),
+			},
+			},
+		},
+		{
+			description: "should create two SecurityGroup with KopsControlPlane infrastructureRef",
+			k8sObjects: []client.Object{
+				kmp, cluster, kcp, defaultSecret, sgKCP, anotherSgKCP, csg, anotherCsg,
+			},
+			sgNames: []string{sgKCP.ObjectMeta.Name, anotherSgKCP.ObjectMeta.Name},
+			expectedFinalizersAt: []*ReferencedPool{
+				{
+					Name:          kcp.ObjectMeta.Name,
+					Namespace:     kcp.ObjectMeta.Namespace,
+					Kind:          "KopsControlPlane",
+					FinalizerName: getFinalizerName(sgKCP.ObjectMeta.Name),
+				},
+				{
+					Name:          kcp.ObjectMeta.Name,
+					Namespace:     kcp.ObjectMeta.Namespace,
+					Kind:          "KopsControlPlane",
+					FinalizerName: getFinalizerName(anotherSgKCP.ObjectMeta.Name),
+				},
 			},
 		},
 		// {
@@ -535,11 +634,14 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					return fakeASGClient
 				},
 			}
-			_, err := reconciler.Reconcile(ctx, ctrl.Request{
-				NamespacedName: client.ObjectKey{
-					Name: "test-security-group",
-				},
-			})
+
+			for _, sgName := range tc.sgNames {
+				_, err = reconciler.Reconcile(ctx, ctrl.Request{
+					NamespacedName: client.ObjectKey{
+						Name: sgName,
+					},
+				})
+			}
 
 			if tc.errorExpected == nil {
 				crosssg := &crossec2v1beta1.SecurityGroup{}
@@ -558,28 +660,28 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					g.Expect(crosssg.Spec.ProviderConfigReference.Name).To(Equal(*tc.expectedProviderConfigRef))
 				}
 
-				if tc.expectedFinalizerAt != nil {
-					switch tc.expectedFinalizerAt.Kind {
+				for _, expectedFinalizerAt := range tc.expectedFinalizersAt {
+					switch expectedFinalizerAt.Kind {
 					case "KopsMachinePool":
 						kmp := kinfrastructurev1alpha1.KopsMachinePool{}
 						key := client.ObjectKey{
-							Name:      tc.expectedFinalizerAt.Name,
-							Namespace: tc.expectedFinalizerAt.Namespace,
+							Name:      expectedFinalizerAt.Name,
+							Namespace: expectedFinalizerAt.Namespace,
 						}
 						_ = fakeClient.Get(ctx, key, &kmp)
-						g.Expect(kmp.Finalizers).To(ContainElement(securityGroupFinalizer))
+						g.Expect(kmp.Finalizers).To(ContainElement(expectedFinalizerAt.FinalizerName))
 					case "KopsControlPlane":
 						kcp := kcontrolplanev1alpha1.KopsControlPlane{}
 						key := client.ObjectKey{
-							Name:      tc.expectedFinalizerAt.Name,
-							Namespace: tc.expectedFinalizerAt.Namespace,
+							Name:      expectedFinalizerAt.Name,
+							Namespace: expectedFinalizerAt.Namespace,
 						}
 						_ = fakeClient.Get(ctx, key, &kcp)
-						g.Expect(kcp.Finalizers).To(ContainElement(securityGroupFinalizer))
+						g.Expect(kcp.Finalizers).To(ContainElement(expectedFinalizerAt.FinalizerName))
 
 						kmps, _ := kops.GetKopsMachinePoolsWithLabel(ctx, fakeClient, "cluster.x-k8s.io/cluster-name", kcp.Name)
 						for _, kmp := range kmps {
-							g.Expect(kmp.Finalizers).To(ContainElement(securityGroupFinalizer))
+							g.Expect(kmp.Finalizers).To(ContainElement(expectedFinalizerAt.FinalizerName))
 						}
 					default:
 						g.Fail("machine pool doesn't contain expected finalizer")
@@ -2084,65 +2186,105 @@ func TestAttachSGToLaunchTemplate(t *testing.T) {
 	}
 }
 
+type sgList struct {
+	*securitygroupv1alpha2.SecurityGroup
+	toDelete bool
+}
+
 func TestReconcileDelete(t *testing.T) {
 	RegisterFailHandler(Fail)
 	g := NewWithT(t)
 
 	testCases := []struct {
-		description   string
-		k8sObjects    []client.Object
-		sg            *securitygroupv1alpha2.SecurityGroup
-		expectedError error
+		description                 string
+		k8sObjects                  []client.Object
+		sgList                      []sgList
+		expectedError               error
+		expectedToRemoveFinalizerAt *ReferencedPool
 	}{
 		{
 			description: "should remove the crossplane security group referencing kmp",
 			k8sObjects: []client.Object{
 				sg, csg, kcp, kmp, cluster, defaultSecret,
 			},
-			sg: sg,
+			sgList: []sgList{
+				{
+					sg,
+					true,
+				},
+				{
+					anotherSg,
+					false,
+				},
+			},
+			expectedToRemoveFinalizerAt: &ReferencedPool{
+				Name:      kmp.ObjectMeta.Name,
+				Namespace: kmp.ObjectMeta.Namespace,
+				Kind:      "KopsMachinePool",
+			},
 		},
 		{
 			description: "should remove the crossplane security group referencing kmp using kops",
 			k8sObjects: []client.Object{
 				sg, csg, kcp, spotKMP, cluster, defaultSecret,
 			},
-			sg: sg,
+			sgList: []sgList{
+				{
+					sg,
+					true,
+				},
+			},
+			expectedToRemoveFinalizerAt: &ReferencedPool{
+				Name:      kmp.ObjectMeta.Name,
+				Namespace: kmp.ObjectMeta.Namespace,
+				Kind:      "KopsMachinePool",
+			},
 		},
 		{
 			description: "should remove the crossplane security group referencing kcp",
 			k8sObjects: []client.Object{
 				sgKCP, csg, kcp, kmp, cluster, defaultSecret,
 			},
-			sg: sgKCP,
+			sgList: []sgList{
+				{
+					sg,
+					true,
+				},
+			},
 		},
 		{
 			description: "should fail with infrastructureRef not supported",
 			k8sObjects: []client.Object{
 				sg, csg, kcp, kmp, cluster, defaultSecret,
 			},
-			sg: &securitygroupv1alpha2.SecurityGroup{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-security-group",
-				},
-				Spec: securitygroupv1alpha2.SecurityGroupSpec{
-					IngressRules: []securitygroupv1alpha2.IngressRule{
-						{
-							IPProtocol: "TCP",
-							FromPort:   40000,
-							ToPort:     60000,
-							AllowedCIDRBlocks: []string{
-								"0.0.0.0/0",
+			sgList: []sgList{
+				{
+					&securitygroupv1alpha2.SecurityGroup{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "test-security-group",
+						},
+						Spec: securitygroupv1alpha2.SecurityGroupSpec{
+							IngressRules: []securitygroupv1alpha2.IngressRule{
+								{
+									IPProtocol: "TCP",
+									FromPort:   40000,
+									ToPort:     60000,
+									AllowedCIDRBlocks: []string{
+										"0.0.0.0/0",
+									},
+								},
+							},
+							InfrastructureRef: []*corev1.ObjectReference{
+								{
+									APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+									Kind:       "UnsupportedKind",
+									Name:       "test-kops-machine-pool",
+									Namespace:  metav1.NamespaceDefault,
+								},
 							},
 						},
 					},
-					InfrastructureRef: []*corev1.ObjectReference{
-						{
-							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
-							Kind:       "UnsupportedKind",
-							Name:       "test-kops-machine-pool",
-							Namespace:  metav1.NamespaceDefault,
-						},
-					},
+					true,
 				},
 			},
 			expectedError: errors.New("infrastructureRef not supported"),
@@ -2264,32 +2406,38 @@ func TestReconcileDelete(t *testing.T) {
 				},
 			}
 
-			reconciliation := SecurityGroupReconciliation{
-				SecurityGroupReconciler: reconciler,
-				log:                     ctrl.LoggerFrom(ctx),
-				ec2Client:               reconciler.NewEC2ClientFactory(aws.Config{}),
-				asgClient:               reconciler.NewAutoScalingClientFactory(aws.Config{}),
-				sg:                      tc.sg,
-			}
-
-			_, err = reconciliation.reconcileDelete(ctx, tc.sg)
-			if tc.expectedError == nil {
-				g.Expect(err).ToNot(HaveOccurred())
-				deletedSG := &crossec2v1beta1.SecurityGroup{}
-				key := client.ObjectKey{
-					Name: tc.sg.Name,
+			for _, sg := range tc.sgList {
+				if !sg.toDelete {
+					continue
 				}
-				err = fakeClient.Get(ctx, key, deletedSG)
-				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 
-				deletedCSG := &crossec2v1beta1.SecurityGroup{}
-				key = client.ObjectKey{
-					Name: tc.sg.Name,
+				reconciliation := SecurityGroupReconciliation{
+					SecurityGroupReconciler: reconciler,
+					log:                     ctrl.LoggerFrom(ctx),
+					ec2Client:               reconciler.NewEC2ClientFactory(aws.Config{}),
+					asgClient:               reconciler.NewAutoScalingClientFactory(aws.Config{}),
+					sg:                      sg.SecurityGroup,
 				}
-				err = fakeClient.Get(ctx, key, deletedCSG)
-				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
-			} else {
-				g.Expect(err).To(MatchError(tc.expectedError))
+
+				_, err = reconciliation.reconcileDelete(ctx, sg.SecurityGroup)
+				if tc.expectedError == nil {
+					g.Expect(err).ToNot(HaveOccurred())
+					deletedSG := &crossec2v1beta1.SecurityGroup{}
+					key := client.ObjectKey{
+						Name: sg.Name,
+					}
+					err = fakeClient.Get(ctx, key, deletedSG)
+					g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+					deletedCSG := &crossec2v1beta1.SecurityGroup{}
+					key = client.ObjectKey{
+						Name: sg.Name,
+					}
+					err = fakeClient.Get(ctx, key, deletedCSG)
+					g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+				} else {
+					g.Expect(err).To(MatchError(tc.expectedError))
+				}
 			}
 		})
 	}

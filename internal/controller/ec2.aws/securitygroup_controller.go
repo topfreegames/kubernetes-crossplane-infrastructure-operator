@@ -69,6 +69,10 @@ const (
 	AnnotationKeyReconciliationPaused = "crossplane.io/paused"
 )
 
+func getFinalizerName(sgName string) string {
+	return securityGroupFinalizer + "/" + sgName
+}
+
 // SecurityGroupReconciler reconciles a SecurityGroup object
 type SecurityGroupReconciler struct {
 	client.Client
@@ -344,8 +348,8 @@ func (r *SecurityGroupReconciliation) reconcileNormal(ctx context.Context) (ctrl
 				}
 				return resultError, err
 			}
-			if !controllerutil.ContainsFinalizer(&kmp, securityGroupFinalizer) {
-				controllerutil.AddFinalizer(&kmp, securityGroupFinalizer)
+			if !controllerutil.ContainsFinalizer(&kmp, getFinalizerName(r.sg.Name)) {
+				controllerutil.AddFinalizer(&kmp, getFinalizerName(r.sg.Name))
 				if err := r.Update(ctx, &kmp); err != nil {
 					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to add finalizer in %s: %s", kmp.Name, err)
 				}
@@ -371,15 +375,15 @@ func (r *SecurityGroupReconciliation) reconcileNormal(ctx context.Context) (ctrl
 				}
 				return resultError, err
 			}
-			if !controllerutil.ContainsFinalizer(&kcp, securityGroupFinalizer) {
-				controllerutil.AddFinalizer(&kcp, securityGroupFinalizer)
+			if !controllerutil.ContainsFinalizer(&kcp, getFinalizerName(r.sg.Name)) {
+				controllerutil.AddFinalizer(&kcp, getFinalizerName(r.sg.Name))
 				if err := r.Update(ctx, &kcp); err != nil {
 					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to add finalizer in %s: %s", kcp.Name, err)
 				}
 			}
 			for _, kmp := range kmps {
-				if !controllerutil.ContainsFinalizer(&kmp, securityGroupFinalizer) {
-					controllerutil.AddFinalizer(&kmp, securityGroupFinalizer)
+				if !controllerutil.ContainsFinalizer(&kmp, getFinalizerName(r.sg.Name)) {
+					controllerutil.AddFinalizer(&kmp, getFinalizerName(r.sg.Name))
 					if err := r.Update(ctx, &kmp); err != nil {
 						r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to add finalizer in %s: %s", kmp.Name, err)
 					}
@@ -641,19 +645,19 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 			if err != nil {
 				return resultError, err
 			}
-			if !controllerutil.ContainsFinalizer(&kmp, securityGroupFinalizer) {
-				controllerutil.RemoveFinalizer(&kmp, securityGroupFinalizer)
+			if !controllerutil.ContainsFinalizer(&kmp, getFinalizerName(r.sg.Name)) {
+				controllerutil.RemoveFinalizer(&kmp, getFinalizerName(r.sg.Name))
 				if err := r.Update(ctx, &kmp); err != nil {
-					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to add finalizer in %s: %s", kmp.Name, err)
+					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to remove finalizer in %s: %s", kmp.Name, err)
 				}
 			}
 		case "KopsControlPlane":
-			kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+			kcp := kcontrolplanev1alpha1.KopsControlPlane{}
 			key := client.ObjectKey{
 				Namespace: infrastructureRef.Namespace,
 				Name:      infrastructureRef.Name,
 			}
-			if err := r.Client.Get(ctx, key, kcp); err != nil {
+			if err := r.Client.Get(ctx, key, &kcp); err != nil {
 				return resultError, err
 			}
 
@@ -665,6 +669,21 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 			err = r.detachSGFromKopsMachinePool(ctx, csg, kmps...)
 			if err != nil {
 				return resultError, err
+			}
+
+			if !controllerutil.ContainsFinalizer(&kcp, getFinalizerName(r.sg.Name)) {
+				controllerutil.RemoveFinalizer(&kcp, getFinalizerName(r.sg.Name))
+				if err := r.Update(ctx, &kcp); err != nil {
+					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to remove finalizer in %s: %s", kcp.Name, err)
+				}
+			}
+			for _, kmp := range kmps {
+				if !controllerutil.ContainsFinalizer(&kmp, getFinalizerName(r.sg.Name)) {
+					controllerutil.RemoveFinalizer(&kmp, getFinalizerName(r.sg.Name))
+					if err := r.Update(ctx, &kmp); err != nil {
+						r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to remove finalizer in %s: %s", kmp.Name, err)
+					}
+				}
 			}
 		default:
 			return resultError, fmt.Errorf("infrastructureRef not supported")
