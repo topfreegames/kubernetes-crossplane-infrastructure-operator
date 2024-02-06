@@ -81,6 +81,10 @@ type SecurityGroupStatus struct {
 	// Conditions defines current service state of the SecurityGroup.
 	// +optional
 	Conditions clusterv1beta1.Conditions `json:"conditions,omitempty"`
+
+	// AppliedInfrastructureRef is the currently applied attachments to machine pools. At
+	// the end of the reconciliation this field is updated with the current references
+	AppliedInfrastructureRef []*corev1.ObjectReference `json:"infrastructureRef,omitempty"`
 }
 
 //+kubebuilder:object:root=true
