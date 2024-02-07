@@ -395,7 +395,8 @@ func (r *SecurityGroupReconciliation) reconcileNormal(ctx context.Context) (ctrl
 	}
 
 	r.sg.Status.Ready = true
-	r.sg.Status.AppliedInfrastructureRef = r.sg.DeepCopy().Spec.InfrastructureRef
+	r.updateAppliedInfraRefStatus(ctx, csg)
+
 	return resultDefault, nil
 }
 
@@ -647,10 +648,7 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 				return resultError, err
 			}
 			if !controllerutil.ContainsFinalizer(&kmp, getFinalizerName(r.sg.Name)) {
-				controllerutil.RemoveFinalizer(&kmp, getFinalizerName(r.sg.Name))
-				if err := r.Update(ctx, &kmp); err != nil {
-					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to remove finalizer in %s: %s", kmp.Name, err)
-				}
+				r.removeKMPFinalizer(ctx, kmp)
 			}
 		case "KopsControlPlane":
 			kcp := kcontrolplanev1alpha1.KopsControlPlane{}
@@ -672,20 +670,7 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 				return resultError, err
 			}
 
-			if !controllerutil.ContainsFinalizer(&kcp, getFinalizerName(r.sg.Name)) {
-				controllerutil.RemoveFinalizer(&kcp, getFinalizerName(r.sg.Name))
-				if err := r.Update(ctx, &kcp); err != nil {
-					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to remove finalizer in %s: %s", kcp.Name, err)
-				}
-			}
-			for _, kmp := range kmps {
-				if !controllerutil.ContainsFinalizer(&kmp, getFinalizerName(r.sg.Name)) {
-					controllerutil.RemoveFinalizer(&kmp, getFinalizerName(r.sg.Name))
-					if err := r.Update(ctx, &kmp); err != nil {
-						r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to remove finalizer in %s: %s", kmp.Name, err)
-					}
-				}
-			}
+			r.removeKCPFinalizer(ctx, kcp, kmps...)
 		default:
 			return resultError, fmt.Errorf("infrastructureRef not supported")
 		}
@@ -828,4 +813,72 @@ func (r *SecurityGroupReconciliation) detachSGFromLaunchTemplate(ctx context.Con
 	}
 
 	return nil
+}
+
+func (r *SecurityGroupReconciliation) updateAppliedInfraRefStatus(ctx context.Context, csg *crossec2v1beta1.SecurityGroup) (ctrl.Result, error) {
+	infraRefMap := map[string]*corev1.ObjectReference{}
+
+	for _, ref := range r.sg.Spec.InfrastructureRef {
+		infraRefMap[ref.Name] = ref
+	}
+	for _, ref := range r.sg.Status.AppliedInfrastructureRef {
+		if _, ok := infraRefMap[ref.Name]; !ok {
+			switch ref.Kind {
+			case "KopsMachinePool":
+
+				kmp := kinfrastructurev1alpha1.KopsMachinePool{}
+				key := client.ObjectKey{
+					Name:      ref.Name,
+					Namespace: ref.Namespace,
+				}
+				if err := r.Client.Get(ctx, key, &kmp); err != nil {
+					return resultError, err
+				}
+				r.detachSGFromKopsMachinePool(ctx, csg, kmp)
+				r.removeKMPFinalizer(ctx, kmp)
+			case "KopsControlPlane":
+				kcp := kcontrolplanev1alpha1.KopsControlPlane{}
+				key := client.ObjectKey{
+					Namespace: ref.Namespace,
+					Name:      ref.Name,
+				}
+				if err := r.Client.Get(ctx, key, &kcp); err != nil {
+					return resultError, err
+				}
+
+				kmps, err := kops.GetKopsMachinePoolsWithLabel(ctx, r.Client, "cluster.x-k8s.io/cluster-name", kcp.Name)
+				if err != nil {
+					return resultError, err
+				}
+
+				err = r.detachSGFromKopsMachinePool(ctx, csg, kmps...)
+				if err != nil {
+					return resultError, err
+				}
+				r.removeKCPFinalizer(ctx, kcp, kmps...)
+			default:
+				continue
+			}
+		}
+	}
+	return resultDefault, nil
+}
+
+func (r *SecurityGroupReconciliation) removeKMPFinalizer(ctx context.Context, kmp kinfrastructurev1alpha1.KopsMachinePool) {
+	controllerutil.RemoveFinalizer(&kmp, getFinalizerName(r.sg.Name))
+	if err := r.Update(ctx, &kmp); err != nil {
+		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to remove finalizer in %s: %s", kmp.Name, err)
+	}
+}
+
+func (r *SecurityGroupReconciliation) removeKCPFinalizer(ctx context.Context, kcp kcontrolplanev1alpha1.KopsControlPlane, kmps ...kinfrastructurev1alpha1.KopsMachinePool) {
+	controllerutil.RemoveFinalizer(&kcp, getFinalizerName(r.sg.Name))
+	if err := r.Update(ctx, &kcp); err != nil {
+		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to remove finalizer in %s: %s", kcp.Name, err)
+	}
+	for _, kmp := range kmps {
+		if !controllerutil.ContainsFinalizer(&kmp, getFinalizerName(r.sg.Name)) {
+			r.removeKMPFinalizer(ctx, kmp)
+		}
+	}
 }

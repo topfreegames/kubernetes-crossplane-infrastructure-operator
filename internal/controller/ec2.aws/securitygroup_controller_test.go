@@ -369,6 +369,7 @@ type ReferencedPool struct {
 	Name          string
 	Kind          string
 	FinalizerName string
+	Expected      bool
 }
 
 func TestSecurityGroupReconciler(t *testing.T) {
@@ -380,7 +381,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 		sgNames                   []string
 		expectedDeletion          bool
 		expectedProviderConfigRef *string
-		expectedFinalizersAt      []*ReferencedPool
+		FinalizersAt              []*ReferencedPool
 		expectedStatus            *securitygroupv1alpha2.SecurityGroupStatus
 	}{
 		{
@@ -414,11 +415,12 @@ func TestSecurityGroupReconciler(t *testing.T) {
 				kmp, cluster, kcp, defaultSecret, sgKCP, csg,
 			},
 			sgNames: []string{sgKCP.ObjectMeta.Name},
-			expectedFinalizersAt: []*ReferencedPool{{
+			FinalizersAt: []*ReferencedPool{{
 				Name:          kcp.ObjectMeta.Name,
 				Namespace:     kcp.ObjectMeta.Namespace,
 				Kind:          "KopsControlPlane",
 				FinalizerName: getFinalizerName(sgKCP.ObjectMeta.Name),
+				Expected:      true,
 			},
 			},
 		},
@@ -428,18 +430,20 @@ func TestSecurityGroupReconciler(t *testing.T) {
 				kmp, cluster, kcp, defaultSecret, sgKCP, anotherSgKCP, csg, anotherCsg,
 			},
 			sgNames: []string{sgKCP.ObjectMeta.Name, anotherSgKCP.ObjectMeta.Name},
-			expectedFinalizersAt: []*ReferencedPool{
+			FinalizersAt: []*ReferencedPool{
 				{
 					Name:          kcp.ObjectMeta.Name,
 					Namespace:     kcp.ObjectMeta.Namespace,
 					Kind:          "KopsControlPlane",
 					FinalizerName: getFinalizerName(sgKCP.ObjectMeta.Name),
+					Expected:      true,
 				},
 				{
 					Name:          kcp.ObjectMeta.Name,
 					Namespace:     kcp.ObjectMeta.Namespace,
 					Kind:          "KopsControlPlane",
 					FinalizerName: getFinalizerName(anotherSgKCP.ObjectMeta.Name),
+					Expected:      true,
 				},
 			},
 		},
@@ -448,12 +452,14 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			k8sObjects: []client.Object{
 				kmp, cluster, kcp, defaultSecret, sgKCP, csg,
 			},
+			sgNames: []string{sgKCP.ObjectMeta.Name},
 		},
 		{
 			description: "should create a Crossplane SecurityGroup with KopsControlPlane infrastructureRef and return that SecurityGroups isn't available",
 			k8sObjects: []client.Object{
 				kmp, cluster, kcp, defaultSecret, sg,
 			},
+			sgNames:       []string{sg.ObjectMeta.Name},
 			errorExpected: ErrSecurityGroupNotAvailable,
 		},
 		{
@@ -461,19 +467,22 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			k8sObjects: []client.Object{
 				kmp, cluster, kcp, defaultSecret, sgKCP, csg,
 			},
+			sgNames: []string{sgKCP.ObjectMeta.Name},
 		},
 		{
 			description: "should create a Crossplane SecurityGroup with KopsMachinePool infrastructureRef and return that SecurityGroups isn't available",
 			k8sObjects: []client.Object{
 				kmp, cluster, kcp, defaultSecret, sg,
 			},
+			sgNames:       []string{sg.ObjectMeta.Name},
 			errorExpected: ErrSecurityGroupNotAvailable,
-			expectedFinalizersAt: []*ReferencedPool{
+			FinalizersAt: []*ReferencedPool{
 				{
 					Name:          kmp.ObjectMeta.Name,
 					Namespace:     kmp.ObjectMeta.Namespace,
 					Kind:          "KopsMachinePool",
 					FinalizerName: getFinalizerName(sgKCP.ObjectMeta.Name),
+					Expected:      true,
 				},
 			},
 		},
@@ -482,6 +491,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			k8sObjects: []client.Object{
 				kmp, cluster, kcp, defaultSecret, sg, csg,
 			},
+			sgNames: []string{sg.ObjectMeta.Name},
 		},
 		{
 			description: "should fail with InfrastructureRef Kind different from KopsMachinePool and KopsControlPlane",
@@ -513,6 +523,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					},
 				},
 			},
+			sgNames:       []string{"test-security-group"},
 			errorExpected: errors.New("infrastructureRef not supported"),
 		},
 		{
@@ -520,6 +531,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			k8sObjects: []client.Object{
 				kmp, cluster, kcp, sgKCP,
 			},
+			sgNames:          []string{sgKCP.ObjectMeta.Name},
 			expectedDeletion: true,
 		},
 		{
@@ -527,6 +539,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			k8sObjects: []client.Object{
 				kmp, cluster, kcpWithIdentityRef, secretForIdentityRef, sgKCP, csg,
 			},
+			sgNames:                   []string{sgKCP.ObjectMeta.Name},
 			expectedProviderConfigRef: &kcpWithIdentityRef.Spec.IdentityRef.Name,
 		},
 		{
@@ -534,6 +547,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			k8sObjects: []client.Object{
 				cluster, kcp, sg, defaultSecret,
 			},
+			sgNames:       []string{sg.ObjectMeta.Name},
 			errorExpected: apierrors.NewNotFound(schema.GroupResource{Group: "infrastructure.cluster.x-k8s.io", Resource: "kopsmachinepools"}, kmp.Name),
 		},
 		{
@@ -541,7 +555,94 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			k8sObjects: []client.Object{
 				kmp, cluster, sgKCP, defaultSecret,
 			},
+			sgNames:       []string{sgKCP.ObjectMeta.Name},
 			errorExpected: apierrors.NewNotFound(schema.GroupResource{Group: "controlplane.cluster.x-k8s.io", Resource: "kopscontrolplanes"}, kcp.Name),
+		},
+		{
+			description: "should update finalizers to match the spec",
+			k8sObjects: []client.Object{
+				kmp, cluster, kcp, defaultSecret, csg,
+				&securitygroupv1alpha2.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-security-group",
+					},
+					Spec: securitygroupv1alpha2.SecurityGroupSpec{
+						IngressRules: []securitygroupv1alpha2.IngressRule{
+							{
+								IPProtocol: "TCP",
+								FromPort:   40000,
+								ToPort:     60000,
+								AllowedCIDRBlocks: []string{
+									"0.0.0.0/0",
+								},
+							},
+						},
+						InfrastructureRef: []*corev1.ObjectReference{
+							{
+								APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+								Kind:       "KopsMachinePool",
+								Name:       "test-kops-machine-pool",
+								Namespace:  metav1.NamespaceDefault,
+							},
+						},
+					},
+					Status: securitygroupv1alpha2.SecurityGroupStatus{
+						Ready: true,
+						AppliedInfrastructureRef: []*corev1.ObjectReference{
+							{
+								APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+								Kind:       "KopsMachinePool",
+								Name:       "test-kops-machine-pool",
+								Namespace:  metav1.NamespaceDefault,
+							},
+							{
+								APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+								Kind:       "KopsMachinePool",
+								Name:       "test-another-kops-machine-pool",
+								Namespace:  metav1.NamespaceDefault,
+							},
+						},
+					},
+				},
+				&kinfrastructurev1alpha1.KopsMachinePool{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: metav1.NamespaceDefault,
+						Name:      "test-another-kops-machine-pool",
+						Labels: map[string]string{
+							"cluster.x-k8s.io/cluster-name": "test-cluster",
+						},
+						Finalizers: []string{
+							getFinalizerName("test-security-group"),
+						},
+					},
+					Spec: kinfrastructurev1alpha1.KopsMachinePoolSpec{
+						ClusterName: "test-cluster",
+						KopsInstanceGroupSpec: kopsapi.InstanceGroupSpec{
+							NodeLabels: map[string]string{
+								"kops.k8s.io/instance-group-name": "test-ig",
+								"kops.k8s.io/instance-group-role": "Node",
+							},
+						},
+					},
+				},
+			},
+			sgNames: []string{sg.ObjectMeta.Name},
+			FinalizersAt: []*ReferencedPool{
+				{
+					Name:          kmp.ObjectMeta.Name,
+					Namespace:     kmp.ObjectMeta.Namespace,
+					Kind:          "KopsMachinePool",
+					FinalizerName: getFinalizerName("test-security-group"),
+					Expected:      true,
+				},
+				{
+					Name:          "test-another-machine-pool",
+					Namespace:     metav1.NamespaceDefault,
+					Kind:          "KopsMachinePool",
+					FinalizerName: getFinalizerName("test-security-group"),
+					Expected:      false,
+				},
+			},
 		},
 	}
 	RegisterFailHandler(Fail)
@@ -665,7 +766,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					g.Expect(crosssg.Spec.ProviderConfigReference.Name).To(Equal(*tc.expectedProviderConfigRef))
 				}
 
-				for _, expectedFinalizerAt := range tc.expectedFinalizersAt {
+				for _, expectedFinalizerAt := range tc.FinalizersAt {
 					switch expectedFinalizerAt.Kind {
 					case "KopsMachinePool":
 						kmp := kinfrastructurev1alpha1.KopsMachinePool{}
@@ -674,7 +775,11 @@ func TestSecurityGroupReconciler(t *testing.T) {
 							Namespace: expectedFinalizerAt.Namespace,
 						}
 						_ = fakeClient.Get(ctx, key, &kmp)
-						g.Expect(kmp.Finalizers).To(ContainElement(expectedFinalizerAt.FinalizerName))
+						if expectedFinalizerAt.Expected {
+							g.Expect(kmp.Finalizers).To(ContainElement(expectedFinalizerAt.FinalizerName))
+						} else {
+							g.Expect(kmp.Finalizers).NotTo(ContainElement(expectedFinalizerAt.FinalizerName))
+						}
 					case "KopsControlPlane":
 						kcp := kcontrolplanev1alpha1.KopsControlPlane{}
 						key := client.ObjectKey{
@@ -682,11 +787,19 @@ func TestSecurityGroupReconciler(t *testing.T) {
 							Namespace: expectedFinalizerAt.Namespace,
 						}
 						_ = fakeClient.Get(ctx, key, &kcp)
-						g.Expect(kcp.Finalizers).To(ContainElement(expectedFinalizerAt.FinalizerName))
+						if expectedFinalizerAt.Expected {
+							g.Expect(kcp.Finalizers).To(ContainElement(expectedFinalizerAt.FinalizerName))
+						} else {
+							g.Expect(kcp.Finalizers).NotTo(ContainElement(expectedFinalizerAt.FinalizerName))
+						}
 
 						kmps, _ := kops.GetKopsMachinePoolsWithLabel(ctx, fakeClient, "cluster.x-k8s.io/cluster-name", kcp.Name)
 						for _, kmp := range kmps {
-							g.Expect(kmp.Finalizers).To(ContainElement(expectedFinalizerAt.FinalizerName))
+							if expectedFinalizerAt.Expected {
+								g.Expect(kmp.Finalizers).To(ContainElement(expectedFinalizerAt.FinalizerName))
+							} else {
+								g.Expect(kmp.Finalizers).NotTo(ContainElement(expectedFinalizerAt.FinalizerName))
+							}
 						}
 					default:
 						g.Fail("machine pool doesn't contain expected finalizer")
@@ -3056,7 +3169,7 @@ func TestSecurityGroupStatus(t *testing.T) {
 						AppliedInfrastructureRef: []*corev1.ObjectReference{
 							{
 								APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
-								Kind:       "MachinePool",
+								Kind:       "KopsMachinePool",
 								Name:       "test-machine-pool",
 								Namespace:  metav1.NamespaceDefault,
 							},
