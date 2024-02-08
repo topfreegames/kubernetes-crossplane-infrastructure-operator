@@ -54,6 +54,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 var (
@@ -321,82 +322,18 @@ func (r *SecurityGroupReconciliation) reconcileNormal(ctx context.Context) (ctrl
 		}
 	}
 
-	for _, infrastructureRef := range r.sg.Spec.InfrastructureRef {
-		switch infrastructureRef.Kind {
-		case "KopsMachinePool":
-			kmp := kinfrastructurev1alpha1.KopsMachinePool{}
-			key := client.ObjectKey{
-				Name:      infrastructureRef.Name,
-				Namespace: infrastructureRef.Namespace,
-			}
-			if err := r.Client.Get(ctx, key, &kmp); err != nil {
-				return resultError, err
-			}
+	result, err := r.ensureAttachReferences(ctx, csg)
+	if err != nil {
+		return result, err
+	}
 
-			kcp := kcontrolplanev1alpha1.KopsControlPlane{}
-			key = client.ObjectKey{
-				Name:      kmp.Spec.ClusterName,
-				Namespace: kmp.ObjectMeta.Namespace,
-			}
-			if err := r.Client.Get(ctx, key, &kcp); err != nil {
-				return resultError, err
-			}
-			err := r.attachKopsMachinePool(ctx, csg, &kcp, kmp)
-			if err != nil {
-				if errors.Is(err, ErrSecurityGroupNotAvailable) {
-					return requeue30seconds, nil
-				}
-				return resultError, err
-			}
-			if !controllerutil.ContainsFinalizer(&kmp, getFinalizerName(r.sg.Name)) {
-				controllerutil.AddFinalizer(&kmp, getFinalizerName(r.sg.Name))
-				if err := r.Update(ctx, &kmp); err != nil {
-					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to add finalizer in %s: %s", kmp.Name, err)
-				}
-			}
-		case "KopsControlPlane":
-			kcp := kcontrolplanev1alpha1.KopsControlPlane{}
-			key := client.ObjectKey{
-				Name:      infrastructureRef.Name,
-				Namespace: infrastructureRef.Namespace,
-			}
-			if err := r.Client.Get(ctx, key, &kcp); err != nil {
-				return resultError, err
-			}
-
-			kmps, err := kops.GetKopsMachinePoolsWithLabel(ctx, r.Client, "cluster.x-k8s.io/cluster-name", kcp.Name)
-			if err != nil {
-				return resultError, err
-			}
-			err = r.attachKopsMachinePool(ctx, csg, &kcp, kmps...)
-			if err != nil {
-				if errors.Is(err, ErrSecurityGroupNotAvailable) {
-					return requeue30seconds, nil
-				}
-				return resultError, err
-			}
-			if !controllerutil.ContainsFinalizer(&kcp, getFinalizerName(r.sg.Name)) {
-				controllerutil.AddFinalizer(&kcp, getFinalizerName(r.sg.Name))
-				if err := r.Update(ctx, &kcp); err != nil {
-					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to add finalizer in %s: %s", kcp.Name, err)
-				}
-			}
-			for _, kmp := range kmps {
-				if !controllerutil.ContainsFinalizer(&kmp, getFinalizerName(r.sg.Name)) {
-					controllerutil.AddFinalizer(&kmp, getFinalizerName(r.sg.Name))
-					if err := r.Update(ctx, &kmp); err != nil {
-						r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to add finalizer in %s: %s", kmp.Name, err)
-					}
-				}
-			}
-		default:
-			return resultError, fmt.Errorf("infrastructureRef not supported")
-		}
+	result, err = r.ensureDetachRemovedReferences(ctx, csg)
+	if err != nil {
+		return result, err
 	}
 
 	r.sg.Status.Ready = true
-	r.updateAppliedInfraRefStatus(ctx, csg)
-
+	r.sg.Status.AppliedInfrastructureRef = r.sg.DeepCopy().Spec.InfrastructureRef
 	return resultDefault, nil
 }
 
@@ -815,7 +752,69 @@ func (r *SecurityGroupReconciliation) detachSGFromLaunchTemplate(ctx context.Con
 	return nil
 }
 
-func (r *SecurityGroupReconciliation) updateAppliedInfraRefStatus(ctx context.Context, csg *crossec2v1beta1.SecurityGroup) (ctrl.Result, error) {
+func (r *SecurityGroupReconciliation) ensureAttachReferences(ctx context.Context, csg *crossec2v1beta1.SecurityGroup) (ctrl.Result, error) {
+	for _, infrastructureRef := range r.sg.Spec.InfrastructureRef {
+		switch infrastructureRef.Kind {
+		case "KopsMachinePool":
+			kmp := kinfrastructurev1alpha1.KopsMachinePool{}
+			key := client.ObjectKey{
+				Name:      infrastructureRef.Name,
+				Namespace: infrastructureRef.Namespace,
+			}
+			if err := r.Client.Get(ctx, key, &kmp); err != nil {
+				return resultError, err
+			}
+
+			kcp := kcontrolplanev1alpha1.KopsControlPlane{}
+			key = client.ObjectKey{
+				Name:      kmp.Spec.ClusterName,
+				Namespace: kmp.ObjectMeta.Namespace,
+			}
+			if err := r.Client.Get(ctx, key, &kcp); err != nil {
+				return resultError, err
+			}
+			err := r.attachKopsMachinePool(ctx, csg, &kcp, kmp)
+			if err != nil {
+				if errors.Is(err, ErrSecurityGroupNotAvailable) {
+					return requeue30seconds, nil
+				}
+				return resultError, err
+			}
+			if !controllerutil.ContainsFinalizer(&kmp, getFinalizerName(r.sg.Name)) {
+				r.addKMPFinalizer(ctx, kmp)
+			}
+		case "KopsControlPlane":
+			kcp := kcontrolplanev1alpha1.KopsControlPlane{}
+			key := client.ObjectKey{
+				Name:      infrastructureRef.Name,
+				Namespace: infrastructureRef.Namespace,
+			}
+			if err := r.Client.Get(ctx, key, &kcp); err != nil {
+				return resultError, err
+			}
+
+			kmps, err := kops.GetKopsMachinePoolsWithLabel(ctx, r.Client, "cluster.x-k8s.io/cluster-name", kcp.Name)
+			if err != nil {
+				return resultError, err
+			}
+			err = r.attachKopsMachinePool(ctx, csg, &kcp, kmps...)
+			if err != nil {
+				if errors.Is(err, ErrSecurityGroupNotAvailable) {
+					return requeue30seconds, nil
+				}
+				return resultError, err
+			}
+			if !controllerutil.ContainsFinalizer(&kcp, getFinalizerName(r.sg.Name)) {
+				r.addKCPFinalizer(ctx, kcp, kmps...)
+			}
+		default:
+			return resultError, fmt.Errorf("infrastructureRef not supported")
+		}
+	}
+	return reconcile.Result{}, nil
+}
+
+func (r *SecurityGroupReconciliation) ensureDetachRemovedReferences(ctx context.Context, csg *crossec2v1beta1.SecurityGroup) (ctrl.Result, error) {
 	infraRefMap := map[string]*corev1.ObjectReference{}
 
 	for _, ref := range r.sg.Spec.InfrastructureRef {
@@ -834,7 +833,10 @@ func (r *SecurityGroupReconciliation) updateAppliedInfraRefStatus(ctx context.Co
 				if err := r.Client.Get(ctx, key, &kmp); err != nil {
 					return resultError, err
 				}
-				r.detachSGFromKopsMachinePool(ctx, csg, kmp)
+				err := r.detachSGFromKopsMachinePool(ctx, csg, kmp)
+				if err != nil {
+					return resultError, err
+				}
 				r.removeKMPFinalizer(ctx, kmp)
 			case "KopsControlPlane":
 				kcp := kcontrolplanev1alpha1.KopsControlPlane{}
@@ -879,6 +881,26 @@ func (r *SecurityGroupReconciliation) removeKCPFinalizer(ctx context.Context, kc
 	for _, kmp := range kmps {
 		if !controllerutil.ContainsFinalizer(&kmp, getFinalizerName(r.sg.Name)) {
 			r.removeKMPFinalizer(ctx, kmp)
+		}
+	}
+}
+
+func (r *SecurityGroupReconciliation) addKMPFinalizer(ctx context.Context, kmp kinfrastructurev1alpha1.KopsMachinePool) {
+	controllerutil.AddFinalizer(&kmp, getFinalizerName(r.sg.Name))
+	if err := r.Update(ctx, &kmp); err != nil {
+		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to add finalizer in %s: %s", kmp.Name, err)
+	}
+}
+
+func (r *SecurityGroupReconciliation) addKCPFinalizer(ctx context.Context, kcp kcontrolplanev1alpha1.KopsControlPlane, kmps ...kinfrastructurev1alpha1.KopsMachinePool) {
+	controllerutil.AddFinalizer(&kcp, getFinalizerName(r.sg.Name))
+	if err := r.Update(ctx, &kcp); err != nil {
+		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to add finalizer in %s: %s", kcp.Name, err)
+	}
+
+	for _, kmp := range kmps {
+		if !controllerutil.ContainsFinalizer(&kmp, getFinalizerName(r.sg.Name)) {
+			r.addKMPFinalizer(ctx, kmp)
 		}
 	}
 }

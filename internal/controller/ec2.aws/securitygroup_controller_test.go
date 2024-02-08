@@ -3021,6 +3021,77 @@ func TestDetachSGFromASG(t *testing.T) {
 	}
 }
 
+func TestEnsureDetachRemovedReferences(t *testing.T) {
+	testCases := []struct {
+		description   string
+		k8sObjects    []client.Object
+		errorExpected error
+		targetSG      *securitygroupv1alpha2.SecurityGroup
+	}{}
+
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	err := clusterv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = securitygroupv1alpha2.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = kcontrolplanev1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			ctx := context.TODO()
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).WithStatusSubresource(sg).Build()
+			fakeEC2Client := &fakeec2.MockEC2Client{}
+			fakeEC2Client.MockDescribeVpcs = func(ctx context.Context, input *awsec2.DescribeVpcsInput, opts []func(*awsec2.Options)) (*awsec2.DescribeVpcsOutput, error) {
+				return &awsec2.DescribeVpcsOutput{
+					Vpcs: []ec2types.Vpc{
+						{
+							VpcId: aws.String("x.x.x.x"),
+						},
+					},
+				}, nil
+			}
+			fakeASGClient := &fakeasg.MockAutoScalingClient{}
+
+			reconciler := SecurityGroupReconciler{
+				Client: fakeClient,
+				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
+					return fakeEC2Client
+				},
+				NewAutoScalingClientFactory: func(cfg aws.Config) autoscaling.AutoScalingClient {
+					return fakeASGClient
+				},
+			}
+
+			reconciliation := &SecurityGroupReconciliation{
+				SecurityGroupReconciler: reconciler,
+				log:                     ctrl.LoggerFrom(ctx),
+				sg:                      tc.targetSG,
+				ec2Client:               reconciler.NewEC2ClientFactory(aws.Config{}),
+				asgClient:               reconciler.NewAutoScalingClientFactory(aws.Config{}),
+			}
+
+			err = reconciliation.ensureDetachRemovedReferences(ctx)
+			if tc.errorExpected == nil {
+				g.Expect(err).To(BeNil())
+			} else {
+				g.Expect(err.Error()).To(ContainSubstring(tc.errorExpected.Error()))
+			}
+		})
+	}
+}
+
 func TestSecurityGroupStatus(t *testing.T) {
 	testCases := []struct {
 		description                   string
