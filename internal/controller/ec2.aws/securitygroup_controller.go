@@ -577,14 +577,16 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 				Namespace: infrastructureRef.Namespace,
 			}
 			if err := r.Client.Get(ctx, key, &kmp); err != nil {
-				return resultError, err
+				r.log.Error(err, fmt.Sprintf("could not get kmp %v at %v", key.Name, key.Namespace))
+				continue
 			}
 
 			err := r.detachSGFromKopsMachinePool(ctx, csg, kmp)
 			if err != nil {
-				return resultError, err
+				r.log.Error(err, fmt.Sprintf("failed to detach sg %v from kmp %v at %v", r.sg.Name, key.Name, key.Namespace))
+				continue
 			}
-			if !controllerutil.ContainsFinalizer(&kmp, getFinalizerName(r.sg.Name)) {
+			if controllerutil.ContainsFinalizer(&kmp, getFinalizerName(r.sg.Name)) {
 				r.removeKMPFinalizer(ctx, kmp)
 			}
 		case "KopsControlPlane":
@@ -594,17 +596,19 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 				Name:      infrastructureRef.Name,
 			}
 			if err := r.Client.Get(ctx, key, &kcp); err != nil {
-				return resultError, err
+				r.log.Error(err, fmt.Sprintf("could not get kcp %v at %v", key.Name, key.Namespace))
+				continue
 			}
 
 			kmps, err := kops.GetKopsMachinePoolsWithLabel(ctx, r.Client, "cluster.x-k8s.io/cluster-name", kcp.Name)
 			if err != nil {
-				return resultError, err
+				r.log.Error(err, fmt.Sprintf("could not get kmps of %v", kcp.Name))
+				continue
 			}
 
 			err = r.detachSGFromKopsMachinePool(ctx, csg, kmps...)
 			if err != nil {
-				return resultError, err
+				r.log.Error(err, fmt.Sprintf("failed to detach sg %v from kmps of %v", r.sg.Name, kcp.Name))
 			}
 
 			r.removeKCPFinalizer(ctx, kcp, kmps...)
@@ -619,7 +623,6 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 	}
 	r.log.Info(fmt.Sprintf("Finished deletion of Crossplane SecurityGroup %s\n", csg.Name))
 
-	// is this all that's necessary to delete it? since this controller manages WSG then we should probably also call the k8s deletion
 	controllerutil.RemoveFinalizer(sg, securityGroupFinalizer)
 	return ctrl.Result{}, nil
 }
@@ -879,7 +882,7 @@ func (r *SecurityGroupReconciliation) removeKCPFinalizer(ctx context.Context, kc
 		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to remove finalizer in %s: %s", kcp.Name, err)
 	}
 	for _, kmp := range kmps {
-		if !controllerutil.ContainsFinalizer(&kmp, getFinalizerName(r.sg.Name)) {
+		if controllerutil.ContainsFinalizer(&kmp, getFinalizerName(r.sg.Name)) {
 			r.removeKMPFinalizer(ctx, kmp)
 		}
 	}
