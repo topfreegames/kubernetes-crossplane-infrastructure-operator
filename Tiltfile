@@ -24,7 +24,7 @@ local_resource('Build manager binary',
   'make build',
 )
 
-docker_build_with_restart('tfgco/provider-crossplane',
+docker_build_with_restart('tfgco/kubernetes-crossplane-infrastructure-operator',
   '.',
   dockerfile = './Dockerfile.dev',
   entrypoint = '/manager',
@@ -40,13 +40,13 @@ k8s_yaml('.kubernetes/manifests.yaml')
 
 k8s_resource(
   objects = [
-    'provider-crossplane-system:namespace',
-    'provider-crossplane-controller-manager:serviceaccount',
-    'provider-crossplane-leader-election-role:role',
-    'provider-crossplane-manager-role:clusterrole',
-    'provider-crossplane-leader-election-rolebinding:rolebinding',
-    'provider-crossplane-manager-rolebinding:clusterrolebinding',
-    'provider-crossplane-manager-config:configmap',
+    'kubernetes-crossplane-infrastructure-operator-system:namespace',
+    'kubernetes-crossplane-infrastructure-operator-controller-manager:serviceaccount',
+    'kubernetes-crossplane-infrastructure-operator-leader-election-role:role',
+    'kubernetes-crossplane-infrastructure-operator-manager-role:clusterrole',
+    'kubernetes-crossplane-infrastructure-operator-leader-election-rolebinding:rolebinding',
+    'kubernetes-crossplane-infrastructure-operator-manager-rolebinding:clusterrolebinding',
+    'kubernetes-crossplane-infrastructure-operator-manager-config:configmap',
     'clustermeshes.clustermesh.infrastructure.wildlife.io:customresourcedefinition',
     'securitygroups.ec2.aws.wildlife.io:customresourcedefinition',
   ],

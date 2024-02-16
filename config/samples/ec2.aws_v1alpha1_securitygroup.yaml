@@ -4,9 +4,9 @@ metadata:
   labels:
     app.kubernetes.io/name: securitygroup
     app.kubernetes.io/instance: securitygroup-sample
-    app.kubernetes.io/part-of: provider-crossplane
+    app.kubernetes.io/part-of: kubernetes-crossplane-infrastructure-operator
     app.kubernetes.io/managed-by: kustomize
-    app.kubernetes.io/created-by: provider-crossplane
+    app.kubernetes.io/created-by: kubernetes-crossplane-infrastructure-operator
   name: securitygroup-sample
 spec:
   infrastructureRef:

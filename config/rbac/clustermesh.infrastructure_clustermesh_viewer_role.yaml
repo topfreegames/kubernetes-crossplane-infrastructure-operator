@@ -6,8 +6,8 @@ metadata:
     app.kubernetes.io/name: clusterrole
     app.kubernetes.io/instance: clustermesh-viewer-role
     app.kubernetes.io/component: rbac
-    app.kubernetes.io/created-by: migration-provider-crossplane
-    app.kubernetes.io/part-of: migration-provider-crossplane
+    app.kubernetes.io/created-by: migration-kubernetes-crossplane-infrastructure-operator
+    app.kubernetes.io/part-of: migration-kubernetes-crossplane-infrastructure-operator
     app.kubernetes.io/managed-by: kustomize
   name: clustermesh-viewer-role
 rules:

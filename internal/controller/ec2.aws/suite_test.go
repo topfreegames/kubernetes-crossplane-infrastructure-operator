@@ -30,7 +30,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	ec2awsv1alpha2 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha2"
+	ec2awsv1alpha2 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/ec2.aws/v1alpha2"
 	//+kubebuilder:scaffold:imports
 )
 
