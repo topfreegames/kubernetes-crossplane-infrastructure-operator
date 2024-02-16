@@ -4,10 +4,15 @@ start
 if (CR has Pause annotation?) is (false) then
     if (Is Wildlife SecurityGroup CR marked for deletion?) is (false) then
         :Add finalizer to Wildlife SecurityGroup CR;
-        :Create or Update Crossplane SecurityGroup;
+        if (Is Crossplane SecurityGroup created?) is (false) then
+        :Create Crossplane SecurityGroup;
+        else (true)
+        :Update Crossplane SecurityGroup;
+        endif
         if (Is Crossplane SecurityGroup available?) is (true) then
             :Attach SecurityGroup to InfrastructureRef;
         else (false)
+            stop
         endif
     else (true)
         :Get Crossplane SecurityGroup;

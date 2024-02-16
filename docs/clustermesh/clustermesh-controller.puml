@@ -6,9 +6,17 @@ if (Is clustermesh enabled for that Cluster?) is (true) then
         if (Is Cluster belongs to Clustermesh already?) is (false) then
             :Add Cluster to Clustermesh CR;
         endif
-        :Create a VPC Peering to each Cluster of the Clustermesh;
-        :Create or Update a Security Group to the Cluster allowing the Clusters of the Clustermesh;
-        :Create Routes for each VPC Peering;
+        if (Are VPC peering connections established between each cluster in the Clustermesh?) is (false) then
+            :Create VPC Peerings to each Cluster of the Clustermesh;
+        endif
+        if (Is Wildlife Security Group created for the Cluster?) is (false) then
+            :Create a Wildlife Security Group for the Cluster that permits communication with other clusters in the Clustermesh;
+        else 
+            :Update the Wildlife Security Group of the Cluster permitting communication with other clusters in the Clustermesh;
+        endif
+        if (Are Routes created for each VPC Peering?) is (false) then
+            :Create Routes for each VPC Peering;
+        endif
         :Validate Clustermesh;
     else (false) 
         :Create Clustermesh CR with the Cluster;
