@@ -6,14 +6,14 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	clustermeshv1alpha1 "github.com/topfreegames/provider-crossplane/api/clustermesh.infrastructure/v1alpha1"
+	clustermeshv1alpha1 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/clustermesh.infrastructure/v1alpha1"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	crossec2v1alphav1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	"github.com/google/go-cmp/cmp"
-	securitygroupv1alpha2 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha2"
+	securitygroupv1alpha2 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/ec2.aws/v1alpha2"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -71,7 +71,7 @@ func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha2.SecurityGroup, vpcId, 
 		},
 		Spec: crossec2v1beta1.SecurityGroupSpec{
 			ForProvider: crossec2v1beta1.SecurityGroupParameters{
-				Description: fmt.Sprintf("sg %s managed by provider-crossplane", sg.GetName()),
+				Description: fmt.Sprintf("sg %s managed by kubernetes-crossplane-infrastructure-operator", sg.GetName()),
 				GroupName:   sg.GetName(),
 				Ingress:     []crossec2v1beta1.IPPermission{},
 				VPCID:       vpcId,

@@ -23,13 +23,13 @@ import (
 	"time"
 
 	crossec2v1alphav1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
+	clustermeshv1alpha1 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/clustermesh.infrastructure/v1alpha1"
+	securitygroupv1alpha2 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/ec2.aws/v1alpha2"
+	"github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/aws/ec2"
+	"github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/crossplane"
+	kopsutils "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/kops"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	"github.com/topfreegames/kubernetes-kops-operator/pkg/kops"
-	clustermeshv1alpha1 "github.com/topfreegames/provider-crossplane/api/clustermesh.infrastructure/v1alpha1"
-	securitygroupv1alpha2 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha2"
-	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
-	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
-	kopsutils "github.com/topfreegames/provider-crossplane/pkg/kops"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
@@ -365,7 +365,6 @@ func (r *ClusterMeshReconciliation) reconcileDelete(ctx context.Context) error {
 	}
 
 	r.log.Info(fmt.Sprintf("deleted security group for cluster %s\n", r.cluster.ObjectMeta.Name))
-
 
 	// VPC Peering e Routes
 	clustermeshCopy := r.clustermesh.DeepCopy()

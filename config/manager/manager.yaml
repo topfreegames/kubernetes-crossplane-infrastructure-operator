@@ -6,8 +6,8 @@ metadata:
     app.kubernetes.io/name: namespace
     app.kubernetes.io/instance: system
     app.kubernetes.io/component: manager
-    app.kubernetes.io/created-by: migration-provider-crossplane
-    app.kubernetes.io/part-of: migration-provider-crossplane
+    app.kubernetes.io/created-by: migration-kubernetes-crossplane-infrastructure-operator
+    app.kubernetes.io/part-of: migration-kubernetes-crossplane-infrastructure-operator
     app.kubernetes.io/managed-by: kustomize
   name: system
 ---
@@ -21,8 +21,8 @@ metadata:
     app.kubernetes.io/name: deployment
     app.kubernetes.io/instance: controller-manager
     app.kubernetes.io/component: manager
-    app.kubernetes.io/created-by: migration-provider-crossplane
-    app.kubernetes.io/part-of: migration-provider-crossplane
+    app.kubernetes.io/created-by: migration-kubernetes-crossplane-infrastructure-operator
+    app.kubernetes.io/part-of: migration-kubernetes-crossplane-infrastructure-operator
     app.kubernetes.io/managed-by: kustomize
 spec:
   selector:

@@ -1,7 +1,7 @@
-# provider-crossplane
+# kubernetes-crossplane-infrastructure-operator
 
-## What is Provider Crossplane?
-Provider Crossplane is a operator designed to complement the [Kops Operator](https://github.com/topfreegames/kubernetes-kops-operator) by providing a way to manage infrastructure resources in AWS leveraging on [Crossplane](https://github.com/crossplane/crossplane).
+## What is Kubernetes Crossplane Infrastructure Operator?
+Kubernetes Crossplane Infrastructure Operator is a operator designed to complement the [Kops Operator](https://github.com/topfreegames/kubernetes-kops-operator) by providing a way to manage infrastructure resources in AWS leveraging on [Crossplane](https://github.com/crossplane/crossplane).
 
 See this [document](docs/README.md) for more details.
 

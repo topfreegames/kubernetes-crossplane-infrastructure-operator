@@ -10,7 +10,7 @@ import (
 	autoscalingtypes "github.com/aws/aws-sdk-go-v2/service/autoscaling/types"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/topfreegames/provider-crossplane/pkg/aws/autoscaling/fake"
+	"github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/aws/autoscaling/fake"
 )
 
 func TestGetAutoScalingGroupByName(t *testing.T) {

@@ -16,5 +16,5 @@ data:
 kind: Secret
 metadata:
   name: aws-credentials
-  namespace: provider-crossplane-system
+  namespace: kubernetes-crossplane-infrastructure-operator-system
 type: Opaque

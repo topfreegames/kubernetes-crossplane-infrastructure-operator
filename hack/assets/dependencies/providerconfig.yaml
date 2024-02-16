@@ -8,5 +8,5 @@ spec:
     secretRef:
       key: creds
       name: aws-credentials
-      namespace: provider-crossplane-system
+      namespace: kubernetes-crossplane-infrastructure-operator-system
     source: Secret

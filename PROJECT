@@ -6,8 +6,8 @@ domain: wildlife.io
 layout:
 - go.kubebuilder.io/v4
 multigroup: true
-projectName: provider-crossplane
-repo: github.com/topfreegames/provider-crossplane
+projectName: kubernetes-crossplane-infrastructure-operator
+repo: github.com/topfreegames/kubernetes-crossplane-infrastructure-operator
 resources:
 - api:
     crdVersion: v1
@@ -16,7 +16,7 @@ resources:
   domain: wildlife.io
   group: clustermesh.infrastructure
   kind: ClusterMesh
-  path: github.com/topfreegames/provider-crossplane/api/clustermesh.infrastructure/v1alpha1
+  path: github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/clustermesh.infrastructure/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -25,7 +25,7 @@ resources:
   domain: wildlife.io
   group: ec2.aws
   kind: SecurityGroup
-  path: github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha1
+  path: github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/ec2.aws/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -33,7 +33,7 @@ resources:
   domain: wildlife.io
   group: ec2.aws
   kind: SecurityGroup
-  path: github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha2
+  path: github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/ec2.aws/v1alpha2
   version: v1alpha2
   webhooks:
     conversion: true

@@ -26,17 +26,17 @@ import (
 
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/google/go-cmp/cmp"
+	securitygroupv1alpha2 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/ec2.aws/v1alpha2"
+	"github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/aws/autoscaling"
+	"github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/aws/ec2"
+	"github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/crossplane"
+	kopsutils "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/kops"
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
 	"github.com/topfreegames/kubernetes-kops-operator/pkg/kops"
-	securitygroupv1alpha2 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha2"
-	"github.com/topfreegames/provider-crossplane/pkg/aws/autoscaling"
-	"github.com/topfreegames/provider-crossplane/pkg/aws/ec2"
-	"github.com/topfreegames/provider-crossplane/pkg/crossplane"
-	kopsutils "github.com/topfreegames/provider-crossplane/pkg/kops"
 
 	oceanaws "github.com/spotinst/spotinst-sdk-go/service/ocean/providers/aws"
-	"github.com/topfreegames/provider-crossplane/pkg/spot"
+	"github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/spot"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2service "github.com/aws/aws-sdk-go-v2/service/ec2"

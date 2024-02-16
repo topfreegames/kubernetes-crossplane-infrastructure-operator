@@ -9,7 +9,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	oceanaws "github.com/spotinst/spotinst-sdk-go/service/ocean/providers/aws"
-	fakeocean "github.com/topfreegames/provider-crossplane/pkg/spot/fake"
+	fakeocean "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/spot/fake"
 )
 
 func TestListVNGsFromClusterName(t *testing.T) {

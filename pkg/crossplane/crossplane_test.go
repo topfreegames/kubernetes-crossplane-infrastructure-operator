@@ -9,7 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	crossec2v1alphav1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
 	"github.com/google/go-cmp/cmp"
-	securitygroupv1alpha2 "github.com/topfreegames/provider-crossplane/api/ec2.aws/v1alpha2"
+	securitygroupv1alpha2 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/ec2.aws/v1alpha2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
@@ -19,7 +19,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
-	clustermeshv1alpha1 "github.com/topfreegames/provider-crossplane/api/clustermesh.infrastructure/v1alpha1"
+	clustermeshv1alpha1 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/clustermesh.infrastructure/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubectl/pkg/scheme"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -1439,7 +1439,7 @@ func TestNewCrossplaneSecurityGroup(t *testing.T) {
 				expectedProviderConfigName = defaultProviderConfigName
 			}
 			csg := NewCrossplaneSecurityGroup(sg, &testVPCId, &testRegion, expectedProviderConfigName)
-			g.Expect(csg.Spec.ForProvider.Description).To(Equal(fmt.Sprintf("sg %s managed by provider-crossplane", sg.GetName())))
+			g.Expect(csg.Spec.ForProvider.Description).To(Equal(fmt.Sprintf("sg %s managed by kubernetes-crossplane-infrastructure-operator", sg.GetName())))
 			g.Expect(csg.Spec.ProviderConfigReference.Name).To(Equal(expectedProviderConfigName))
 		})
 	}

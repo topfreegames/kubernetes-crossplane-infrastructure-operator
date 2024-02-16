@@ -2,7 +2,7 @@
 RELEASE_TAG ?= $(shell git describe --tags --abbrev=0 2>/dev/null)
 
 # Image URL to use all building/pushing image targets
-IMG ?= tfgco/provider-crossplane:$(RELEASE_TAG)
+IMG ?= tfgco/kubernetes-crossplane-infrastructure-operator:$(RELEASE_TAG)
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.27.1

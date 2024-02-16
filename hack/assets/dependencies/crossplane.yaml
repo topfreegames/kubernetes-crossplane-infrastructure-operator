@@ -604,7 +604,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: crossplane
-  namespace: provider-crossplane-system
+  namespace: kubernetes-crossplane-infrastructure-operator-system
 ---
 # Source: crossplane/templates/rbac-manager-clusterrolebinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -627,7 +627,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: rbac-manager
-  namespace: provider-crossplane-system
+  namespace: kubernetes-crossplane-infrastructure-operator-system
 ---
 # Source: crossplane/templates/rbac-manager-managed-clusterroles.yaml
 apiVersion: rbac.authorization.k8s.io/v1
