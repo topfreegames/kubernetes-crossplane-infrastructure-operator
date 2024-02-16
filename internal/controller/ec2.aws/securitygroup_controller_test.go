@@ -2627,7 +2627,7 @@ func TestReconcileDelete(t *testing.T) {
 		FinalizersAt  []*ReferencedPool
 	}{
 		{
-			description: "should remove security group referencing kmp and remove finalizer",
+			description: "should remove crossplane security group referencing kmp and remove finalizer",
 			k8sObjects: []client.Object{
 				sg, csg, kcp, cluster, defaultSecret,
 				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName("test-security-group")}),
@@ -2665,7 +2665,7 @@ func TestReconcileDelete(t *testing.T) {
 			sgTarget: sg,
 		},
 		{
-			description: "should remove the crossplane security group referencing kcp",
+			description: "should remove the crossplane security group referencing kcp and remove finalizer",
 			k8sObjects: []client.Object{
 				sgKCP, csg, cluster, defaultSecret,
 				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName("test-security-group")}),
