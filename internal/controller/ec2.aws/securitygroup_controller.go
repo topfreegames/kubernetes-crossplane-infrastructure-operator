@@ -576,12 +576,16 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 				Name:      infrastructureRef.Name,
 				Namespace: infrastructureRef.Namespace,
 			}
-			if err := r.Client.Get(ctx, key, &kmp); err != nil {
-				r.log.Error(err, fmt.Sprintf("could not get kmp %v at %v", key.Name, key.Namespace))
+			err := r.Client.Get(ctx, key, &kmp)
+			if apierrors.IsNotFound(err) {
+				r.log.Error(err, fmt.Sprintf("KopsMachinePool %v not found at %v, moving on with the deletion process", key.Name, key.Namespace))
 				continue
 			}
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("could not retrieve KopsMachinePool: %w", err)
+			}
 
-			err := r.detachSGFromKopsMachinePool(ctx, csg, kmp)
+			err = r.detachSGFromKopsMachinePool(ctx, csg, kmp)
 			if err != nil {
 				r.log.Error(err, fmt.Sprintf("failed to detach sg %v from kmp %v at %v", r.sg.Name, key.Name, key.Namespace))
 				continue
@@ -595,15 +599,22 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 				Namespace: infrastructureRef.Namespace,
 				Name:      infrastructureRef.Name,
 			}
-			if err := r.Client.Get(ctx, key, &kcp); err != nil {
-				r.log.Error(err, fmt.Sprintf("could not get kcp %v at %v", key.Name, key.Namespace))
+			err := r.Client.Get(ctx, key, &kcp)
+			if apierrors.IsNotFound(err) {
+				r.log.Error(err, fmt.Sprintf("KopsControlPlane %v not found at %v, moving on with the deletion process", key.Name, key.Namespace))
 				continue
+			}
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("could not retrieve KopsControlPlane: %w", err)
 			}
 
 			kmps, err := kops.GetKopsMachinePoolsWithLabel(ctx, r.Client, "cluster.x-k8s.io/cluster-name", kcp.Name)
-			if err != nil {
-				r.log.Error(err, fmt.Sprintf("could not get kmps of %v", kcp.Name))
+			if apierrors.IsNotFound(err) {
+				r.log.Error(err, fmt.Sprintf("kmps of %v not found", kcp.Name))
 				continue
+			}
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("could not retrieve Machine Pools of the cluster: %w", err)
 			}
 
 			err = r.detachSGFromKopsMachinePool(ctx, csg, kmps...)
