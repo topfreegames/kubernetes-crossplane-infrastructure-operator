@@ -3000,7 +3000,13 @@ func TestDetachSGFromVNG(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
 			ctx := context.TODO()
-
+			fakeEC2Client := &fakeec2.MockEC2Client{}
+			fakeEC2Client.MockDescribeInstances = func(ctx context.Context, input *awsec2.DescribeInstancesInput, opts []func(*awsec2.Options)) (*awsec2.DescribeInstancesOutput, error) {
+				return &awsec2.DescribeInstancesOutput{}, nil
+			}
+			fakeEC2Client.MockModifyInstanceAttribute = func(ctx context.Context, params *awsec2.ModifyInstanceAttributeInput, opts []func(*awsec2.Options)) (*awsec2.ModifyInstanceAttributeOutput, error) {
+				return &awsec2.ModifyInstanceAttributeOutput{}, nil
+			}
 			fakeOceanClient := &fakeocean.MockOceanCloudProviderAWS{}
 			if tc.updateMockError {
 				fakeOceanClient.MockUpdateLaunchSpec = func(ctx context.Context, updateLaunchSpecInput *oceanaws.UpdateLaunchSpecInput) (*oceanaws.UpdateLaunchSpecOutput, error) {
@@ -3021,6 +3027,7 @@ func TestDetachSGFromVNG(t *testing.T) {
 			reconciliation := SecurityGroupReconciliation{
 				SecurityGroupReconciler: reconciler,
 				log:                     ctrl.LoggerFrom(ctx),
+				ec2Client:               fakeEC2Client,
 			}
 
 			err = reconciliation.detachSGFromVNG(ctx, fakeOceanClient, tc.launchSpecs, tc.kmp.Name, csg)
@@ -3113,6 +3120,12 @@ func TestDetachSGFromKopsMachinePool(t *testing.T) {
 					},
 				}, nil
 			}
+			fakeEC2Client.MockDescribeInstances = func(ctx context.Context, input *awsec2.DescribeInstancesInput, opts []func(*awsec2.Options)) (*awsec2.DescribeInstancesOutput, error) {
+				return &awsec2.DescribeInstancesOutput{}, nil
+			}
+			fakeEC2Client.MockModifyInstanceAttribute = func(ctx context.Context, params *awsec2.ModifyInstanceAttributeInput, opts []func(*awsec2.Options)) (*awsec2.ModifyInstanceAttributeOutput, error) {
+				return &awsec2.ModifyInstanceAttributeOutput{}, nil
+			}
 
 			fakeASGClient := &fakeasg.MockAutoScalingClient{}
 			fakeASGClient.MockDescribeAutoScalingGroups = func(ctx context.Context, params *awsautoscaling.DescribeAutoScalingGroupsInput, optFns []func(*awsautoscaling.Options)) (*awsautoscaling.DescribeAutoScalingGroupsOutput, error) {
@@ -3149,7 +3162,6 @@ func TestDetachSGFromKopsMachinePool(t *testing.T) {
 					},
 				}, nil
 			}
-
 			reconciler := SecurityGroupReconciler{
 				Client:   fakeClient,
 				Recorder: record.NewFakeRecorder(3),
