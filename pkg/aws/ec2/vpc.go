@@ -93,6 +93,60 @@ func AttachSecurityGroupToInstances(ctx context.Context, ec2Client EC2Client, in
 	return nil
 }
 
+func DetachSecurityGroupFromInstances(ctx context.Context, ec2Client EC2Client, instanceIDs []string, securityGroupID string) error {
+
+	if len(instanceIDs) == 0 {
+		return nil
+	}
+
+	var instances []*ec2types.Instance
+
+	params := &ec2.DescribeInstancesInput{
+		InstanceIds: instanceIDs,
+	}
+
+	paginator := ec2.NewDescribeInstancesPaginator(ec2Client, params)
+
+	for paginator.HasMorePages() {
+		output, err := paginator.NextPage(ctx)
+		if err != nil {
+			return err
+		}
+
+		for _, reservation := range output.Reservations {
+			for _, instance := range reservation.Instances {
+				instances = append(instances, &instance)
+			}
+		}
+	}
+
+	if len(instances) == 0 {
+		return fmt.Errorf("failed to retrieve instances")
+	}
+
+	for _, instance := range instances {
+		if instance.State.Name == ec2types.InstanceStateNameTerminated || !isSGAttached(instance.SecurityGroups, securityGroupID) {
+			continue
+		}
+
+		sgIDs := []string{}
+		for _, sg := range instance.SecurityGroups {
+			if *sg.GroupId != securityGroupID {
+				sgIDs = append(sgIDs, *sg.GroupId)
+			}
+		}
+
+		_, err := ec2Client.ModifyInstanceAttribute(ctx, &ec2.ModifyInstanceAttributeInput{
+			InstanceId: instance.InstanceId,
+			Groups:     sgIDs,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to add security group %s to instance %s: %v", securityGroupID, *instance.InstanceId, err)
+		}
+	}
+	return nil
+}
+
 func GetVPCIdWithCIDRAndClusterName(ctx context.Context, ec2Client EC2Client, clusterName, CIDR string) (*string, error) {
 
 	result, err := ec2Client.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{

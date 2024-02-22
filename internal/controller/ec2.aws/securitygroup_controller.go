@@ -561,6 +561,7 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 	csg := &crossec2v1beta1.SecurityGroup{}
 	err := r.Get(ctx, key, csg)
 	if apierrors.IsNotFound(err) {
+		r.log.Info(fmt.Sprintf("CrossplaneSecurityGroup %v not found at %v, moving on with the deletion process", key.Name, key.Namespace))
 		controllerutil.RemoveFinalizer(sg, securityGroupFinalizer)
 		return ctrl.Result{}, nil
 	}
@@ -705,6 +706,38 @@ func (r *SecurityGroupReconciliation) detachSGFromVNG(ctx context.Context, ocean
 				if err != nil {
 					return fmt.Errorf("error updating ocean cluster launch spec: %w", err)
 				}
+
+				outputDescribeInstances, err := r.ec2Client.DescribeInstances(ctx, &ec2service.DescribeInstancesInput{
+					Filters: []ec2types.Filter{
+						{
+							Name:   aws.String("tag:spotinst:ocean:launchspec:name"),
+							Values: []string{*vng.Name},
+						},
+						{
+							Name:   aws.String("tag:spotinst:aws:ec2:group:createdBy"),
+							Values: []string{"spotinst"},
+						},
+						{
+							Name:   aws.String("instance-state-name"),
+							Values: []string{"running"},
+						},
+					},
+				})
+				if err != nil {
+					return err
+				}
+
+				instanceIDs := []string{}
+				for _, reservation := range outputDescribeInstances.Reservations {
+					for _, instance := range reservation.Instances {
+						instanceIDs = append(instanceIDs, *instance.InstanceId)
+					}
+				}
+
+				err = ec2.DetachSecurityGroupFromInstances(ctx, r.ec2Client, instanceIDs, csg.Status.AtProvider.SecurityGroupID)
+				if err != nil {
+					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesDetachmentFailed", err.Error())
+				}
 				return nil
 			}
 		}
@@ -736,6 +769,17 @@ func (r *SecurityGroupReconciliation) detachSGFromASG(ctx context.Context, asgNa
 			return err
 		}
 	}
+
+	instanceIDs := []string{}
+	for _, instance := range asg.Instances {
+		instanceIDs = append(instanceIDs, *instance.InstanceId)
+	}
+
+	err = ec2.DetachSecurityGroupFromInstances(ctx, r.ec2Client, instanceIDs, sgId)
+	if err != nil {
+		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesDetachmentFailed", err.Error())
+	}
+
 	return nil
 }
 
@@ -763,6 +807,30 @@ func (r *SecurityGroupReconciliation) detachSGFromLaunchTemplate(ctx context.Con
 		return err
 	}
 
+	outputDescribeInstances, err := r.ec2Client.DescribeInstances(ctx, &ec2service.DescribeInstancesInput{
+		Filters: []ec2types.Filter{
+			{
+				Name:   aws.String("tag:aws:ec2launchtemplate:id"),
+				Values: []string{*launchTemplate.LaunchTemplateId},
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	instanceIDs := []string{}
+	for _, reservation := range outputDescribeInstances.Reservations {
+		for _, instance := range reservation.Instances {
+			instanceIDs = append(instanceIDs, *instance.InstanceId)
+		}
+	}
+
+	err = ec2.DetachSecurityGroupFromInstances(ctx, r.ec2Client, instanceIDs, sgID)
+	if err != nil {
+		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesDetachmentFailed", err.Error())
+		return err
+	}
 	return nil
 }
 
