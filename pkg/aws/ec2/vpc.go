@@ -39,8 +39,8 @@ func isSGAttached(sgs []ec2types.GroupIdentifier, sgID string) bool {
 	return false
 }
 
-func getInstances(ctx context.Context, instanceIDs []string, ec2Client EC2Client) ([]*ec2types.Instance, error) {
-	var instances []*ec2types.Instance
+func getInstances(ctx context.Context, instanceIDs []string, ec2Client EC2Client) ([]ec2types.Instance, error) {
+	var instances []ec2types.Instance
 
 	params := &ec2.DescribeInstancesInput{
 		InstanceIds: instanceIDs,
@@ -55,9 +55,7 @@ func getInstances(ctx context.Context, instanceIDs []string, ec2Client EC2Client
 		}
 
 		for _, reservation := range output.Reservations {
-			for _, instance := range reservation.Instances {
-				instances = append(instances, &instance)
-			}
+			instances = append(instances, reservation.Instances...)
 		}
 	}
 	return instances, nil
