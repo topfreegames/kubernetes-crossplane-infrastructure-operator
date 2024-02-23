@@ -39,12 +39,7 @@ func isSGAttached(sgs []ec2types.GroupIdentifier, sgID string) bool {
 	return false
 }
 
-func AttachSecurityGroupToInstances(ctx context.Context, ec2Client EC2Client, instanceIDs []string, securityGroupID string) error {
-
-	if len(instanceIDs) == 0 {
-		return nil
-	}
-
+func getInstances(ctx context.Context, instanceIDs []string, ec2Client EC2Client) ([]*ec2types.Instance, error) {
 	var instances []*ec2types.Instance
 
 	params := &ec2.DescribeInstancesInput{
@@ -56,7 +51,7 @@ func AttachSecurityGroupToInstances(ctx context.Context, ec2Client EC2Client, in
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		for _, reservation := range output.Reservations {
@@ -64,6 +59,19 @@ func AttachSecurityGroupToInstances(ctx context.Context, ec2Client EC2Client, in
 				instances = append(instances, &instance)
 			}
 		}
+	}
+	return instances, nil
+}
+
+func AttachSecurityGroupToInstances(ctx context.Context, ec2Client EC2Client, instanceIDs []string, securityGroupID string) error {
+
+	if len(instanceIDs) == 0 {
+		return nil
+	}
+
+	instances, err := getInstances(ctx, instanceIDs, ec2Client)
+	if err != nil {
+		return fmt.Errorf("error trying to retrieve instances: %v", err)
 	}
 
 	if len(instances) == 0 {
@@ -99,25 +107,9 @@ func DetachSecurityGroupFromInstances(ctx context.Context, ec2Client EC2Client, 
 		return nil
 	}
 
-	var instances []*ec2types.Instance
-
-	params := &ec2.DescribeInstancesInput{
-		InstanceIds: instanceIDs,
-	}
-
-	paginator := ec2.NewDescribeInstancesPaginator(ec2Client, params)
-
-	for paginator.HasMorePages() {
-		output, err := paginator.NextPage(ctx)
-		if err != nil {
-			return err
-		}
-
-		for _, reservation := range output.Reservations {
-			for _, instance := range reservation.Instances {
-				instances = append(instances, &instance)
-			}
-		}
+	instances, err := getInstances(ctx, instanceIDs, ec2Client)
+	if err != nil {
+		return fmt.Errorf("error trying to retrieve instances: %v", err)
 	}
 
 	if len(instances) == 0 {
@@ -141,7 +133,7 @@ func DetachSecurityGroupFromInstances(ctx context.Context, ec2Client EC2Client, 
 			Groups:     sgIDs,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to add security group %s to instance %s: %v", securityGroupID, *instance.InstanceId, err)
+			return fmt.Errorf("failed to detach security group %s from instance %s: %v", securityGroupID, *instance.InstanceId, err)
 		}
 	}
 	return nil
