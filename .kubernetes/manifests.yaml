@@ -804,7 +804,7 @@ spec:
               "controller*",
               "workqueue*"
             ],
-            "namespace": "providercrossplane",
+            "namespace": "kcio",
             "prometheus_url": "http://%%host%%:8080/metrics",
             "send_monotonic_counter": true,
             "send_distribution_buckets": true
