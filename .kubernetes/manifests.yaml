@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/name: namespace
     app.kubernetes.io/part-of: migration-kubernetes-crossplane-infrastructure-operator
     control-plane: controller-manager
-  name: kubernetes-crossplane-infrastructure-operator-system
+  name: kcio-system
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -528,8 +528,8 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/name: serviceaccount
     app.kubernetes.io/part-of: migration-kubernetes-crossplane-infrastructure-operator
-  name: kubernetes-crossplane-infrastructure-operator-controller-manager
-  namespace: kubernetes-crossplane-infrastructure-operator-system
+  name: kcio-controller-manager
+  namespace: kcio-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -541,8 +541,8 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/name: role
     app.kubernetes.io/part-of: migration-kubernetes-crossplane-infrastructure-operator
-  name: kubernetes-crossplane-infrastructure-operator-leader-election-role
-  namespace: kubernetes-crossplane-infrastructure-operator-system
+  name: kcio-leader-election-role
+  namespace: kcio-system
 rules:
 - apiGroups:
   - ""
@@ -579,7 +579,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: kubernetes-crossplane-infrastructure-operator-manager-role
+  name: kcio-manager-role
 rules:
 - apiGroups:
   - ""
@@ -725,16 +725,16 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/name: rolebinding
     app.kubernetes.io/part-of: migration-kubernetes-crossplane-infrastructure-operator
-  name: kubernetes-crossplane-infrastructure-operator-leader-election-rolebinding
-  namespace: kubernetes-crossplane-infrastructure-operator-system
+  name: kcio-leader-election-rolebinding
+  namespace: kcio-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: kubernetes-crossplane-infrastructure-operator-leader-election-role
+  name: kcio-leader-election-role
 subjects:
 - kind: ServiceAccount
-  name: kubernetes-crossplane-infrastructure-operator-controller-manager
-  namespace: kubernetes-crossplane-infrastructure-operator-system
+  name: kcio-controller-manager
+  namespace: kcio-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -746,15 +746,15 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/name: clusterrolebinding
     app.kubernetes.io/part-of: migration-kubernetes-crossplane-infrastructure-operator
-  name: kubernetes-crossplane-infrastructure-operator-manager-rolebinding
+  name: kcio-manager-rolebinding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: kubernetes-crossplane-infrastructure-operator-manager-role
+  name: kcio-manager-role
 subjects:
 - kind: ServiceAccount
-  name: kubernetes-crossplane-infrastructure-operator-controller-manager
-  namespace: kubernetes-crossplane-infrastructure-operator-system
+  name: kcio-controller-manager
+  namespace: kcio-system
 ---
 apiVersion: v1
 data:
@@ -772,8 +772,8 @@ data:
       resourceName: 1334ff7b.infrastructure.wildlife.io
 kind: ConfigMap
 metadata:
-  name: kubernetes-crossplane-infrastructure-operator-manager-config
-  namespace: kubernetes-crossplane-infrastructure-operator-system
+  name: kcio-manager-config
+  namespace: kcio-system
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -786,8 +786,8 @@ metadata:
     app.kubernetes.io/name: deployment
     app.kubernetes.io/part-of: migration-kubernetes-crossplane-infrastructure-operator
     control-plane: controller-manager
-  name: kubernetes-crossplane-infrastructure-operator-controller-manager
-  namespace: kubernetes-crossplane-infrastructure-operator-system
+  name: kcio-controller-manager
+  namespace: kcio-system
 spec:
   replicas: 1
   selector:
@@ -831,7 +831,7 @@ spec:
               key: account
               name: spotinst-credentials
               optional: true
-        image: tfgco/kubernetes-crossplane-infrastructure-operator:v0.7.0-alpha
+        image: tfgco/kubernetes-crossplane-infrastructure-operator:v0.7.1-alpha
         livenessProbe:
           httpGet:
             path: /healthz
@@ -857,5 +857,5 @@ spec:
           capabilities:
             drop:
             - ALL
-      serviceAccountName: kubernetes-crossplane-infrastructure-operator-controller-manager
+      serviceAccountName: kcio-controller-manager
       terminationGracePeriodSeconds: 10
