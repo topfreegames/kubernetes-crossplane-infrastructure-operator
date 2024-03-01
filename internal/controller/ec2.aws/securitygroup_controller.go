@@ -561,7 +561,7 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 	csg := &crossec2v1beta1.SecurityGroup{}
 	err := r.Get(ctx, key, csg)
 	if apierrors.IsNotFound(err) {
-		r.log.Info(fmt.Sprintf("CrossplaneSecurityGroup %v not found at %v, moving on with the deletion process", key.Name, key.Namespace))
+		r.log.Info(fmt.Sprintf("crossplaneSecurityGroup %v not found at %v, moving on with the deletion process", key.Name, key.Namespace))
 		controllerutil.RemoveFinalizer(sg, securityGroupFinalizer)
 		return ctrl.Result{}, nil
 	}
@@ -579,7 +579,7 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 			}
 			err := r.Client.Get(ctx, key, &kmp)
 			if apierrors.IsNotFound(err) {
-				r.log.Error(err, fmt.Sprintf("KopsMachinePool %v not found at %v, moving on with the deletion process", key.Name, key.Namespace))
+				r.log.Error(err, fmt.Sprintf("kopsMachinePool %v not found at %v, moving on with the deletion process", key.Name, key.Namespace))
 				continue
 			}
 			if err != nil {
@@ -602,7 +602,7 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 			}
 			err := r.Client.Get(ctx, key, &kcp)
 			if apierrors.IsNotFound(err) {
-				r.log.Error(err, fmt.Sprintf("KopsControlPlane %v not found at %v, moving on with the deletion process", key.Name, key.Namespace))
+				r.log.Error(err, fmt.Sprintf("kopsControlPlane %v not found at %v, moving on with the deletion process", key.Name, key.Namespace))
 				continue
 			}
 			if err != nil {
