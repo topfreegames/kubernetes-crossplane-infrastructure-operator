@@ -175,6 +175,37 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return r.reconcileNormal(ctx)
 }
 
+func (r *SecurityGroupReconciliation) retrieveKCPNetworkInfo(ctx context.Context, name string, namespace string) (*string, *string, *string, error) {
+	kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+	key := client.ObjectKey{
+		Name:      name,
+		Namespace: namespace,
+	}
+	if err := r.Client.Get(ctx, key, kcp); err != nil {
+		return nil, nil, nil, err
+	}
+
+	region, err := kopsutils.GetRegionFromKopsControlPlane(ctx, kcp)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("error retrieving region: %w", err)
+	}
+
+	providerConfigName, awsCfg, err := kopsutils.RetrieveAWSCredentialsFromKCP(ctx, r.Client, region, kcp)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("error retrieving AWS credentials from KCP: %w", err)
+	}
+
+	r.ec2Client = r.NewEC2ClientFactory(*awsCfg)
+	r.asgClient = r.NewAutoScalingClientFactory(*awsCfg)
+
+	vpcId, err := ec2.GetVPCIdWithCIDRAndClusterName(ctx, r.ec2Client, kcp.Name, kcp.Spec.KopsClusterSpec.Networking.NetworkCIDR)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("error retrieving vpcID: %w", err)
+	}
+
+	return region, &providerConfigName, vpcId, nil
+}
+
 func (r *SecurityGroupReconciliation) retrieveInfraRefInfo(ctx context.Context) error {
 	if len(r.sg.Spec.InfrastructureRef) == 0 {
 		return fmt.Errorf("no infrastructureRef found")
@@ -194,75 +225,25 @@ func (r *SecurityGroupReconciliation) retrieveInfraRefInfo(ctx context.Context) 
 				continue
 			}
 
-			kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
-			key = client.ObjectKey{
-				Name:      kmp.Spec.ClusterName,
-				Namespace: kmp.ObjectMeta.Namespace,
-			}
-			if err := r.Client.Get(ctx, key, kcp); err != nil {
-				retrieveErr = err
-				continue
-			}
-
-			region, err := kopsutils.GetRegionFromKopsControlPlane(ctx, kcp)
-			if err != nil {
-				retrieveErr = fmt.Errorf("error retrieving region: %w", err)
-				continue
-			}
-
-			providerConfigName, awsCfg, err := kopsutils.RetrieveAWSCredentialsFromKCP(ctx, r.Client, region, kcp)
+			region, providerConfigName, vpcId, err := r.retrieveKCPNetworkInfo(ctx, kmp.Spec.ClusterName, kmp.ObjectMeta.Namespace)
 			if err != nil {
 				retrieveErr = err
 				continue
 			}
 
-			r.ec2Client = r.NewEC2ClientFactory(*awsCfg)
-			r.asgClient = r.NewAutoScalingClientFactory(*awsCfg)
-
-			vpcId, err := ec2.GetVPCIdWithCIDRAndClusterName(ctx, r.ec2Client, kcp.Name, kcp.Spec.KopsClusterSpec.Networking.NetworkCIDR)
-			if err != nil {
-				retrieveErr = fmt.Errorf("error retrieving vpcID: %w", err)
-				continue
-			}
-
-			r.providerConfigName = providerConfigName
+			r.providerConfigName = *providerConfigName
 			r.region = region
 			r.vpcId = vpcId
 
 			return nil
 		case "KopsControlPlane":
-			kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
-			key := client.ObjectKey{
-				Name:      infrastructureRef.Name,
-				Namespace: infrastructureRef.Namespace,
-			}
-			if err := r.Client.Get(ctx, key, kcp); err != nil {
-				retrieveErr = err
-				continue
-			}
-
-			region, err := kopsutils.GetRegionFromKopsControlPlane(ctx, kcp)
-			if err != nil {
-				retrieveErr = fmt.Errorf("error retrieving region: %w", err)
-				continue
-			}
-
-			providerConfigName, awsCfg, err := kopsutils.RetrieveAWSCredentialsFromKCP(ctx, r.Client, region, kcp)
+			region, providerConfigName, vpcId, err := r.retrieveKCPNetworkInfo(ctx, infrastructureRef.Name, infrastructureRef.Namespace)
 			if err != nil {
 				retrieveErr = err
 				continue
 			}
 
-			r.ec2Client = r.NewEC2ClientFactory(*awsCfg)
-			r.asgClient = r.NewAutoScalingClientFactory(*awsCfg)
-
-			vpcId, err := ec2.GetVPCIdWithCIDRAndClusterName(ctx, r.ec2Client, kcp.Name, kcp.Spec.KopsClusterSpec.Networking.NetworkCIDR)
-			if err != nil {
-				retrieveErr = fmt.Errorf("error retrieving vpcID: %w", err)
-				continue
-			}
-
-			r.providerConfigName = providerConfigName
+			r.providerConfigName = *providerConfigName
 			r.region = region
 			r.vpcId = vpcId
 
