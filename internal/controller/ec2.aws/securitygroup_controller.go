@@ -314,7 +314,7 @@ func (r *SecurityGroupReconciliation) reconcileNormal(ctx context.Context) (ctrl
 	}
 
 	r.sg.Status.Ready = true
-	r.sg.Status.AppliedInfrastructureRef = r.sg.DeepCopy().Spec.InfrastructureRef
+	r.sg.Status.AppliedInfrastructureRef = r.sg.Spec.InfrastructureRef
 	return resultDefault, nil
 }
 
