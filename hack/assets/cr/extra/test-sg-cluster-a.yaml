@@ -8,6 +8,10 @@ spec:
     kind: KopsMachinePool
     name: nodes
     namespace: k8s-test-cluster-a
+  - apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: KopsMachinePool
+    name: nodes-extra
+    namespace: k8s-test-cluster-a
   ingressRules:
   - allowedCIDRs:
     - 10.0.0.0/16

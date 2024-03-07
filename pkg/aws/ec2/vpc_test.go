@@ -736,7 +736,7 @@ func TestAttachSecurityGroupToInstances(t *testing.T) {
 		description   string
 		instances     []ec2types.Instance
 		input         []string
-		expected      []string
+		expected      map[string][]string
 		expectedError error
 	}{
 		{
@@ -755,7 +755,9 @@ func TestAttachSecurityGroupToInstances(t *testing.T) {
 					},
 				},
 			},
-			expected: []string{"sg-xxx", "sg-yyy"},
+			expected: map[string][]string{
+				"i-xxx": {"sg-xxx", "sg-yyy"},
+			},
 		},
 		{
 			description: "should do nothing when sg-xxx is already attached in instance i-xxx",
@@ -767,13 +769,18 @@ func TestAttachSecurityGroupToInstances(t *testing.T) {
 						{
 							GroupId: aws.String("sg-xxx"),
 						},
+						{
+							GroupId: aws.String("sg-yyy"),
+						},
 					},
 					State: &ec2types.InstanceState{
 						Name: ec2types.InstanceStateNameRunning,
 					},
 				},
 			},
-			expected: []string{"sg-xxx", "sg-yyy"},
+			expected: map[string][]string{
+				"i-xxx": {"sg-xxx", "sg-yyy"},
+			},
 		},
 		{
 			description: "should do nothing if list of instance ids is empty",
@@ -790,6 +797,9 @@ func TestAttachSecurityGroupToInstances(t *testing.T) {
 						Name: ec2types.InstanceStateNameRunning,
 					},
 				},
+			},
+			expected: map[string][]string{
+				"i-xxx": {"sg-yyy"},
 			},
 		},
 		{
@@ -809,6 +819,38 @@ func TestAttachSecurityGroupToInstances(t *testing.T) {
 				},
 			},
 			expectedError: fmt.Errorf("failed to retrieve instances"),
+		},
+		{
+			description: "should attach sg-xxx to multiple instances",
+			input:       []string{"i-xxx", "i-yyy"},
+			instances: []ec2types.Instance{
+				{
+					InstanceId: aws.String("i-xxx"),
+					SecurityGroups: []ec2types.GroupIdentifier{
+						{
+							GroupId: aws.String("sg-yyy"),
+						},
+					},
+					State: &ec2types.InstanceState{
+						Name: ec2types.InstanceStateNameRunning,
+					},
+				},
+				{
+					InstanceId: aws.String("i-yyy"),
+					SecurityGroups: []ec2types.GroupIdentifier{
+						{
+							GroupId: aws.String("sg-yyy"),
+						},
+					},
+					State: &ec2types.InstanceState{
+						Name: ec2types.InstanceStateNameRunning,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"i-xxx": {"sg-xxx", "sg-yyy"},
+				"i-yyy": {"sg-xxx", "sg-yyy"},
+			},
 		},
 	}
 	RegisterFailHandler(Fail)
@@ -836,10 +878,14 @@ func TestAttachSecurityGroupToInstances(t *testing.T) {
 				}, nil
 			}
 
+			sgsAttached := map[string][]string{}
+			for _, instance := range tc.instances {
+				for _, sg := range instance.SecurityGroups {
+					sgsAttached[*instance.InstanceId] = append(sgsAttached[*instance.InstanceId], *sg.GroupId)
+				}
+			}
 			fakeEC2Client.MockModifyInstanceAttribute = func(ctx context.Context, params *ec2.ModifyInstanceAttributeInput, opts []func(*ec2.Options)) (*ec2.ModifyInstanceAttributeOutput, error) {
-				sort.Strings(tc.expected)
-				sort.Strings(params.Groups)
-				g.Expect(params.Groups).To(BeEquivalentTo(tc.expected))
+				sgsAttached[*params.InstanceId] = params.Groups
 				return &ec2.ModifyInstanceAttributeOutput{}, nil
 			}
 
@@ -848,6 +894,234 @@ func TestAttachSecurityGroupToInstances(t *testing.T) {
 				g.Expect(err).To(MatchError(tc.expectedError))
 			} else {
 				g.Expect(err).To(BeNil())
+				for instanceId, sgs := range tc.expected {
+					sort.Strings(sgs)
+					sort.Strings(sgsAttached[instanceId])
+					g.Expect(sgsAttached[instanceId]).To(BeEquivalentTo(sgs))
+				}
+			}
+		})
+	}
+}
+
+func TestDetachSecurityGroupFromInstances(t *testing.T) {
+	testCases := []struct {
+		description   string
+		instances     []ec2types.Instance
+		input         []string
+		sg            string
+		expected      map[string][]string
+		expectedError error
+	}{
+		{
+			description: "should detach sg-xxx from instance i-xxx",
+			input:       []string{"i-xxx"},
+			sg:          "sg-xxx",
+			instances: []ec2types.Instance{
+				{
+					InstanceId: aws.String("i-xxx"),
+					SecurityGroups: []ec2types.GroupIdentifier{
+						{
+							GroupId: aws.String("sg-yyy"),
+						},
+						{
+							GroupId: aws.String("sg-xxx"),
+						},
+					},
+					State: &ec2types.InstanceState{
+						Name: ec2types.InstanceStateNameRunning,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"i-xxx": {"sg-yyy"},
+			},
+		},
+		{
+			description: "should do nothing when sg-xxx is not attached in instance i-xxx",
+			input:       []string{"i-xxx"},
+			sg:          "sg-xxx",
+			instances: []ec2types.Instance{
+				{
+					InstanceId: aws.String("i-xxx"),
+					SecurityGroups: []ec2types.GroupIdentifier{
+						{
+							GroupId: aws.String("sg-yyy"),
+						},
+					},
+					State: &ec2types.InstanceState{
+						Name: ec2types.InstanceStateNameRunning,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"i-xxx": {"sg-yyy"},
+			},
+		},
+		{
+			description: "should do nothing if list of instance ids is empty",
+			input:       []string{},
+			sg:          "sg-xxx",
+			instances: []ec2types.Instance{
+				{
+					InstanceId: aws.String("i-xxx"),
+					SecurityGroups: []ec2types.GroupIdentifier{
+						{
+							GroupId: aws.String("sg-yyy"),
+						},
+					},
+					State: &ec2types.InstanceState{
+						Name: ec2types.InstanceStateNameRunning,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"i-xxx": {"sg-yyy"},
+			},
+		},
+		{
+			description: "should do nothing if the instance has no sgs",
+			input:       []string{"i-xxx"},
+			sg:          "sg-xxx",
+			instances: []ec2types.Instance{
+				{
+					InstanceId:     aws.String("i-xxx"),
+					SecurityGroups: []ec2types.GroupIdentifier{},
+					State: &ec2types.InstanceState{
+						Name: ec2types.InstanceStateNameRunning,
+					},
+				},
+			},
+		},
+		{
+			description: "should return error when can't find any instances",
+			input:       []string{"i-zzz"},
+			sg:          "sg-xxx",
+			instances: []ec2types.Instance{
+				{
+					InstanceId: aws.String("i-xxx"),
+					SecurityGroups: []ec2types.GroupIdentifier{
+						{
+							GroupId: aws.String("sg-yyy"),
+						},
+					},
+					State: &ec2types.InstanceState{
+						Name: ec2types.InstanceStateNameRunning,
+					},
+				},
+			},
+			expectedError: fmt.Errorf("failed to retrieve instances"),
+		},
+		{
+			description: "should detach sg-xxx from multiple instances",
+			input:       []string{"i-xxx", "i-yyy"},
+			sg:          "sg-xxx",
+			instances: []ec2types.Instance{
+				{
+					InstanceId: aws.String("i-xxx"),
+					SecurityGroups: []ec2types.GroupIdentifier{
+						{
+							GroupId: aws.String("sg-yyy"),
+						},
+						{
+							GroupId: aws.String("sg-xxx"),
+						},
+					},
+					State: &ec2types.InstanceState{
+						Name: ec2types.InstanceStateNameRunning,
+					},
+				},
+				{
+					InstanceId: aws.String("i-yyy"),
+					SecurityGroups: []ec2types.GroupIdentifier{
+						{
+							GroupId: aws.String("sg-yyy"),
+						},
+						{
+							GroupId: aws.String("sg-xxx"),
+						},
+					},
+					State: &ec2types.InstanceState{
+						Name: ec2types.InstanceStateNameRunning,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"i-xxx": {"sg-yyy"},
+				"i-yyy": {"sg-yyy"},
+			},
+		},
+		{
+			description: "should do nothing when sg is empty",
+			input:       []string{"i-xxx"},
+			instances: []ec2types.Instance{
+				{
+					InstanceId: aws.String("i-xxx"),
+					SecurityGroups: []ec2types.GroupIdentifier{
+						{
+							GroupId: aws.String("sg-yyy"),
+						},
+						{
+							GroupId: aws.String("sg-xxx"),
+						},
+					},
+					State: &ec2types.InstanceState{
+						Name: ec2types.InstanceStateNameRunning,
+					},
+				},
+			},
+			expected: map[string][]string{
+				"i-xxx": {"sg-yyy", "sg-xxx"},
+			},
+		},
+	}
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			ctx := context.TODO()
+			fakeEC2Client := &fake.MockEC2Client{}
+			fakeEC2Client.MockDescribeInstances = func(ctx context.Context, input *ec2.DescribeInstancesInput, opts []func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error) {
+				var instances []ec2types.Instance
+				for _, instanceID := range tc.input {
+					for _, instance := range tc.instances {
+						if *instance.InstanceId == instanceID {
+							instances = append(instances, instance)
+						}
+					}
+				}
+				return &ec2.DescribeInstancesOutput{
+					Reservations: []ec2types.Reservation{
+						{
+							Instances: instances,
+						},
+					},
+				}, nil
+			}
+
+			sgsAttached := map[string][]string{}
+			for _, instance := range tc.instances {
+				for _, sg := range instance.SecurityGroups {
+					sgsAttached[*instance.InstanceId] = append(sgsAttached[*instance.InstanceId], *sg.GroupId)
+				}
+			}
+
+			fakeEC2Client.MockModifyInstanceAttribute = func(ctx context.Context, params *ec2.ModifyInstanceAttributeInput, opts []func(*ec2.Options)) (*ec2.ModifyInstanceAttributeOutput, error) {
+				sgsAttached[*params.InstanceId] = params.Groups
+				return &ec2.ModifyInstanceAttributeOutput{}, nil
+			}
+
+			err := DetachSecurityGroupFromInstances(ctx, fakeEC2Client, tc.input, tc.sg)
+			if tc.expectedError != nil {
+				g.Expect(err).To(MatchError(tc.expectedError))
+			} else {
+				g.Expect(err).To(BeNil())
+				for instanceId, sgs := range tc.expected {
+					sort.Strings(sgs)
+					sort.Strings(sgsAttached[instanceId])
+					g.Expect(sgsAttached[instanceId]).To(BeEquivalentTo(sgs))
+				}
 			}
 		})
 	}
