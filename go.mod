@@ -2,8 +2,6 @@ module github.com/topfreegames/kubernetes-crossplane-infrastructure-operator
 
 go 1.21
 
-toolchain go1.22.0
-
 replace k8s.io/code-generator => k8s.io/code-generator v0.21.0
 
 require (
