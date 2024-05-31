@@ -77,7 +77,7 @@ func AttachSecurityGroupToInstances(ctx context.Context, ec2Client EC2Client, in
 	}
 
 	for _, instance := range instances {
-		if instance.State.Name == ec2types.InstanceStateNameTerminated || isSGAttached(instance.SecurityGroups, securityGroupID) {
+		if instance.State.Name == ec2types.InstanceStateNameTerminated || instance.State.Name == ec2types.InstanceStateNameShuttingDown || instance.State.Name == ec2types.InstanceStateNameStopping || isSGAttached(instance.SecurityGroups, securityGroupID) {
 			continue
 		}
 
