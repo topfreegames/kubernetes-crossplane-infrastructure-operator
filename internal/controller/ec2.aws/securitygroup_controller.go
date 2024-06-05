@@ -70,8 +70,8 @@ const (
 	AnnotationKeyReconciliationPaused = "crossplane.io/paused"
 )
 
-func getFinalizerName(sgName string) string {
-	return securityGroupFinalizer + "/" + sgName
+func getFinalizerName(sgId string) string {
+	return securityGroupFinalizer + "/" + sgId
 }
 
 // SecurityGroupReconciler reconciles a SecurityGroup object
@@ -572,7 +572,7 @@ func (r *SecurityGroupReconciliation) reconcileDelete(ctx context.Context, sg *s
 				r.log.Error(err, fmt.Sprintf("failed to detach sg %v from kmp %v at %v", r.sg.Name, key.Name, key.Namespace))
 				continue
 			}
-			if controllerutil.ContainsFinalizer(&kmp, getFinalizerName(r.sg.Name)) {
+			if controllerutil.ContainsFinalizer(&kmp, getFinalizerName(string(r.sg.UID))) {
 				r.removeKMPFinalizer(ctx, kmp)
 			}
 		case "KopsControlPlane":
@@ -843,7 +843,7 @@ func (r *SecurityGroupReconciliation) ensureAttachReferences(ctx context.Context
 				}
 				return resultError, err
 			}
-			if !controllerutil.ContainsFinalizer(&kmp, getFinalizerName(r.sg.Name)) {
+			if !controllerutil.ContainsFinalizer(&kmp, getFinalizerName(string(r.sg.UID))) {
 				r.addKMPFinalizer(ctx, kmp)
 			}
 		case "KopsControlPlane":
@@ -867,7 +867,7 @@ func (r *SecurityGroupReconciliation) ensureAttachReferences(ctx context.Context
 				}
 				return resultError, err
 			}
-			if !controllerutil.ContainsFinalizer(&kcp, getFinalizerName(r.sg.Name)) {
+			if !controllerutil.ContainsFinalizer(&kcp, getFinalizerName(string(r.sg.UID))) {
 				r.addKCPFinalizer(ctx, kcp, kmps...)
 			}
 		default:
@@ -930,39 +930,39 @@ func (r *SecurityGroupReconciliation) ensureDetachRemovedReferences(ctx context.
 }
 
 func (r *SecurityGroupReconciliation) removeKMPFinalizer(ctx context.Context, kmp kinfrastructurev1alpha1.KopsMachinePool) {
-	controllerutil.RemoveFinalizer(&kmp, getFinalizerName(r.sg.Name))
+	controllerutil.RemoveFinalizer(&kmp, getFinalizerName(string(r.sg.UID)))
 	if err := r.Update(ctx, &kmp); err != nil {
 		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to remove finalizer in %s: %s", kmp.Name, err)
 	}
 }
 
 func (r *SecurityGroupReconciliation) removeKCPFinalizer(ctx context.Context, kcp kcontrolplanev1alpha1.KopsControlPlane, kmps ...kinfrastructurev1alpha1.KopsMachinePool) {
-	controllerutil.RemoveFinalizer(&kcp, getFinalizerName(r.sg.Name))
+	controllerutil.RemoveFinalizer(&kcp, getFinalizerName(string(r.sg.UID)))
 	if err := r.Update(ctx, &kcp); err != nil {
 		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to remove finalizer in %s: %s", kcp.Name, err)
 	}
 	for _, kmp := range kmps {
-		if controllerutil.ContainsFinalizer(&kmp, getFinalizerName(r.sg.Name)) {
+		if controllerutil.ContainsFinalizer(&kmp, getFinalizerName(string(r.sg.UID))) {
 			r.removeKMPFinalizer(ctx, kmp)
 		}
 	}
 }
 
 func (r *SecurityGroupReconciliation) addKMPFinalizer(ctx context.Context, kmp kinfrastructurev1alpha1.KopsMachinePool) {
-	controllerutil.AddFinalizer(&kmp, getFinalizerName(r.sg.Name))
+	controllerutil.AddFinalizer(&kmp, getFinalizerName(string(r.sg.UID)))
 	if err := r.Update(ctx, &kmp); err != nil {
 		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to add finalizer in %s: %s", kmp.Name, err)
 	}
 }
 
 func (r *SecurityGroupReconciliation) addKCPFinalizer(ctx context.Context, kcp kcontrolplanev1alpha1.KopsControlPlane, kmps ...kinfrastructurev1alpha1.KopsMachinePool) {
-	controllerutil.AddFinalizer(&kcp, getFinalizerName(r.sg.Name))
+	controllerutil.AddFinalizer(&kcp, getFinalizerName(string(r.sg.UID)))
 	if err := r.Update(ctx, &kcp); err != nil {
 		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to add finalizer in %s: %s", kcp.Name, err)
 	}
 
 	for _, kmp := range kmps {
-		if !controllerutil.ContainsFinalizer(&kmp, getFinalizerName(r.sg.Name)) {
+		if !controllerutil.ContainsFinalizer(&kmp, getFinalizerName(string(r.sg.UID))) {
 			r.addKMPFinalizer(ctx, kmp)
 		}
 	}
