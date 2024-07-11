@@ -212,7 +212,7 @@ var (
 				},
 			},
 			AtProvider: crossec2v1beta1.SecurityGroupObservation{
-				SecurityGroupID: "sg-1",
+				SecurityGroupID: "sg-2",
 			},
 		},
 	}
@@ -475,7 +475,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					Name:          kcp.ObjectMeta.Name,
 					Namespace:     kcp.ObjectMeta.Namespace,
 					Kind:          "KopsControlPlane",
-					FinalizerName: getFinalizerName(sgKCP.ObjectMeta.Name),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
 			},
@@ -491,7 +491,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					Name:          kmp.ObjectMeta.Name,
 					Namespace:     kmp.ObjectMeta.Namespace,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName(sg.ObjectMeta.Name),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
 			},
@@ -516,14 +516,14 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					Name:          kcp.ObjectMeta.Name,
 					Namespace:     kcp.ObjectMeta.Namespace,
 					Kind:          "KopsControlPlane",
-					FinalizerName: getFinalizerName(sgKCP.ObjectMeta.Name),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
 				{
 					Name:          kcp.ObjectMeta.Name,
 					Namespace:     kcp.ObjectMeta.Namespace,
 					Kind:          "KopsControlPlane",
-					FinalizerName: getFinalizerName(anotherSgKCP.ObjectMeta.Name),
+					FinalizerName: getFinalizerName(anotherCsg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
 			},
@@ -532,7 +532,8 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			description: "should keep only existing sg finalizers in kmp",
 			k8sObjects: []client.Object{
 				cluster, defaultSecret, csg, anotherCsg, anotherSg, kcp,
-				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName("test-security-group"), getFinalizerName("test-another-security-group")}),
+				kmpWithFinalizer("test-kops-machine-pool", "test-cluster",
+					[]string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID), getFinalizerName(anotherCsg.Status.AtProvider.SecurityGroupID)}),
 				&securitygroupv1alpha2.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:              "test-security-group",
@@ -576,14 +577,14 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					Name:          "test-kops-machine-pool",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName(anotherSg.ObjectMeta.Name),
+					FinalizerName: getFinalizerName(anotherCsg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
 				{
 					Name:          "test-kops-machine-pool",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      false,
 				},
 			},
@@ -592,8 +593,10 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			description: "should keep only existing sg finalizers in kcp and related kmps",
 			k8sObjects: []client.Object{
 				cluster, defaultSecret, csg, anotherCsg, anotherSgKCP,
-				kcpWithFinalizer("test-cluster", []string{getFinalizerName("test-security-group"), getFinalizerName("test-another-security-group")}),
-				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName("test-security-group"), getFinalizerName("test-another-security-group")}),
+				kcpWithFinalizer("test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
+					getFinalizerName(anotherCsg.Status.AtProvider.SecurityGroupID)}),
+				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
+					getFinalizerName(anotherCsg.Status.AtProvider.SecurityGroupID)}),
 				&securitygroupv1alpha2.SecurityGroup{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:              "test-security-group",
@@ -637,41 +640,41 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					Name:          "test-kops-machine-pool",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName(anotherSgKCP.ObjectMeta.Name),
+					FinalizerName: getFinalizerName(anotherCsg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
 				{
 					Name:          "test-kops-machine-pool",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      false,
 				},
 				{
 					Name:          "test-cluster",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsControlPlane",
-					FinalizerName: getFinalizerName(anotherSgKCP.ObjectMeta.Name),
+					FinalizerName: getFinalizerName(anotherCsg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
 				{
 					Name:          "test-cluster",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsControlPlane",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      false,
 				},
 			},
 		},
 		{
-			description: "should reconcile sg without changes on kmp",
+			description: "should reconcile sg without changes in kmp",
 			k8sObjects: []client.Object{
 				cluster, defaultSecret, csg, sg, kcp,
-				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName("test-security-group")}),
+				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID)}),
 			},
 			sgsToReconcile: []sgToReconcile{
 				{
-					Name:             "test-security-group",
+					Name:             sg.ObjectMeta.Name,
 					ExpectedDeletion: false,
 				},
 			},
@@ -680,7 +683,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					Name:          "test-kops-machine-pool",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
 			},
@@ -689,12 +692,12 @@ func TestSecurityGroupReconciler(t *testing.T) {
 			description: "should reconcile sg without changes in kcp",
 			k8sObjects: []client.Object{
 				cluster, defaultSecret, csg, sgKCP,
-				kcpWithFinalizer("test-cluster", []string{getFinalizerName("test-security-group")}),
-				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName("test-security-group")}),
+				kcpWithFinalizer("test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID)}),
+				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID)}),
 			},
 			sgsToReconcile: []sgToReconcile{
 				{
-					Name:             "test-security-group",
+					Name:             string(sgKCP.ObjectMeta.Name),
 					ExpectedDeletion: false,
 				},
 			},
@@ -703,14 +706,14 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					Name:          "test-kops-machine-pool",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
 				{
 					Name:          "test-cluster",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsControlPlane",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
 			},
@@ -734,14 +737,14 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					Name:          kmp.ObjectMeta.Name,
 					Namespace:     kmp.ObjectMeta.Namespace,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName(sgKCP.ObjectMeta.Name),
+					FinalizerName: getFinalizerName("sg-1"),
 					Expected:      false,
 				},
 				{
 					Name:          kcp.ObjectMeta.Name,
 					Namespace:     kcp.ObjectMeta.Namespace,
 					Kind:          "KopsControlPlane",
-					FinalizerName: getFinalizerName(sgKCP.ObjectMeta.Name),
+					FinalizerName: getFinalizerName("sg-1"),
 					Expected:      false,
 				},
 			},
@@ -765,7 +768,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					Name:          kmp.ObjectMeta.Name,
 					Namespace:     kmp.ObjectMeta.Namespace,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName(sg.ObjectMeta.Name),
+					FinalizerName: getFinalizerName("sg-1"),
 					Expected:      false,
 				},
 			},
@@ -922,7 +925,7 @@ func TestSecurityGroupReconciler(t *testing.T) {
 							"cluster.x-k8s.io/cluster-name": "test-cluster",
 						},
 						Finalizers: []string{
-							getFinalizerName("test-security-group"),
+							getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 						},
 					},
 					Spec: kinfrastructurev1alpha1.KopsMachinePoolSpec{
@@ -942,14 +945,14 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					Name:          kmp.ObjectMeta.Name,
 					Namespace:     kmp.ObjectMeta.Namespace,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
 				{
 					Name:          "test-another-machine-pool",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      false,
 				},
 			},
@@ -2630,7 +2633,7 @@ func TestReconcileDelete(t *testing.T) {
 			description: "should remove crossplane security group referencing kmp and remove finalizer",
 			k8sObjects: []client.Object{
 				sg, csg, kcp, cluster, defaultSecret,
-				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName("test-security-group")}),
+				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID)}),
 			},
 			sgTarget: sg,
 			FinalizersAt: []*ReferencedPool{
@@ -2638,7 +2641,7 @@ func TestReconcileDelete(t *testing.T) {
 					Name:          "test-kops-machine-pool",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      false,
 				},
 			},
@@ -2668,22 +2671,22 @@ func TestReconcileDelete(t *testing.T) {
 			description: "should remove the crossplane security group referencing kcp and remove finalizer",
 			k8sObjects: []client.Object{
 				sgKCP, csg, cluster, defaultSecret,
-				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName("test-security-group")}),
-				kcpWithFinalizer("test-cluster", []string{getFinalizerName("test-security-group")}),
+				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID)}),
+				kcpWithFinalizer("test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID)}),
 			},
 			FinalizersAt: []*ReferencedPool{
 				{
 					Name:          "test-cluster",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsControlPlane",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      false,
 				},
 				{
 					Name:          "test-kops-machine-pool",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      false,
 				},
 			},
@@ -3391,6 +3394,7 @@ func TestEnsureAttachReferences(t *testing.T) {
 				defaultSecret,
 				kmp,
 				kcp,
+				csg,
 				&kinfrastructurev1alpha1.KopsMachinePool{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: metav1.NamespaceDefault,
@@ -3399,7 +3403,7 @@ func TestEnsureAttachReferences(t *testing.T) {
 							"cluster.x-k8s.io/cluster-name": "test-cluster",
 						},
 						Finalizers: []string{
-							getFinalizerName("test-security-group"),
+							getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 						},
 					},
 					Spec: kinfrastructurev1alpha1.KopsMachinePoolSpec{
@@ -3461,14 +3465,14 @@ func TestEnsureAttachReferences(t *testing.T) {
 					Name:          kmp.ObjectMeta.Name,
 					Namespace:     kmp.ObjectMeta.Namespace,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
 				{
 					Name:          "test-another-kops-machine-pool",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
 			},
@@ -3476,8 +3480,8 @@ func TestEnsureAttachReferences(t *testing.T) {
 		{
 			description: "should attach sg to kcp and to related kmps and attach sg to one single kmp but not to his kcp",
 			k8sObjects: []client.Object{
-				defaultSecret, kmp, kcp,
-				kmpWithFinalizer("test-another-kops-machine-pool", "test-cluster-2", []string{"test-security-group"}),
+				defaultSecret, kmp, kcp, csg,
+				kmpWithFinalizer("test-another-kops-machine-pool", "test-cluster-2", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID)}),
 				kcpWithFinalizer("test-cluster-2", []string{}),
 			},
 			sg: &securitygroupv1alpha2.SecurityGroup{
@@ -3528,28 +3532,28 @@ func TestEnsureAttachReferences(t *testing.T) {
 					Name:          kmp.ObjectMeta.Name,
 					Namespace:     kmp.ObjectMeta.Namespace,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
 				{
 					Name:          "test-cluster",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsControlPlane",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
 				{
 					Name:          "test-another-kops-machine-pool",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
 				{
 					Name:          "test-cluster-2",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsControlPlane",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      false,
 				},
 			},
@@ -3701,6 +3705,7 @@ func TestEnsureDetachRemovedReferences(t *testing.T) {
 			description: "should detach sg from kmp",
 			k8sObjects: []client.Object{
 				defaultSecret,
+				csg,
 				&kinfrastructurev1alpha1.KopsMachinePool{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: metav1.NamespaceDefault,
@@ -3709,7 +3714,7 @@ func TestEnsureDetachRemovedReferences(t *testing.T) {
 							"cluster.x-k8s.io/cluster-name": "test-cluster",
 						},
 						Finalizers: []string{
-							getFinalizerName("test-security-group"),
+							getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 						},
 					},
 					Spec: kinfrastructurev1alpha1.KopsMachinePoolSpec{
@@ -3730,7 +3735,7 @@ func TestEnsureDetachRemovedReferences(t *testing.T) {
 							"cluster.x-k8s.io/cluster-name": "test-cluster",
 						},
 						Finalizers: []string{
-							getFinalizerName("test-security-group"),
+							getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 						},
 					},
 					Spec: kinfrastructurev1alpha1.KopsMachinePoolSpec{
@@ -3792,14 +3797,14 @@ func TestEnsureDetachRemovedReferences(t *testing.T) {
 					Name:          kmp.ObjectMeta.Name,
 					Namespace:     kmp.ObjectMeta.Namespace,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
 				{
 					Name:          "test-another-machine-pool",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      false,
 				},
 			},
@@ -3807,9 +3812,9 @@ func TestEnsureDetachRemovedReferences(t *testing.T) {
 		{
 			description: "should detach sg from kcp",
 			k8sObjects: []client.Object{
-				defaultSecret, kcp,
-				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName("test-security-group")}),
-				kcpWithFinalizer("test-cluster-2", []string{getFinalizerName("test-security-group")}),
+				defaultSecret, kcp, csg,
+				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID)}),
+				kcpWithFinalizer("test-cluster-2", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID)}),
 			},
 			sg: &securitygroupv1alpha2.SecurityGroup{
 				ObjectMeta: metav1.ObjectMeta{
@@ -3859,14 +3864,14 @@ func TestEnsureDetachRemovedReferences(t *testing.T) {
 					Name:          kmp.ObjectMeta.Name,
 					Namespace:     kmp.ObjectMeta.Namespace,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
 				{
 					Name:          "test-cluster-2",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsControlPlane",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      false,
 				},
 			},
@@ -3874,9 +3879,9 @@ func TestEnsureDetachRemovedReferences(t *testing.T) {
 		{
 			description: "should detach sg from both kcp and kmp ",
 			k8sObjects: []client.Object{
-				defaultSecret, kcp,
-				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName("test-security-group")}),
-				kcpWithFinalizer("test-cluster-2", []string{getFinalizerName("test-security-group")}),
+				defaultSecret, kcp, csg,
+				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID)}),
+				kcpWithFinalizer("test-cluster-2", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID)}),
 			},
 			sg: &securitygroupv1alpha2.SecurityGroup{
 				ObjectMeta: metav1.ObjectMeta{
@@ -3919,14 +3924,14 @@ func TestEnsureDetachRemovedReferences(t *testing.T) {
 					Name:          kmp.ObjectMeta.Name,
 					Namespace:     kmp.ObjectMeta.Namespace,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      false,
 				},
 				{
 					Name:          "test-cluster-2",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsControlPlane",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      false,
 				},
 			},
@@ -3934,9 +3939,9 @@ func TestEnsureDetachRemovedReferences(t *testing.T) {
 		{
 			description: "should not detach anything",
 			k8sObjects: []client.Object{
-				defaultSecret, kcp,
-				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName("test-security-group")}),
-				kcpWithFinalizer("test-cluster-2", []string{getFinalizerName("test-security-group")}),
+				defaultSecret, kcp, csg,
+				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID)}),
+				kcpWithFinalizer("test-cluster-2", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID)}),
 			},
 			sg: &securitygroupv1alpha2.SecurityGroup{
 				ObjectMeta: metav1.ObjectMeta{
@@ -3992,14 +3997,14 @@ func TestEnsureDetachRemovedReferences(t *testing.T) {
 					Name:          kmp.ObjectMeta.Name,
 					Namespace:     kmp.ObjectMeta.Namespace,
 					Kind:          "KopsMachinePool",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
 				{
 					Name:          "test-cluster-2",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsControlPlane",
-					FinalizerName: getFinalizerName("test-security-group"),
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
 			},
