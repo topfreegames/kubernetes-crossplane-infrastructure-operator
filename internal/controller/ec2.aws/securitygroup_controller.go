@@ -43,6 +43,7 @@ import (
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
+	custommetrics "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/metrics"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -116,7 +117,7 @@ func DefaultReconciler(mgr manager.Manager) *SecurityGroupReconciler {
 //+kubebuilder:rbac:groups="",resources=events,verbs=get;list;watch;create;patch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update
 
-func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
+func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reconciliationErr error) {
 	r := &SecurityGroupReconciliation{
 		SecurityGroupReconciler: *c,
 		start:                   time.Now(),
@@ -141,11 +142,13 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	r.log.Info(fmt.Sprintf("starting reconcile loop for %s", r.sg.ObjectMeta.GetName()))
 
 	defer func() {
+		environment := r.getEnvironment(ctx)
+
 		securityGroupHelper := r.sg.DeepCopy()
 		if err := r.Update(ctx, r.sg); err != nil {
 			r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to update security group %s: %s", r.sg.Name, err)
-			if rerr == nil {
-				rerr = err
+			if reconciliationErr == nil {
+				reconciliationErr = err
 			}
 		}
 
@@ -153,13 +156,17 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			r.sg.Status = securityGroupHelper.Status
 			if err := r.Status().Update(ctx, r.sg); err != nil {
 				r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdateStatus", "failed to update security group status %s: %s", r.sg.Name, err)
-				if rerr == nil {
-					rerr = err
+				if reconciliationErr == nil {
+					reconciliationErr = err
 				}
 			}
 		}
-
-		r.log.Info(fmt.Sprintf("finished reconcile loop for %s", r.sg.ObjectMeta.GetName()))
+		if reconciliationErr != nil {
+			custommetrics.ReconciliationConsecutiveErrorsTotal.WithLabelValues("securitygroup", r.sg.Name, environment).Inc()
+		} else {
+			custommetrics.ReconciliationConsecutiveErrorsTotal.WithLabelValues("securitygroup", r.sg.Name, environment).Set(0)
+		}
+		r.log.Info(fmt.Sprintf("finished reconcile loop for %s", r.sg.Name))
 	}()
 
 	err := r.retrieveInfraRefInfo(ctx)
@@ -181,7 +188,7 @@ func (r *SecurityGroupReconciliation) retrieveKCPNetworkInfo(ctx context.Context
 		Name:      name,
 		Namespace: namespace,
 	}
-	if err := r.Client.Get(ctx, key, kcp); err != nil {
+	if err := r.Get(ctx, key, kcp); err != nil {
 		return nil, nil, nil, err
 	}
 
@@ -966,4 +973,37 @@ func (r *SecurityGroupReconciliation) addKCPFinalizer(ctx context.Context, kcp k
 			r.addKMPFinalizer(ctx, csg, kmp)
 		}
 	}
+}
+
+func (r *SecurityGroupReconciliation) getEnvironment(ctx context.Context) string {
+	ref := r.sg.Spec.InfrastructureRef[0]
+	var clusterObject clusterv1beta1.Cluster
+	switch ref.Kind {
+	case "KopsMachinePool":
+		kmp := kinfrastructurev1alpha1.KopsMachinePool{}
+		key := client.ObjectKey{
+			Name:      ref.Name,
+			Namespace: ref.Namespace,
+		}
+		if err := r.Client.Get(ctx, key, &kmp); err != nil {
+			return ""
+		}
+		clusterName := &kmp.Spec.ClusterName
+		key = client.ObjectKey{
+			Name:      *clusterName,
+			Namespace: kmp.ObjectMeta.Namespace,
+		}
+		if err := r.Client.Get(ctx, key, &clusterObject); err != nil {
+			return ""
+		}
+	case "KopsControlPlane":
+		key := client.ObjectKey{
+			Name:      ref.Name,
+			Namespace: ref.Namespace,
+		}
+		if err := r.Client.Get(ctx, key, &clusterObject); err != nil {
+			return ""
+		}
+	}
+	return clusterObject.Labels["environment"]
 }

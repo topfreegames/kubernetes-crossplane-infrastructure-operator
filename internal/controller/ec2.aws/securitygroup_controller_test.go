@@ -31,9 +31,11 @@ import (
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	"github.com/hashicorp/go-multierror"
+	dto "github.com/prometheus/client_model/go"
 	oceanaws "github.com/spotinst/spotinst-sdk-go/service/ocean/providers/aws"
 	clustermeshv1alpha1 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/clustermesh.infrastructure/v1alpha1"
 	securitygroupv1alpha2 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/ec2.aws/v1alpha2"
+	custommetrics "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/metrics"
 	"github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/aws/autoscaling"
 	fakeasg "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/aws/autoscaling/fake"
 	"github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/aws/ec2"
@@ -50,6 +52,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	kopsapi "k8s.io/kops/pkg/apis/kops"
+	"k8s.io/kops/util/pkg/vfs"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -304,6 +307,9 @@ var (
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: metav1.NamespaceDefault,
 			Name:      "test-cluster",
+			Labels: map[string]string{
+				"environment": "testing",
+			},
 		},
 		Spec: clusterv1beta1.ClusterSpec{
 			ControlPlaneRef: &corev1.ObjectReference{
@@ -4458,6 +4464,175 @@ func TestSecurityGroupStatus(t *testing.T) {
 			if tc.conditionsToAssert != nil {
 				assertConditions(g, sg, tc.conditionsToAssert...)
 			}
+
+		})
+	}
+}
+
+func TestCustomMetrics(t *testing.T) {
+	testCases := []struct {
+		description                string
+		expectedResult             float64
+		reconciliationStatusResult []string
+	}{
+		{
+			description:                "should be zero on successful reconciliation",
+			expectedResult:             0.0,
+			reconciliationStatusResult: []string{"succeed"},
+		},
+		{
+			description:                "should get incremented on reconcile errors",
+			expectedResult:             1.0,
+			reconciliationStatusResult: []string{"fail"},
+		},
+		{
+			description:                "should get incremented on consecutive reconcile errors",
+			expectedResult:             2.0,
+			reconciliationStatusResult: []string{"fail", "fail"},
+		},
+		{
+			description:                "should be zero after a successful reconciliation",
+			expectedResult:             0.0,
+			reconciliationStatusResult: []string{"fail", "succeed"},
+		},
+	}
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	custommetrics.ReconciliationConsecutiveErrorsTotal.Reset()
+	vfs.Context.ResetMemfsContext(true)
+	err := clusterv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = securitygroupv1alpha2.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = kcontrolplanev1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	fakeASGClient := &fakeasg.MockAutoScalingClient{}
+	fakeASGClient.MockDescribeAutoScalingGroups = func(ctx context.Context, params *awsautoscaling.DescribeAutoScalingGroupsInput, optFns []func(*awsautoscaling.Options)) (*awsautoscaling.DescribeAutoScalingGroupsOutput, error) {
+		return &awsautoscaling.DescribeAutoScalingGroupsOutput{
+			AutoScalingGroups: []autoscalingtypes.AutoScalingGroup{
+				{
+					AutoScalingGroupName: aws.String("test-asg"),
+					LaunchTemplate: &autoscalingtypes.LaunchTemplateSpecification{
+						LaunchTemplateId: aws.String("lt-xxxx"),
+						Version:          aws.String("1"),
+					},
+				},
+			},
+		}, nil
+	}
+	fakeEC2Client := &fakeec2.MockEC2Client{}
+	fakeEC2Client.MockDescribeSecurityGroups = func(ctx context.Context, params *awsec2.DescribeSecurityGroupsInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeSecurityGroupsOutput, error) {
+		return &awsec2.DescribeSecurityGroupsOutput{}, nil
+	}
+	fakeEC2Client.MockDescribeVpcs = func(ctx context.Context, input *awsec2.DescribeVpcsInput, opts []func(*awsec2.Options)) (*awsec2.DescribeVpcsOutput, error) {
+		return &awsec2.DescribeVpcsOutput{
+			Vpcs: []ec2types.Vpc{
+				{
+					VpcId: aws.String("x.x.x.x"),
+				},
+			},
+		}, nil
+	}
+	fakeEC2Client.MockDescribeLaunchTemplateVersions = func(ctx context.Context, params *awsec2.DescribeLaunchTemplateVersionsInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplateVersionsOutput, error) {
+		return &awsec2.DescribeLaunchTemplateVersionsOutput{
+			LaunchTemplateVersions: []ec2types.LaunchTemplateVersion{
+				{
+					LaunchTemplateId: params.LaunchTemplateId,
+					LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
+						NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
+							{
+								Groups: []string{
+									"sg-xxxx",
+								},
+							},
+						},
+					},
+				},
+			},
+		}, nil
+	}
+	fakeEC2Client.MockCreateLaunchTemplateVersion = func(ctx context.Context, params *awsec2.CreateLaunchTemplateVersionInput, optFns []func(*awsec2.Options)) (*awsec2.CreateLaunchTemplateVersionOutput, error) {
+		return &awsec2.CreateLaunchTemplateVersionOutput{
+			LaunchTemplateVersion: &ec2types.LaunchTemplateVersion{
+				VersionNumber: aws.Int64(1),
+			},
+		}, nil
+	}
+	fakeEC2Client.MockDescribeLaunchTemplates = func(ctx context.Context, params *awsec2.DescribeLaunchTemplatesInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplatesOutput, error) {
+		return &awsec2.DescribeLaunchTemplatesOutput{
+			LaunchTemplates: []ec2types.LaunchTemplate{
+				{
+					LaunchTemplateId:   aws.String("lt-xxxx"),
+					LaunchTemplateName: aws.String("test-launch-template"),
+					Tags: []ec2types.Tag{
+						{
+							Key:   aws.String("tag:KubernetesCluster"),
+							Value: aws.String("test-cluster"),
+						},
+						{
+							Key:   aws.String("tag:Name"),
+							Value: aws.String("test-launch-template"),
+						},
+					},
+				},
+			},
+		}, nil
+	}
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			custommetrics.ReconciliationConsecutiveErrorsTotal.Reset()
+
+			fakeClient := fake.NewClientBuilder().WithObjects(kcp, cluster, defaultSecret, karpenterKMP, sg, csg).WithScheme(scheme.Scheme).WithStatusSubresource(sg).Build()
+
+			reconciler := &SecurityGroupReconciler{
+				Client: fakeClient,
+				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
+					return fakeEC2Client
+				},
+				NewAutoScalingClientFactory: func(cfg aws.Config) autoscaling.AutoScalingClient {
+					return fakeASGClient
+				},
+			}
+
+			for _, reconciliationStatus := range tc.reconciliationStatusResult {
+				reconciler.Recorder = record.NewFakeRecorder(10)
+				// This is just to force a reconciliation error so we can increment the metric
+				if reconciliationStatus == "fail" {
+					fakeEC2Client.MockDescribeInstances = func(ctx context.Context, input *awsec2.DescribeInstancesInput, opts []func(*awsec2.Options)) (*awsec2.DescribeInstancesOutput, error) {
+						return nil, errors.New("error")
+					}
+				} else {
+					fakeEC2Client.MockDescribeInstances = func(ctx context.Context, input *awsec2.DescribeInstancesInput, opts []func(*awsec2.Options)) (*awsec2.DescribeInstancesOutput, error) {
+						return &awsec2.DescribeInstancesOutput{}, nil
+					}
+				}
+				_, _ = reconciler.Reconcile(context.TODO(), ctrl.Request{
+					NamespacedName: client.ObjectKey{
+						Name: sg.Name,
+					},
+				})
+
+			}
+
+			var reconciliationConsecutiveErrorsTotal dto.Metric
+			g.Expect(func() error {
+				g.Expect(custommetrics.ReconciliationConsecutiveErrorsTotal.WithLabelValues("securitygroup", sg.Name, "testing").Write(&reconciliationConsecutiveErrorsTotal)).To(Succeed())
+				metricValue := reconciliationConsecutiveErrorsTotal.GetGauge().GetValue()
+				if metricValue != tc.expectedResult {
+					return fmt.Errorf("metric value differs from expected: %f != %f", metricValue, tc.expectedResult)
+				}
+				return nil
+			}()).Should(Succeed())
 
 		})
 	}
