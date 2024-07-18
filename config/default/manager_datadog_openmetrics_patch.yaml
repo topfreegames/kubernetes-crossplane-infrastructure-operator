@@ -13,7 +13,8 @@ spec:
           [{
             "metrics": [
               "controller*",
-              "workqueue*"
+              "workqueue*",
+              "custom*"
             ],
             "namespace": "kcio",
             "prometheus_url": "http://%%host%%:8080/metrics",

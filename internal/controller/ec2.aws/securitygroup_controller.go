@@ -976,34 +976,43 @@ func (r *SecurityGroupReconciliation) addKCPFinalizer(ctx context.Context, kcp k
 }
 
 func (r *SecurityGroupReconciliation) getEnvironment(ctx context.Context) string {
-	ref := r.sg.Spec.InfrastructureRef[0]
 	var clusterObject clusterv1beta1.Cluster
-	switch ref.Kind {
-	case "KopsMachinePool":
-		kmp := kinfrastructurev1alpha1.KopsMachinePool{}
-		key := client.ObjectKey{
-			Name:      ref.Name,
-			Namespace: ref.Namespace,
+	var err error
+
+	for _, ref := range r.sg.Spec.InfrastructureRef {
+		err = nil
+		switch ref.Kind {
+		case "KopsMachinePool":
+			kmp := kinfrastructurev1alpha1.KopsMachinePool{}
+			key := client.ObjectKey{
+				Name:      ref.Name,
+				Namespace: ref.Namespace,
+			}
+			if err = r.Client.Get(ctx, key, &kmp); err != nil {
+				continue
+			}
+			clusterName := &kmp.Spec.ClusterName
+			key = client.ObjectKey{
+				Name:      *clusterName,
+				Namespace: kmp.ObjectMeta.Namespace,
+			}
+			err = r.Client.Get(ctx, key, &clusterObject)
+		case "KopsControlPlane":
+			key := client.ObjectKey{
+				Name:      ref.Name,
+				Namespace: ref.Namespace,
+			}
+			err = r.Client.Get(ctx, key, &clusterObject)
 		}
-		if err := r.Client.Get(ctx, key, &kmp); err != nil {
-			return ""
-		}
-		clusterName := &kmp.Spec.ClusterName
-		key = client.ObjectKey{
-			Name:      *clusterName,
-			Namespace: kmp.ObjectMeta.Namespace,
-		}
-		if err := r.Client.Get(ctx, key, &clusterObject); err != nil {
-			return ""
-		}
-	case "KopsControlPlane":
-		key := client.ObjectKey{
-			Name:      ref.Name,
-			Namespace: ref.Namespace,
-		}
-		if err := r.Client.Get(ctx, key, &clusterObject); err != nil {
-			return ""
+		if err != nil {
+			continue
+		} else {
+			break
 		}
 	}
-	return clusterObject.Labels["environment"]
+	if err == nil {
+		return clusterObject.Labels["environment"]
+	} else {
+		return "environmentNotFound"
+	}
 }

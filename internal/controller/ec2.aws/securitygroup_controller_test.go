@@ -4638,6 +4638,131 @@ func TestCustomMetrics(t *testing.T) {
 	}
 }
 
+func TestGetEnvironment(t *testing.T) {
+	testCases := []struct {
+		description         string
+		k8sObjects          []client.Object
+		sg                  *securitygroupv1alpha2.SecurityGroup
+		expectedEnvironment string
+	}{
+		{
+			description: "should find environment by KMP",
+			k8sObjects: []client.Object{
+				kmp,
+				cluster,
+			},
+			sg:                  sg,
+			expectedEnvironment: "testing",
+		},
+		{
+			description: "should find environment by KCP",
+			k8sObjects: []client.Object{
+				kcp,
+				cluster,
+			},
+			sg:                  sgKCP,
+			expectedEnvironment: "testing",
+		},
+		{
+			description: "should not find environment because cluster not exists",
+			k8sObjects: []client.Object{
+				kmp,
+			},
+			sg:                  sgKCP,
+			expectedEnvironment: "environmentNotFound",
+		},
+		{
+			description: "should not find environment because kmp not exists",
+			k8sObjects: []client.Object{
+				cluster,
+			},
+			sg:                  sg,
+			expectedEnvironment: "environmentNotFound",
+		},
+		{
+			description: "should find environment by second KMP",
+			k8sObjects: []client.Object{
+				kmp,
+				cluster,
+			},
+			sg: &securitygroupv1alpha2.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-security-group",
+				},
+				Spec: securitygroupv1alpha2.SecurityGroupSpec{
+					IngressRules: []securitygroupv1alpha2.IngressRule{
+						{
+							IPProtocol: "TCP",
+							FromPort:   40000,
+							ToPort:     60000,
+							AllowedCIDRBlocks: []string{
+								"0.0.0.0/0",
+							},
+						},
+					},
+					InfrastructureRef: []*corev1.ObjectReference{
+						{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsMachinePool",
+							Name:       "test-kops-machine-pool-not-exists",
+							Namespace:  metav1.NamespaceDefault,
+						},
+						{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KopsMachinePool",
+							Name:       "test-kops-machine-pool",
+							Namespace:  metav1.NamespaceDefault,
+						},
+					},
+				},
+			},
+			expectedEnvironment: "testing",
+		},
+	}
+
+	RegisterFailHandler(Fail)
+	g := NewWithT(t)
+
+	err := clusterv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = securitygroupv1alpha2.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = kcontrolplanev1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			ctx := context.TODO()
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
+
+			reconciler := SecurityGroupReconciler{
+				Client:                      fakeClient,
+				NewEC2ClientFactory:         nil,
+				NewAutoScalingClientFactory: nil,
+			}
+
+			reconciliation := &SecurityGroupReconciliation{
+				SecurityGroupReconciler: reconciler,
+				log:                     ctrl.LoggerFrom(ctx),
+				sg:                      tc.sg,
+				ec2Client:               nil,
+				asgClient:               nil,
+			}
+
+			environment := reconciliation.getEnvironment(ctx)
+			g.Expect(environment).To(Equal(tc.expectedEnvironment))
+		})
+	}
+}
+
 func assertConditions(g *WithT, from conditions.Getter, conditions ...*clusterv1beta1.Condition) {
 	for _, condition := range conditions {
 		assertCondition(g, from, condition)
