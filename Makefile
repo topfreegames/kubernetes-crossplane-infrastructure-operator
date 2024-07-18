@@ -135,6 +135,7 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 gen-k8s-manifests: manifests kustomize
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default > .kubernetes/manifests.yaml
+	$(KUSTOMIZE) build config/crd > .kubernetes/crds.yaml
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
