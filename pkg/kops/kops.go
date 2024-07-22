@@ -24,12 +24,7 @@ func GetRegionFromKopsControlPlane(ctx context.Context, kcp *kcontrolplanev1alph
 		return nil, err
 	}
 
-	if err != nil {
-		return nil, err
-	}
-
 	return region, nil
-
 }
 
 func awsConfigForCredential(ctx context.Context, region string, accessKey string, secretAccessKey string) (aws.Config, error) {

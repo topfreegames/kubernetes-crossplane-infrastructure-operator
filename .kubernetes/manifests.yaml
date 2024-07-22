@@ -295,7 +295,8 @@ spec:
           [{
             "metrics": [
               "controller*",
-              "workqueue*"
+              "workqueue*",
+              "custom*"
             ],
             "namespace": "kcio",
             "prometheus_url": "http://%%host%%:8080/metrics",
@@ -324,7 +325,7 @@ spec:
               key: account
               name: spotinst-credentials
               optional: true
-        image: tfgco/kubernetes-crossplane-infrastructure-operator:v0.8.0-alpha
+        image: tfgco/kubernetes-crossplane-infrastructure-operator:v0.8.4-alpha
         livenessProbe:
           httpGet:
             path: /healthz
