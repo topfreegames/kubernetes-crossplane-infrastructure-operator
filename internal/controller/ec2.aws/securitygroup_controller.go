@@ -31,6 +31,7 @@ import (
 	"github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/aws/ec2"
 	"github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/crossplane"
 	kopsutils "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/kops"
+
 	kcontrolplanev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/controlplane/v1alpha1"
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
 	"github.com/topfreegames/kubernetes-kops-operator/pkg/kops"
@@ -95,6 +96,7 @@ type SecurityGroupReconciliation struct {
 	region             *string
 	vpcId              *string
 	providerConfigName string
+	clusterName        string
 }
 
 func DefaultReconciler(mgr manager.Manager) *SecurityGroupReconciler {
@@ -241,6 +243,7 @@ func (r *SecurityGroupReconciliation) retrieveInfraRefInfo(ctx context.Context) 
 			r.providerConfigName = *providerConfigName
 			r.region = region
 			r.vpcId = vpcId
+			r.clusterName = kmp.Spec.ClusterName
 
 			return nil
 		case "KopsControlPlane":
@@ -253,6 +256,7 @@ func (r *SecurityGroupReconciliation) retrieveInfraRefInfo(ctx context.Context) 
 			r.providerConfigName = *providerConfigName
 			r.region = region
 			r.vpcId = vpcId
+			r.clusterName = infrastructureRef.Name
 
 			return nil
 		default:
@@ -270,7 +274,7 @@ func (r *SecurityGroupReconciliation) reconcileNormal(ctx context.Context) (ctrl
 		controllerutil.AddFinalizer(r.sg, securityGroupFinalizer)
 	}
 
-	csg, err := crossplane.CreateOrUpdateCrossplaneSecurityGroup(ctx, r.Client, r.vpcId, r.region, r.providerConfigName, r.sg)
+	csg, err := crossplane.CreateOrUpdateCrossplaneSecurityGroup(ctx, r.Client, r.vpcId, r.region, r.providerConfigName, r.clusterName, r.sg)
 	if err != nil {
 		conditions.MarkFalse(r.sg,
 			securitygroupv1alpha2.CrossplaneResourceReadyCondition,
@@ -341,18 +345,45 @@ func (r *SecurityGroupReconciliation) attachKopsMachinePool(ctx context.Context,
 				continue
 			}
 		} else if kmp.Spec.KopsInstanceGroupSpec.Manager == "Karpenter" {
-			launchTemplateName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
-			if err != nil {
-				attachErr = multierror.Append(attachErr, err)
-				continue
+			if len(kmp.Spec.KarpenterProvisioners) > 0 {
+				launchTemplateName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
+				if err != nil {
+					attachErr = multierror.Append(attachErr, err)
+					continue
+				}
+
+				err = r.attachSGToLaunchTemplate(ctx, kcp.Name, launchTemplateName, csg.Status.AtProvider.SecurityGroupID)
+				if err != nil {
+					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, err.Error())
+					attachErr = multierror.Append(attachErr, err)
+					continue
+				}
+			} else {
+				// We are assuming that this is a NodePool for now
+				filters := []ec2types.Filter{
+					{
+						Name:   aws.String("tag:karpenter.sh/managed-by"),
+						Values: []string{r.clusterName},
+					},
+					{
+						Name:   aws.String("tag:karpenter.sh/nodepool"),
+						Values: []string{kmp.Name},
+					},
+				}
+
+				instanceIDs, err := ec2.GetInstancesWithFilter(ctx, r.ec2Client, filters)
+				if err != nil {
+					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, err.Error())
+					attachErr = multierror.Append(attachErr, err)
+					continue
+				}
+
+				err = ec2.AttachSecurityGroupToInstances(ctx, r.ec2Client, instanceIDs, csg.Status.AtProvider.SecurityGroupID)
+				if err != nil {
+					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesAttachmentFailed", err.Error())
+				}
 			}
 
-			err = r.attachSGToLaunchTemplate(ctx, kcp.Name, launchTemplateName, csg.Status.AtProvider.SecurityGroupID)
-			if err != nil {
-				r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, err.Error())
-				attachErr = multierror.Append(attachErr, err)
-				continue
-			}
 		} else {
 			asgName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
 			if err != nil {
@@ -643,17 +674,43 @@ func (r *SecurityGroupReconciliation) detachSGFromKopsMachinePool(ctx context.Co
 				continue
 			}
 		} else if kmp.Spec.KopsInstanceGroupSpec.Manager == "Karpenter" {
-			launchTemplateName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
-			if err != nil {
-				detachErr = multierror.Append(detachErr, err)
-				continue
-			}
+			if len(kmp.Spec.KarpenterProvisioners) > 0 {
 
-			err = r.detachSGFromLaunchTemplate(ctx, kmp.Spec.ClusterName, launchTemplateName, csg.Status.AtProvider.SecurityGroupID)
-			if err != nil {
-				r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, err.Error())
-				detachErr = multierror.Append(detachErr, err)
-				continue
+				launchTemplateName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
+				if err != nil {
+					detachErr = multierror.Append(detachErr, err)
+					continue
+				}
+
+				err = r.detachSGFromLaunchTemplate(ctx, kmp.Spec.ClusterName, launchTemplateName, csg.Status.AtProvider.SecurityGroupID)
+				if err != nil {
+					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, err.Error())
+					detachErr = multierror.Append(detachErr, err)
+					continue
+				}
+			} else {
+				// We are assuming that this is a NodePool for now
+				filters := []ec2types.Filter{
+					{
+						Name:   aws.String("tag:karpenter.sh/managed-by"),
+						Values: []string{r.clusterName},
+					},
+					{
+						Name:   aws.String("tag:karpenter.sh/nodepool"),
+						Values: []string{kmp.Name},
+					},
+				}
+
+				instanceIDs, err := ec2.GetInstancesWithFilter(ctx, r.ec2Client, filters)
+				if err != nil {
+					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, err.Error())
+					detachErr = multierror.Append(detachErr, err)
+					continue
+				}
+				err = ec2.DetachSecurityGroupFromInstances(ctx, r.ec2Client, instanceIDs, csg.Status.AtProvider.SecurityGroupID)
+				if err != nil {
+					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesDetachmentFailed", err.Error())
+				}
 			}
 		} else {
 			asgName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)

@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"testing"
 
+	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	crossec2v1alphav1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
 	"github.com/google/go-cmp/cmp"
@@ -1469,6 +1471,13 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 							},
 						},
 					},
+					InfrastructureRef: []*corev1.ObjectReference{
+						{
+							Kind:      "KopsMachinePool",
+							Name:      "testIG",
+							Namespace: "testNamespace",
+						},
+					},
 				},
 			},
 			validateOutput: func(_ *securitygroupv1alpha2.SecurityGroup, csg *crossec2v1beta1.SecurityGroup) bool {
@@ -1478,7 +1487,19 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 				if csg.Name != "test-sg" {
 					return false
 				}
-				return true
+
+				expectedTags := []crossec2v1beta1.Tag{
+					{
+						Key:   "ManagedBy",
+						Value: "kubernetes-crossplane-infrastructure-operator",
+					},
+					{
+						Key:   "kops.k8s.io/instance-group/testIG",
+						Value: "owned",
+					},
+				}
+
+				return reflect.DeepEqual(csg.Spec.ForProvider.Tags, expectedTags)
 			},
 		},
 		{
@@ -1494,6 +1515,30 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 							Description: "test-sg",
 							GroupName:   "test-sg",
 							VPCID:       &testVPCId,
+							Tags: []crossec2v1beta1.Tag{
+								{
+									Key:   "ManagedBy",
+									Value: "kubernetes-crossplane-infrastructure-operator",
+								},
+							},
+						},
+					},
+				},
+				&kinfrastructurev1alpha1.KopsMachinePool{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "testIGA",
+						Namespace: "testNamespace",
+						Labels: map[string]string{
+							"cluster.x-k8s.io/cluster-name": "testCluster",
+						},
+					},
+				},
+				&kinfrastructurev1alpha1.KopsMachinePool{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "testIGB",
+						Namespace: "testNamespace",
+						Labels: map[string]string{
+							"cluster.x-k8s.io/cluster-name": "testCluster",
 						},
 					},
 				},
@@ -1524,6 +1569,13 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 							},
 						},
 					},
+					InfrastructureRef: []*corev1.ObjectReference{
+						{
+							Kind:      "KopsControlPlane",
+							Name:      "testCluster",
+							Namespace: "testNamespace",
+						},
+					},
 				},
 			},
 			validateOutput: func(_ *securitygroupv1alpha2.SecurityGroup, csg *crossec2v1beta1.SecurityGroup) bool {
@@ -1538,7 +1590,24 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 				}) {
 					return false
 				}
-				return true
+
+				expectedTags := []crossec2v1beta1.Tag{
+					{
+						Key:   "ManagedBy",
+						Value: "kubernetes-crossplane-infrastructure-operator",
+					},
+					{
+						Key:   "kops.k8s.io/instance-group/testIGA",
+						Value: "owned",
+					},
+					{
+						Key:   "kops.k8s.io/instance-group/testIGB",
+						Value: "owned",
+					},
+				}
+
+				return reflect.DeepEqual(csg.Spec.ForProvider.Tags, expectedTags)
+
 			},
 		},
 		{
@@ -1599,13 +1668,16 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 	err := crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = kinfrastructurev1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
 			ctx := context.TODO()
 
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
 
-			_, err := CreateOrUpdateCrossplaneSecurityGroup(ctx, fakeClient, aws.String("vpc-xxx"), aws.String("us-east-1"), defaultProviderConfigName, tc.wildlifeSecurityGroup)
+			_, err := CreateOrUpdateCrossplaneSecurityGroup(ctx, fakeClient, aws.String("vpc-xxx"), aws.String("us-east-1"), defaultProviderConfigName, "testCluster", tc.wildlifeSecurityGroup)
 			g.Expect(err).To(BeNil())
 			csg := &crossec2v1beta1.SecurityGroup{}
 			key := client.ObjectKey{

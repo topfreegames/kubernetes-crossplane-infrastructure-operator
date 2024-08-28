@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	karpenter "github.com/aws/karpenter-core/pkg/apis/v1alpha5"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsautoscaling "github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	autoscalingtypes "github.com/aws/aws-sdk-go-v2/service/autoscaling/types"
@@ -293,6 +295,13 @@ var (
 		},
 		Spec: kinfrastructurev1alpha1.KopsMachinePoolSpec{
 			ClusterName: "test-cluster",
+			KarpenterProvisioners: []karpenter.Provisioner{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-provisioner",
+					},
+				},
+			},
 			KopsInstanceGroupSpec: kopsapi.InstanceGroupSpec{
 				Manager: "Karpenter",
 				NodeLabels: map[string]string{
@@ -1853,6 +1862,13 @@ func TestAttachKopsMachinePool(t *testing.T) {
 				},
 				Spec: kinfrastructurev1alpha1.KopsMachinePoolSpec{
 					ClusterName: "test-cluster",
+					KarpenterProvisioners: []karpenter.Provisioner{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "test-provisioner",
+							},
+						},
+					},
 					KopsInstanceGroupSpec: kopsapi.InstanceGroupSpec{
 						Manager: "Karpenter",
 						NodeLabels: map[string]string{

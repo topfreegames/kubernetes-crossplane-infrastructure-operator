@@ -368,3 +368,27 @@ func GetLaunchTemplateFromInstanceGroup(ctx context.Context, ec2Client EC2Client
 
 	return &launchTemplates[0], nil
 }
+func GetInstancesWithFilter(ctx context.Context, ec2Client EC2Client, filters []ec2types.Filter) ([]string, error) {
+
+	input := &ec2.DescribeInstancesInput{
+		Filters: filters,
+	}
+
+	output, err := ec2Client.DescribeInstances(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("failed to describe instances: %w", err)
+	}
+
+	var instanceIDs []string
+	for _, reservation := range output.Reservations {
+		for _, instance := range reservation.Instances {
+			instanceIDs = append(instanceIDs, *instance.InstanceId)
+		}
+	}
+
+	if len(instanceIDs) == 0 {
+		return nil, fmt.Errorf("no instances found with filter")
+	}
+
+	return instanceIDs, nil
+}

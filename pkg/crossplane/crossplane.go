@@ -7,6 +7,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	clustermeshv1alpha1 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/clustermesh.infrastructure/v1alpha1"
+	"github.com/topfreegames/kubernetes-kops-operator/pkg/kops"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	crossec2v1alphav1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
@@ -76,6 +77,12 @@ func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha2.SecurityGroup, vpcId, 
 				Ingress:     []crossec2v1beta1.IPPermission{},
 				VPCID:       vpcId,
 				Region:      region,
+				Tags: []crossec2v1beta1.Tag{
+					{
+						Key:   "ManagedBy",
+						Value: "kubernetes-crossplane-infrastructure-operator",
+					},
+				},
 			},
 			ResourceSpec: crossplanev1.ResourceSpec{
 				ProviderConfigReference: &crossplanev1.Reference{
@@ -125,7 +132,7 @@ func NewCrossplaneRoute(region, destinationCIDRBlock, routeTable string, provide
 	return croute
 }
 
-func CreateOrUpdateCrossplaneSecurityGroup(ctx context.Context, kubeClient client.Client, vpcId, region *string, providerConfigName string, sg *securitygroupv1alpha2.SecurityGroup) (*crossec2v1beta1.SecurityGroup, error) {
+func CreateOrUpdateCrossplaneSecurityGroup(ctx context.Context, kubeClient client.Client, vpcId, region *string, providerConfigName, clusterName string, sg *securitygroupv1alpha2.SecurityGroup) (*crossec2v1beta1.SecurityGroup, error) {
 	csg := NewCrossplaneSecurityGroup(sg, vpcId, region, providerConfigName)
 	_, err := controllerutil.CreateOrUpdate(ctx, kubeClient, csg, func() error {
 		var ingressRules []crossec2v1beta1.IPPermission
@@ -154,6 +161,38 @@ func CreateOrUpdateCrossplaneSecurityGroup(ctx context.Context, kubeClient clien
 			ipPermission.IPRanges = allowedCIDRBlocks
 			ingressRules = append(ingressRules, ipPermission)
 		}
+
+		for _, infraRef := range sg.Spec.InfrastructureRef {
+			switch infraRef.Kind {
+			case "KopsMachinePool":
+				if checkTagAlreadyExists(csg.Spec.ForProvider.Tags, fmt.Sprintf("kops.k8s.io/instance-group/%s", infraRef.Name)) {
+					continue
+				}
+				csg.Spec.ForProvider.Tags = append(csg.Spec.ForProvider.Tags, crossec2v1beta1.Tag{
+					Key:   fmt.Sprintf("kops.k8s.io/instance-group/%s", infraRef.Name),
+					Value: "owned",
+				})
+			case "KopsControlPlane":
+				kmps, err := kops.GetKopsMachinePoolsWithLabel(ctx, kubeClient, "cluster.x-k8s.io/cluster-name", clusterName)
+				if err != nil {
+					return err
+				}
+
+				for _, kmp := range kmps {
+					if checkTagAlreadyExists(csg.Spec.ForProvider.Tags, fmt.Sprintf("kops.k8s.io/instance-group/%s", kmp.Name)) {
+						continue
+					}
+					csg.Spec.ForProvider.Tags = append(csg.Spec.ForProvider.Tags, crossec2v1beta1.Tag{
+						Key:   fmt.Sprintf("kops.k8s.io/instance-group/%s", kmp.Name),
+						Value: "owned",
+					})
+				}
+			default:
+				continue
+			}
+
+		}
+
 		csg.Spec.ForProvider.Ingress = ingressRules
 		csg.Annotations = sg.Annotations
 		csg.Spec.ResourceSpec.ProviderConfigReference = &crossplanev1.Reference{Name: providerConfigName}
@@ -373,4 +412,13 @@ func GetOwnedRoutesRef(ctx context.Context, owner client.Object, kubeclient clie
 	}
 
 	return ss, nil
+}
+
+func checkTagAlreadyExists(tags []crossec2v1beta1.Tag, key string) bool {
+	for _, tag := range tags {
+		if tag.Key == key {
+			return true
+		}
+	}
+	return false
 }

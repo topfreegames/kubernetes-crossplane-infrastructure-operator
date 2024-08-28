@@ -10,6 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.11.1
 	github.com/aws/aws-sdk-go-v2/service/autoscaling v1.28.3
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.26.0
+	github.com/aws/karpenter-core v0.29.0
 	github.com/crossplane-contrib/provider-aws v0.35.0-rc.0.0.20221220103156-b59bf4223ff4
 	github.com/crossplane/crossplane-runtime v0.19.0-rc.0.0.20220930073209-84e629b95898
 	github.com/go-logr/logr v1.2.4
@@ -30,7 +31,6 @@ require (
 )
 
 require (
-	github.com/aws/karpenter-core v0.29.0 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
 	github.com/google/gnostic-models v0.6.8 // indirect
 	github.com/google/pprof v0.0.0-20210720184732-4bb14d4b1be1 // indirect
