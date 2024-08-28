@@ -280,7 +280,7 @@ func (r *SecurityGroupReconciliation) reconcileNormal(ctx context.Context) (ctrl
 			securitygroupv1alpha2.CrossplaneResourceReadyCondition,
 			securitygroupv1alpha2.CrossplaneResourceReconciliationFailedReason,
 			clusterv1beta1.ConditionSeverityError,
-			err.Error(),
+			"error creating/updating crossplane securitygroup: %s", err.Error(),
 		)
 		return resultError, fmt.Errorf("error creating crossplane securitygroup: %w", err)
 	}
@@ -291,7 +291,7 @@ func (r *SecurityGroupReconciliation) reconcileNormal(ctx context.Context) (ctrl
 			securitygroupv1alpha2.CrossplaneResourceReadyCondition,
 			securitygroupv1alpha2.CrossplaneResourceReconciliationFailedReason,
 			clusterv1beta1.ConditionSeverityError,
-			err.Error(),
+			"error getting crossplane securitygroup: %s", err.Error(),
 		)
 		return resultError, err
 	}
@@ -308,7 +308,7 @@ func (r *SecurityGroupReconciliation) reconcileNormal(ctx context.Context) (ctrl
 				securitygroupv1alpha2.SecurityGroupReadyCondition,
 				string(availableCondition.Reason),
 				clusterv1beta1.ConditionSeverityError,
-				availableCondition.Message,
+				"security group not available: %s", availableCondition.Message,
 			)
 			return resultError, ErrSecurityGroupNotAvailable
 		}
@@ -404,7 +404,7 @@ func (r *SecurityGroupReconciliation) attachKopsMachinePool(ctx context.Context,
 			securitygroupv1alpha2.SecurityGroupAttachedCondition,
 			securitygroupv1alpha2.SecurityGroupAttachmentFailedReason,
 			clusterv1beta1.ConditionSeverityError,
-			attachErr.Error(),
+			"failed to attach SecurityGroup: %s", attachErr.Error(),
 		)
 	} else {
 		conditions.MarkTrue(r.sg, securitygroupv1alpha2.SecurityGroupAttachedCondition)
