@@ -1494,8 +1494,8 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 						Value: "kubernetes-crossplane-infrastructure-operator",
 					},
 					{
-						Key:   "kops.k8s.io/instance-group/testIG",
-						Value: "owned",
+						Key:   "karpenter/owner",
+						Value: "testCluster/testIG",
 					},
 				}
 
@@ -1597,12 +1597,12 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 						Value: "kubernetes-crossplane-infrastructure-operator",
 					},
 					{
-						Key:   "kops.k8s.io/instance-group/testIGA",
-						Value: "owned",
+						Key:   "karpenter/owner",
+						Value: "testCluster/testIGA",
 					},
 					{
-						Key:   "kops.k8s.io/instance-group/testIGB",
-						Value: "owned",
+						Key:   "karpenter/owner",
+						Value: "testCluster/testIGB",
 					},
 				}
 
