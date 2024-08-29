@@ -395,8 +395,8 @@ func getTagsFromInfrastructureRefs(ctx context.Context, kubeClient client.Client
 		switch infraRef.Kind {
 		case "KopsMachinePool":
 			tags = append(tags, crossec2v1beta1.Tag{
-				Key:   fmt.Sprintf("kops.k8s.io/instance-group/%s", infraRef.Name),
-				Value: "owned",
+				Key:   "karpenter/owner",
+				Value: fmt.Sprintf("%s/%s", clusterName, infraRef.Name),
 			})
 		case "KopsControlPlane":
 			kmps, err := kops.GetKopsMachinePoolsWithLabel(ctx, kubeClient, "cluster.x-k8s.io/cluster-name", clusterName)
@@ -406,8 +406,8 @@ func getTagsFromInfrastructureRefs(ctx context.Context, kubeClient client.Client
 
 			for _, kmp := range kmps {
 				tags = append(tags, crossec2v1beta1.Tag{
-					Key:   fmt.Sprintf("kops.k8s.io/instance-group/%s", kmp.Name),
-					Value: "owned",
+					Key:   "karpenter/owner",
+					Value: fmt.Sprintf("%s/%s", clusterName, kmp.Name),
 				})
 			}
 		}
