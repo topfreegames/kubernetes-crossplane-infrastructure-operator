@@ -77,12 +77,6 @@ func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha2.SecurityGroup, vpcId, 
 				Ingress:     []crossec2v1beta1.IPPermission{},
 				VPCID:       vpcId,
 				Region:      region,
-				Tags: []crossec2v1beta1.Tag{
-					{
-						Key:   "ManagedBy",
-						Value: "kubernetes-crossplane-infrastructure-operator",
-					},
-				},
 			},
 			ResourceSpec: crossplanev1.ResourceSpec{
 				ProviderConfigReference: &crossplanev1.Reference{
@@ -162,41 +156,16 @@ func CreateOrUpdateCrossplaneSecurityGroup(ctx context.Context, kubeClient clien
 			ingressRules = append(ingressRules, ipPermission)
 		}
 
-		for _, infraRef := range sg.Spec.InfrastructureRef {
-			switch infraRef.Kind {
-			case "KopsMachinePool":
-				if checkTagAlreadyExists(csg.Spec.ForProvider.Tags, fmt.Sprintf("kops.k8s.io/instance-group/%s", infraRef.Name)) {
-					continue
-				}
-				csg.Spec.ForProvider.Tags = append(csg.Spec.ForProvider.Tags, crossec2v1beta1.Tag{
-					Key:   fmt.Sprintf("kops.k8s.io/instance-group/%s", infraRef.Name),
-					Value: "owned",
-				})
-			case "KopsControlPlane":
-				kmps, err := kops.GetKopsMachinePoolsWithLabel(ctx, kubeClient, "cluster.x-k8s.io/cluster-name", clusterName)
-				if err != nil {
-					return err
-				}
-
-				for _, kmp := range kmps {
-					if checkTagAlreadyExists(csg.Spec.ForProvider.Tags, fmt.Sprintf("kops.k8s.io/instance-group/%s", kmp.Name)) {
-						continue
-					}
-					csg.Spec.ForProvider.Tags = append(csg.Spec.ForProvider.Tags, crossec2v1beta1.Tag{
-						Key:   fmt.Sprintf("kops.k8s.io/instance-group/%s", kmp.Name),
-						Value: "owned",
-					})
-				}
-			default:
-				continue
-			}
-
+		tags, err := getTagsFromInfrastructureRefs(ctx, kubeClient, clusterName, sg.Spec.InfrastructureRef)
+		if err != nil {
+			return err
 		}
 
 		csg.Spec.ForProvider.Ingress = ingressRules
 		csg.Annotations = sg.Annotations
 		csg.Spec.ResourceSpec.ProviderConfigReference = &crossplanev1.Reference{Name: providerConfigName}
 		csg.Spec.ForProvider.VPCID = vpcId
+		csg.Spec.ForProvider.Tags = tags
 
 		// varias propriedades não váo ser atualizadas se o csg já existir...
 
@@ -414,11 +383,34 @@ func GetOwnedRoutesRef(ctx context.Context, owner client.Object, kubeclient clie
 	return ss, nil
 }
 
-func checkTagAlreadyExists(tags []crossec2v1beta1.Tag, key string) bool {
-	for _, tag := range tags {
-		if tag.Key == key {
-			return true
+func getTagsFromInfrastructureRefs(ctx context.Context, kubeClient client.Client, clusterName string, infraRefs []*corev1.ObjectReference) ([]crossec2v1beta1.Tag, error) {
+	var tags = []crossec2v1beta1.Tag{
+		{
+			Key:   "ManagedBy",
+			Value: "kubernetes-crossplane-infrastructure-operator",
+		},
+	}
+
+	for _, infraRef := range infraRefs {
+		switch infraRef.Kind {
+		case "KopsMachinePool":
+			tags = append(tags, crossec2v1beta1.Tag{
+				Key:   fmt.Sprintf("kops.k8s.io/instance-group/%s", infraRef.Name),
+				Value: "owned",
+			})
+		case "KopsControlPlane":
+			kmps, err := kops.GetKopsMachinePoolsWithLabel(ctx, kubeClient, "cluster.x-k8s.io/cluster-name", clusterName)
+			if err != nil {
+				return nil, err
+			}
+
+			for _, kmp := range kmps {
+				tags = append(tags, crossec2v1beta1.Tag{
+					Key:   fmt.Sprintf("kops.k8s.io/instance-group/%s", kmp.Name),
+					Value: "owned",
+				})
+			}
 		}
 	}
-	return false
+	return tags, nil
 }

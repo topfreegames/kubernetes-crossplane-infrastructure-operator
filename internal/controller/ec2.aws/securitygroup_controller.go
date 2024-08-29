@@ -381,6 +381,8 @@ func (r *SecurityGroupReconciliation) attachKopsMachinePool(ctx context.Context,
 				err = ec2.AttachSecurityGroupToInstances(ctx, r.ec2Client, instanceIDs, csg.Status.AtProvider.SecurityGroupID)
 				if err != nil {
 					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesAttachmentFailed", err.Error())
+					attachErr = multierror.Append(attachErr, err)
+					continue
 				}
 			}
 

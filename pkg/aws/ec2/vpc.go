@@ -386,9 +386,5 @@ func GetInstancesWithFilter(ctx context.Context, ec2Client EC2Client, filters []
 		}
 	}
 
-	if len(instanceIDs) == 0 {
-		return nil, fmt.Errorf("no instances found with filter")
-	}
-
 	return instanceIDs, nil
 }
