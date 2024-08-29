@@ -131,7 +131,7 @@ var _ = Describe("Clustermesh", func() {
 
 		for _, tt := range tests {
 			It(tt.description, func() {
-				result := New(tt.args.clMeshName)
+				result := New(tt.args.clMeshName, tt.args.clusters...)
 				Expect(result).ToNot(BeNil())
 				Expect(len(tt.want.Clusters)).To(Equal(len(result.Spec.Clusters)))
 				Expect(tt.args.clMeshName).To(Equal(result.ObjectMeta.Name))
