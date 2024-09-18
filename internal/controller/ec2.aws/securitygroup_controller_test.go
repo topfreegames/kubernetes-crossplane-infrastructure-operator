@@ -25,7 +25,7 @@ import (
 
 	karpenterv1alpha5 "github.com/aws/karpenter-core/pkg/apis/v1alpha5"
 
-	karpenterv1beta1 "github.com/aws/karpenter-core/pkg/apis/v1beta1"
+	karpenterv1beta1 "sigs.k8s.io/karpenter/pkg/apis/v1beta1"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsautoscaling "github.com/aws/aws-sdk-go-v2/service/autoscaling"
