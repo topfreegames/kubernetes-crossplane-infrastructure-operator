@@ -65,11 +65,13 @@ func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
+	var controllerClass string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.StringVar(&controllerClass, "controller-class", "", "The name of the controller class to associate with the controller.")
 
 	opts := zap.Options{
 		Development: true,
@@ -94,11 +96,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = clustermeshcontrollers.DefaultReconciler(mgr).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ClusterMesh")
-		os.Exit(1)
+	// TODO: Implement the controller class logic for the clustermesh controller
+	// This is a temporary solution to avoid breaking the current implementation
+	// and the clustermesh controller will only run if the controller class is "stable"
+	if controllerClass == "stable" {
+		if err = clustermeshcontrollers.DefaultReconciler(mgr).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "ClusterMesh")
+			os.Exit(1)
+		}
 	}
-	if err = sgcontroller.DefaultReconciler(mgr).SetupWithManager(mgr); err != nil {
+	if err = sgcontroller.DefaultReconciler(mgr, controllerClass).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityGroup")
 		os.Exit(1)
 	}

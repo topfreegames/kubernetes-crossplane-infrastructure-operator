@@ -60,10 +60,12 @@ import (
 )
 
 var (
-	requeue30seconds             = ctrl.Result{RequeueAfter: 30 * time.Second}
-	resultDefault                = ctrl.Result{RequeueAfter: 1 * time.Hour}
-	resultError                  = ctrl.Result{RequeueAfter: 30 * time.Minute}
-	ErrSecurityGroupNotAvailable = errors.New("security group not available")
+	requeue30seconds                    = ctrl.Result{RequeueAfter: 30 * time.Second}
+	resultDefault                       = ctrl.Result{RequeueAfter: 1 * time.Hour}
+	resultError                         = ctrl.Result{RequeueAfter: 30 * time.Minute}
+	resultNotRequeue                    = ctrl.Result{}
+	ErrSecurityGroupNotAvailable        = errors.New("security group not available")
+	ErrClusterManagedByDifferentCluster = errors.New("cluster is managed by a different controller class")
 )
 
 const (
@@ -81,6 +83,7 @@ type SecurityGroupReconciler struct {
 	client.Client
 	Scheme                          *runtime.Scheme
 	Recorder                        record.EventRecorder
+	ControllerClass                 string
 	NewEC2ClientFactory             func(cfg aws.Config) ec2.EC2Client
 	NewAutoScalingClientFactory     func(cfg aws.Config) autoscaling.AutoScalingClient
 	NewOceanCloudProviderAWSFactory func() spot.OceanClient
@@ -99,11 +102,12 @@ type SecurityGroupReconciliation struct {
 	clusterName        string
 }
 
-func DefaultReconciler(mgr manager.Manager) *SecurityGroupReconciler {
+func DefaultReconciler(mgr manager.Manager, controllerClass string) *SecurityGroupReconciler {
 	return &SecurityGroupReconciler{
 		Client:                          mgr.GetClient(),
 		Scheme:                          mgr.GetScheme(),
 		Recorder:                        mgr.GetEventRecorderFor("securityGroup-controller"),
+		ControllerClass:                 controllerClass,
 		NewEC2ClientFactory:             ec2.NewEC2Client,
 		NewAutoScalingClientFactory:     autoscaling.NewAutoScalingClient,
 		NewOceanCloudProviderAWSFactory: spot.NewOceanCloudProviderAWS,
@@ -173,6 +177,10 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	err := r.retrieveInfraRefInfo(ctx)
 	if err != nil {
+		if err == ErrClusterManagedByDifferentCluster {
+			r.Recorder.Event(r.sg, corev1.EventTypeNormal, "ClusterManagedByDifferentControllerClass", "cluster is managed by a different controller class, removing it from queue")
+			return resultNotRequeue, nil
+		}
 		r.log.Error(err, fmt.Sprintf("could not retrieve infra info from any of refs of security group %v", r.sg))
 		return resultError, err
 	}
@@ -184,15 +192,7 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return r.reconcileNormal(ctx)
 }
 
-func (r *SecurityGroupReconciliation) retrieveKCPNetworkInfo(ctx context.Context, name string, namespace string) (*string, *string, *string, error) {
-	kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
-	key := client.ObjectKey{
-		Name:      name,
-		Namespace: namespace,
-	}
-	if err := r.Get(ctx, key, kcp); err != nil {
-		return nil, nil, nil, err
-	}
+func (r *SecurityGroupReconciliation) retrieveKCPNetworkInfo(ctx context.Context, kcp *kcontrolplanev1alpha1.KopsControlPlane) (*string, *string, *string, error) {
 
 	region, err := kopsutils.GetRegionFromKopsControlPlane(ctx, kcp)
 	if err != nil {
@@ -234,7 +234,20 @@ func (r *SecurityGroupReconciliation) retrieveInfraRefInfo(ctx context.Context) 
 				continue
 			}
 
-			region, providerConfigName, vpcId, err := r.retrieveKCPNetworkInfo(ctx, kmp.Spec.ClusterName, kmp.ObjectMeta.Namespace)
+			kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+			key = client.ObjectKey{
+				Name:      kmp.Spec.ClusterName,
+				Namespace: kmp.ObjectMeta.Namespace,
+			}
+			if err := r.Get(ctx, key, kcp); err != nil {
+				return err
+			}
+
+			if kcp.Spec.ControllerClass != r.ControllerClass {
+				return ErrClusterManagedByDifferentCluster
+			}
+
+			region, providerConfigName, vpcId, err := r.retrieveKCPNetworkInfo(ctx, kcp)
 			if err != nil {
 				retrieveErr = err
 				continue
@@ -247,7 +260,20 @@ func (r *SecurityGroupReconciliation) retrieveInfraRefInfo(ctx context.Context) 
 
 			return nil
 		case "KopsControlPlane":
-			region, providerConfigName, vpcId, err := r.retrieveKCPNetworkInfo(ctx, infrastructureRef.Name, infrastructureRef.Namespace)
+			kcp := &kcontrolplanev1alpha1.KopsControlPlane{}
+			key := client.ObjectKey{
+				Name:      infrastructureRef.Name,
+				Namespace: infrastructureRef.Namespace,
+			}
+			if err := r.Get(ctx, key, kcp); err != nil {
+				return err
+			}
+
+			if kcp.Spec.ControllerClass != r.ControllerClass {
+				return ErrClusterManagedByDifferentCluster
+			}
+
+			region, providerConfigName, vpcId, err := r.retrieveKCPNetworkInfo(ctx, kcp)
 			if err != nil {
 				retrieveErr = err
 				continue
