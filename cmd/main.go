@@ -88,6 +88,7 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "1334ff7b.infrastructure.wildlife.io",
+		PprofBindAddress:       ":8081",
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
