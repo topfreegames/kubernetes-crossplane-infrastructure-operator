@@ -53,9 +53,13 @@ import (
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -834,7 +838,70 @@ func (r *SecurityGroupReconciliation) detachSGFromASG(ctx context.Context, asgNa
 func (r *SecurityGroupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&securitygroupv1alpha2.SecurityGroup{}).
+		Watches(
+			&kcontrolplanev1alpha1.KopsControlPlane{},
+			handler.EnqueueRequestsFromMapFunc(r.kopsControlPlaneToSecurityGroups),
+			builder.WithPredicates(finalizersOrGenerationChanged()),
+		).
+		Watches(
+			&kinfrastructurev1alpha1.KopsMachinePool{},
+			handler.EnqueueRequestsFromMapFunc(r.kopsMachinePoolToSecurityGroups),
+			builder.WithPredicates(finalizersOrGenerationChanged()),
+		).
 		Complete(r)
+}
+
+func finalizersOrGenerationChanged() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc:  func(event.CreateEvent) bool { return false },
+		DeleteFunc:  func(event.DeleteEvent) bool { return false },
+		GenericFunc: func(event.GenericEvent) bool { return false },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if e.ObjectOld == nil || e.ObjectNew == nil {
+				return false
+			}
+			return e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() ||
+				!slices.Equal(e.ObjectOld.GetFinalizers(), e.ObjectNew.GetFinalizers())
+		},
+	}
+}
+
+func (r *SecurityGroupReconciler) kopsControlPlaneToSecurityGroups(ctx context.Context, o client.Object) []reconcile.Request {
+	return r.securityGroupsReferencing(ctx, func(ref *corev1.ObjectReference) bool {
+		return ref.Kind == "KopsControlPlane" && ref.Name == o.GetName() && ref.Namespace == o.GetNamespace()
+	})
+}
+
+func (r *SecurityGroupReconciler) kopsMachinePoolToSecurityGroups(ctx context.Context, o client.Object) []reconcile.Request {
+	kmp, ok := o.(*kinfrastructurev1alpha1.KopsMachinePool)
+	if !ok {
+		return nil
+	}
+	return r.securityGroupsReferencing(ctx, func(ref *corev1.ObjectReference) bool {
+		if ref.Namespace != kmp.Namespace {
+			return false
+		}
+		return (ref.Kind == "KopsMachinePool" && ref.Name == kmp.Name) ||
+			(ref.Kind == "KopsControlPlane" && ref.Name == kmp.Spec.ClusterName)
+	})
+}
+
+func (r *SecurityGroupReconciler) securityGroupsReferencing(ctx context.Context, matches func(*corev1.ObjectReference) bool) []reconcile.Request {
+	sgs := &securitygroupv1alpha2.SecurityGroupList{}
+	if err := r.List(ctx, sgs); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "failed to list SecurityGroups")
+		return nil
+	}
+	var requests []reconcile.Request
+	for i := range sgs.Items {
+		for _, ref := range sgs.Items[i].Spec.InfrastructureRef {
+			if ref != nil && matches(ref) {
+				requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&sgs.Items[i])})
+				break
+			}
+		}
+	}
+	return requests
 }
 
 func (r *SecurityGroupReconciliation) detachSGFromLaunchTemplate(ctx context.Context, kubernetesClusterName, launchTemplateName, sgID string) error {
