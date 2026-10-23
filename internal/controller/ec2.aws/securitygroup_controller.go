@@ -996,16 +996,21 @@ func (r *SecurityGroupReconciliation) ensureDetachRemovedReferences(ctx context.
 }
 
 func (r *SecurityGroupReconciliation) removeKMPFinalizer(ctx context.Context, csg *crossec2v1beta1.SecurityGroup, kmp kinfrastructurev1alpha1.KopsMachinePool) {
-	controllerutil.RemoveFinalizer(&kmp, getFinalizerName(csg.Status.AtProvider.SecurityGroupID))
-	if err := r.Update(ctx, &kmp); err != nil {
+	patch := client.MergeFromWithOptions(kmp.DeepCopy(), client.MergeFromWithOptimisticLock{})
+	if !controllerutil.RemoveFinalizer(&kmp, getFinalizerName(csg.Status.AtProvider.SecurityGroupID)) {
+		return
+	}
+	if err := r.Patch(ctx, &kmp, patch); err != nil {
 		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to remove finalizer in %s: %s", kmp.Name, err)
 	}
 }
 
 func (r *SecurityGroupReconciliation) removeKCPFinalizer(ctx context.Context, kcp kcontrolplanev1alpha1.KopsControlPlane, csg *crossec2v1beta1.SecurityGroup, kmps ...kinfrastructurev1alpha1.KopsMachinePool) {
-	controllerutil.RemoveFinalizer(&kcp, getFinalizerName(csg.Status.AtProvider.SecurityGroupID))
-	if err := r.Update(ctx, &kcp); err != nil {
-		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to remove finalizer in %s: %s", kcp.Name, err)
+	patch := client.MergeFromWithOptions(kcp.DeepCopy(), client.MergeFromWithOptimisticLock{})
+	if controllerutil.RemoveFinalizer(&kcp, getFinalizerName(csg.Status.AtProvider.SecurityGroupID)) {
+		if err := r.Patch(ctx, &kcp, patch); err != nil {
+			r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to remove finalizer in %s: %s", kcp.Name, err)
+		}
 	}
 	for _, kmp := range kmps {
 		if controllerutil.ContainsFinalizer(&kmp, getFinalizerName(csg.Status.AtProvider.SecurityGroupID)) {
@@ -1015,16 +1020,21 @@ func (r *SecurityGroupReconciliation) removeKCPFinalizer(ctx context.Context, kc
 }
 
 func (r *SecurityGroupReconciliation) addKMPFinalizer(ctx context.Context, csg *crossec2v1beta1.SecurityGroup, kmp kinfrastructurev1alpha1.KopsMachinePool) {
-	controllerutil.AddFinalizer(&kmp, getFinalizerName(csg.Status.AtProvider.SecurityGroupID))
-	if err := r.Update(ctx, &kmp); err != nil {
+	patch := client.MergeFromWithOptions(kmp.DeepCopy(), client.MergeFromWithOptimisticLock{})
+	if !controllerutil.AddFinalizer(&kmp, getFinalizerName(csg.Status.AtProvider.SecurityGroupID)) {
+		return
+	}
+	if err := r.Patch(ctx, &kmp, patch); err != nil {
 		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to add finalizer in %s: %s", kmp.Name, err)
 	}
 }
 
 func (r *SecurityGroupReconciliation) addKCPFinalizer(ctx context.Context, kcp kcontrolplanev1alpha1.KopsControlPlane, csg *crossec2v1beta1.SecurityGroup, kmps ...kinfrastructurev1alpha1.KopsMachinePool) {
-	controllerutil.AddFinalizer(&kcp, getFinalizerName(csg.Status.AtProvider.SecurityGroupID))
-	if err := r.Update(ctx, &kcp); err != nil {
-		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to add finalizer in %s: %s", kcp.Name, err)
+	patch := client.MergeFromWithOptions(kcp.DeepCopy(), client.MergeFromWithOptimisticLock{})
+	if controllerutil.AddFinalizer(&kcp, getFinalizerName(csg.Status.AtProvider.SecurityGroupID)) {
+		if err := r.Patch(ctx, &kcp, patch); err != nil {
+			r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdate", "failed to add finalizer in %s: %s", kcp.Name, err)
+		}
 	}
 
 	for _, kmp := range kmps {

@@ -18,6 +18,7 @@ package sgcontroller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -62,6 +63,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -4916,4 +4918,72 @@ func assertCondition(g *WithT, from conditions.Getter, condition *clusterv1beta1
 			g.Expect(conditionToBeAsserted.Message).To(ContainSubstring(condition.Message))
 		}
 	}
+}
+
+func TestFinalizersArePatchedNotUpdated(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.TODO()
+	finalizer := getFinalizerName(csg.Status.AtProvider.SecurityGroupID)
+
+	g.Expect(kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
+	g.Expect(kcontrolplanev1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
+
+	var patches []map[string]interface{}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).
+		WithObjects(kcpWithFinalizer("test-cluster", nil), kmpWithFinalizer("test-kops-machine-pool", "test-cluster", nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				return fmt.Errorf("unexpected full update of %s", obj.GetName())
+			},
+			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+				data, err := patch.Data(obj)
+				if err != nil {
+					return err
+				}
+				var body map[string]interface{}
+				if err := json.Unmarshal(data, &body); err != nil {
+					return err
+				}
+				patches = append(patches, body)
+				return c.Patch(ctx, obj, patch, opts...)
+			},
+		}).Build()
+
+	reconciliation := &SecurityGroupReconciliation{
+		SecurityGroupReconciler: SecurityGroupReconciler{
+			Client:   fakeClient,
+			Recorder: record.NewFakeRecorder(10),
+		},
+		sg: sg,
+	}
+
+	getKCP := func() kcontrolplanev1alpha1.KopsControlPlane {
+		kcp := kcontrolplanev1alpha1.KopsControlPlane{}
+		g.Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: metav1.NamespaceDefault, Name: "test-cluster"}, &kcp)).To(Succeed())
+		return kcp
+	}
+	getKMP := func() kinfrastructurev1alpha1.KopsMachinePool {
+		kmp := kinfrastructurev1alpha1.KopsMachinePool{}
+		g.Expect(fakeClient.Get(ctx, client.ObjectKey{Namespace: metav1.NamespaceDefault, Name: "test-kops-machine-pool"}, &kmp)).To(Succeed())
+		return kmp
+	}
+
+	reconciliation.addKCPFinalizer(ctx, getKCP(), csg, getKMP())
+	g.Expect(getKCP().Finalizers).To(ContainElement(finalizer))
+	g.Expect(getKMP().Finalizers).To(ContainElement(finalizer))
+	g.Expect(patches).To(HaveLen(2))
+	for _, p := range patches {
+		g.Expect(p).To(HaveLen(1))
+		g.Expect(p["metadata"]).To(HaveLen(2))
+		g.Expect(p["metadata"]).To(HaveKey("finalizers"))
+		g.Expect(p["metadata"]).To(HaveKey("resourceVersion"))
+	}
+
+	reconciliation.addKCPFinalizer(ctx, getKCP(), csg, getKMP())
+	g.Expect(patches).To(HaveLen(2))
+
+	reconciliation.removeKCPFinalizer(ctx, getKCP(), csg, getKMP())
+	g.Expect(getKCP().Finalizers).NotTo(ContainElement(finalizer))
+	g.Expect(getKMP().Finalizers).NotTo(ContainElement(finalizer))
+	g.Expect(patches).To(HaveLen(4))
 }
