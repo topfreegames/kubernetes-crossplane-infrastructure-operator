@@ -914,10 +914,6 @@ func (r *SecurityGroupReconciliation) ensureAttachReferences(ctx context.Context
 			if err := r.Client.Get(ctx, key, &kmp); err != nil {
 				return resultError, err
 			}
-			if !kmp.DeletionTimestamp.IsZero() {
-				r.releaseDeletingKopsMachinePools(ctx, csg, kmp)
-				continue
-			}
 
 			kcp := kcontrolplanev1alpha1.KopsControlPlane{}
 			key = client.ObjectKey{
@@ -951,7 +947,10 @@ func (r *SecurityGroupReconciliation) ensureAttachReferences(ctx context.Context
 			if err != nil {
 				return resultError, err
 			}
-			kmps = r.releaseDeletingKopsMachinePools(ctx, csg, kmps...)
+			cluster := clusterv1beta1.Cluster{}
+			if err := r.Client.Get(ctx, client.ObjectKeyFromObject(&kcp), &cluster); err == nil && cluster.DeletionTimestamp.IsZero() {
+				kmps = r.releaseDeletingKopsMachinePools(ctx, csg, kmps...)
+			}
 			err = r.attachKopsMachinePool(ctx, csg, &kcp, kmps...)
 			if err != nil {
 				if errors.Is(err, ErrSecurityGroupNotAvailable) {
