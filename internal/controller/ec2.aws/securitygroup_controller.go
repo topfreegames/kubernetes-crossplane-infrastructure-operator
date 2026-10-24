@@ -968,7 +968,7 @@ func (r *SecurityGroupReconciliation) ensureAttachReferences(ctx context.Context
 	return reconcile.Result{}, nil
 }
 
-// releaseDeletingKopsMachinePools removes the finalizer from the KopsMachinePools being deleted and returns the others.
+// releaseDeletingKopsMachinePools detaches the SecurityGroup from the KopsMachinePools being deleted, removes their finalizer and returns the others.
 func (r *SecurityGroupReconciliation) releaseDeletingKopsMachinePools(ctx context.Context, csg *crossec2v1beta1.SecurityGroup, kmps ...kinfrastructurev1alpha1.KopsMachinePool) []kinfrastructurev1alpha1.KopsMachinePool {
 	var active []kinfrastructurev1alpha1.KopsMachinePool
 	for _, kmp := range kmps {
