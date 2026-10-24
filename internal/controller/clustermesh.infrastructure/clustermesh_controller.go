@@ -41,6 +41,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -200,7 +201,7 @@ func (r *ClusterMeshReconciliation) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 	}()
 
-	shouldReconcileCluster := isClusterMeshEnabled(*r.cluster)
+	shouldReconcileCluster := isClusterMeshEnabled(*r.cluster) && !isClusterBeingDeleted(r.cluster)
 	if !shouldReconcileCluster {
 
 		// TODO: Improve how to determine that a cluster was marked for removal from a cluster group
@@ -641,6 +642,10 @@ func isClusterMeshEnabled(cluster clusterv1beta1.Cluster) bool {
 	}
 
 	return true
+}
+
+func isClusterBeingDeleted(cluster *clusterv1beta1.Cluster) bool {
+	return !cluster.DeletionTimestamp.IsZero() && !annotations.IsPaused(cluster, cluster)
 }
 
 // SetupWithManager sets up the controller with the Manager.
