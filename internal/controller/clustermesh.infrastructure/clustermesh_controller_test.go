@@ -93,6 +93,60 @@ var defaultKcp = &kcontrolplanev1alpha1.KopsControlPlane{
 	},
 }
 
+func meshCluster(name string, deleting bool, paused bool) *clusterv1beta1.Cluster {
+	cluster := &clusterv1beta1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: metav1.NamespaceDefault,
+			Name:      name,
+			Annotations: map[string]string{
+				"clustermesh.infrastructure.wildlife.io": "testmesh",
+			},
+			Labels: map[string]string{
+				"clusterGroup": "test-mesh",
+			},
+		},
+		Spec: clusterv1beta1.ClusterSpec{
+			Paused: paused,
+			ControlPlaneRef: &corev1.ObjectReference{
+				Kind:      "KopsControlPlane",
+				Namespace: metav1.NamespaceDefault,
+				Name:      "kcp-test",
+			},
+		},
+	}
+	if deleting {
+		cluster.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+		cluster.Finalizers = []string{clusterv1beta1.ClusterFinalizer}
+	}
+	return cluster
+}
+
+func meshSecurityGroup(clusterName string) *securitygroupv1alpha2.SecurityGroup {
+	return &securitygroupv1alpha2.SecurityGroup{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: getClusterMeshSecurityGroupName(clusterName),
+		},
+		Spec: securitygroupv1alpha2.SecurityGroupSpec{
+			InfrastructureRef: []*corev1.ObjectReference{
+				{
+					APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+					Kind:       "KopsControlPlane",
+					Name:       clusterName,
+					Namespace:  metav1.NamespaceDefault,
+				},
+			},
+		},
+	}
+}
+
+func clusterMeshWith(clusterNames ...string) *clustermeshv1alpha1.ClusterMesh {
+	var clusters []*clustermeshv1alpha1.ClusterSpec
+	for _, name := range clusterNames {
+		clusters = append(clusters, &clustermeshv1alpha1.ClusterSpec{Name: name, VPCID: "xxx", Region: "yyy"})
+	}
+	return New("test-mesh", clusters...)
+}
+
 func TestClusterMeshReconciler(t *testing.T) {
 	testCases := []struct {
 		description                    string
@@ -269,238 +323,35 @@ func TestClusterMeshReconciler(t *testing.T) {
 		{
 			description: "should remove the cluster from the clustermesh when the cluster is being deleted",
 			k8sObjects: []client.Object{
-				defaultSecret,
-				defaultKcp,
-				&securitygroupv1alpha2.SecurityGroup{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: getClusterMeshSecurityGroupName("test-cluster"),
-					},
-					Spec: securitygroupv1alpha2.SecurityGroupSpec{
-						InfrastructureRef: []*corev1.ObjectReference{
-							{
-								APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
-								Kind:       "KopsControlPlane",
-								Name:       "test-cluster",
-								Namespace:  metav1.NamespaceDefault,
-							},
-						},
-					},
-				},
-				&securitygroupv1alpha2.SecurityGroup{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: getClusterMeshSecurityGroupName("test-cluster-b"),
-					},
-					Spec: securitygroupv1alpha2.SecurityGroupSpec{
-						InfrastructureRef: []*corev1.ObjectReference{
-							{
-								APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
-								Kind:       "KopsControlPlane",
-								Name:       "test-cluster-b",
-								Namespace:  metav1.NamespaceDefault,
-							},
-						},
-					},
-				},
-				&clusterv1beta1.Cluster{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace:         metav1.NamespaceDefault,
-						Name:              "test-cluster",
-						DeletionTimestamp: &metav1.Time{Time: time.Now()},
-						Finalizers:        []string{"cluster.cluster.x-k8s.io"},
-						Annotations: map[string]string{
-							"clustermesh.infrastructure.wildlife.io": "testmesh",
-						},
-						Labels: map[string]string{
-							"environment":  "prod",
-							"region":       "us-east-1",
-							"clusterGroup": "test-mesh",
-						},
-					},
-					Spec: clusterv1beta1.ClusterSpec{
-						ControlPlaneRef: &corev1.ObjectReference{
-							Kind:      "KopsControlPlane",
-							Namespace: metav1.NamespaceDefault,
-							Name:      "kcp-test",
-						},
-					},
-				},
-				&clustermeshv1alpha1.ClusterMesh{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "test-mesh",
-					},
-					Spec: clustermeshv1alpha1.ClusterMeshSpec{
-						Clusters: []*clustermeshv1alpha1.ClusterSpec{
-							{
-								Name:   "test-cluster",
-								VPCID:  "xxx",
-								Region: "yyy",
-							},
-							{
-								Name:   "test-cluster-b",
-								VPCID:  "xxx",
-								Region: "yyy",
-							},
-						},
-					},
-				},
+				defaultSecret, defaultKcp,
+				meshSecurityGroup("test-cluster"), meshSecurityGroup("test-cluster-b"),
+				meshCluster("test-cluster", true, false),
+				clusterMeshWith("test-cluster", "test-cluster-b"),
 			},
-			expectedClusterMesh: []clustermeshv1alpha1.ClusterMesh{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "test-mesh",
-					},
-					Spec: clustermeshv1alpha1.ClusterMeshSpec{
-						Clusters: []*clustermeshv1alpha1.ClusterSpec{
-							{
-								Name:   "test-cluster-b",
-								VPCID:  "xxx",
-								Region: "yyy",
-							},
-						},
-					},
-				},
-			},
+			expectedClusterMesh:           []clustermeshv1alpha1.ClusterMesh{*clusterMeshWith("test-cluster-b")},
 			expectedSecurityGroups:        []string{getClusterMeshSecurityGroupName("test-cluster-b")},
 			expectedSecurityGroupsDeleted: []string{getClusterMeshSecurityGroupName("test-cluster")},
 		},
 		{
 			description: "should delete the clustermesh when its last cluster is being deleted",
 			k8sObjects: []client.Object{
-				defaultSecret,
-				defaultKcp,
-				&securitygroupv1alpha2.SecurityGroup{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: getClusterMeshSecurityGroupName("test-cluster"),
-					},
-					Spec: securitygroupv1alpha2.SecurityGroupSpec{
-						InfrastructureRef: []*corev1.ObjectReference{
-							{
-								APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
-								Kind:       "KopsControlPlane",
-								Name:       "test-cluster",
-								Namespace:  metav1.NamespaceDefault,
-							},
-						},
-					},
-				},
-				&clusterv1beta1.Cluster{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace:         metav1.NamespaceDefault,
-						Name:              "test-cluster",
-						DeletionTimestamp: &metav1.Time{Time: time.Now()},
-						Finalizers:        []string{"cluster.cluster.x-k8s.io"},
-						Annotations: map[string]string{
-							"clustermesh.infrastructure.wildlife.io": "testmesh",
-						},
-						Labels: map[string]string{
-							"environment":  "prod",
-							"region":       "us-east-1",
-							"clusterGroup": "test-mesh",
-						},
-					},
-					Spec: clusterv1beta1.ClusterSpec{
-						ControlPlaneRef: &corev1.ObjectReference{
-							Kind:      "KopsControlPlane",
-							Namespace: metav1.NamespaceDefault,
-							Name:      "kcp-test",
-						},
-					},
-				},
-				&clustermeshv1alpha1.ClusterMesh{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "test-mesh",
-					},
-					Spec: clustermeshv1alpha1.ClusterMeshSpec{
-						Clusters: []*clustermeshv1alpha1.ClusterSpec{
-							{
-								Name:   "test-cluster",
-								VPCID:  "xxx",
-								Region: "yyy",
-							},
-						},
-					},
-				},
+				defaultSecret, defaultKcp,
+				meshSecurityGroup("test-cluster"),
+				meshCluster("test-cluster", true, false),
+				clusterMeshWith("test-cluster"),
 			},
-			expectedClusterMeshToBeDeleted: []string{
-				"test-mesh",
-			},
-			expectedSecurityGroupsDeleted: []string{getClusterMeshSecurityGroupName("test-cluster")},
+			expectedClusterMeshToBeDeleted: []string{"test-mesh"},
+			expectedSecurityGroupsDeleted:  []string{getClusterMeshSecurityGroupName("test-cluster")},
 		},
 		{
 			description: "should keep the cluster in the clustermesh when the cluster is being deleted while paused",
 			k8sObjects: []client.Object{
-				defaultSecret,
-				defaultKcp,
-				&securitygroupv1alpha2.SecurityGroup{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: getClusterMeshSecurityGroupName("test-cluster"),
-					},
-					Spec: securitygroupv1alpha2.SecurityGroupSpec{
-						InfrastructureRef: []*corev1.ObjectReference{
-							{
-								APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
-								Kind:       "KopsControlPlane",
-								Name:       "test-cluster",
-								Namespace:  metav1.NamespaceDefault,
-							},
-						},
-					},
-				},
-				&clusterv1beta1.Cluster{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace:         metav1.NamespaceDefault,
-						Name:              "test-cluster",
-						DeletionTimestamp: &metav1.Time{Time: time.Now()},
-						Finalizers:        []string{"cluster.cluster.x-k8s.io"},
-						Annotations: map[string]string{
-							"clustermesh.infrastructure.wildlife.io": "testmesh",
-						},
-						Labels: map[string]string{
-							"environment":  "prod",
-							"region":       "us-east-1",
-							"clusterGroup": "test-mesh",
-						},
-					},
-					Spec: clusterv1beta1.ClusterSpec{
-						Paused: true,
-						ControlPlaneRef: &corev1.ObjectReference{
-							Kind:      "KopsControlPlane",
-							Namespace: metav1.NamespaceDefault,
-							Name:      "kcp-test",
-						},
-					},
-				},
-				&clustermeshv1alpha1.ClusterMesh{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "test-mesh",
-					},
-					Spec: clustermeshv1alpha1.ClusterMeshSpec{
-						Clusters: []*clustermeshv1alpha1.ClusterSpec{
-							{
-								Name:   "test-cluster",
-								VPCID:  "xxx",
-								Region: "yyy",
-							},
-						},
-					},
-				},
+				defaultSecret, defaultKcp,
+				meshSecurityGroup("test-cluster"),
+				meshCluster("test-cluster", true, true),
+				clusterMeshWith("test-cluster"),
 			},
-			expectedClusterMesh: []clustermeshv1alpha1.ClusterMesh{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "test-mesh",
-					},
-					Spec: clustermeshv1alpha1.ClusterMeshSpec{
-						Clusters: []*clustermeshv1alpha1.ClusterSpec{
-							{
-								Name:   "test-cluster",
-								VPCID:  "xxx",
-								Region: "yyy",
-							},
-						},
-					},
-				},
-			},
+			expectedClusterMesh:    []clustermeshv1alpha1.ClusterMesh{*clusterMeshWith("test-cluster")},
 			expectedSecurityGroups: []string{getClusterMeshSecurityGroupName("test-cluster")},
 		},
 	}
