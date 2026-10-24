@@ -267,6 +267,12 @@ var (
 		}
 	}
 
+	deletingKMPWithFinalizer = func(name string, kcpName string, finalizers []string) *kinfrastructurev1alpha1.KopsMachinePool {
+		kmp := kmpWithFinalizer(name, kcpName, finalizers)
+		kmp.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+		return kmp
+	}
+
 	spotKMP = &kinfrastructurev1alpha1.KopsMachinePool{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: metav1.NamespaceDefault,
@@ -760,6 +766,73 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsControlPlane",
 					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
+					Expected:      true,
+				},
+			},
+		},
+		{
+			description: "should remove the finalizer from a deleting kmp referenced by the sg",
+			k8sObjects: []client.Object{
+				cluster, defaultSecret, csg, sg, kcp,
+				deletingKMPWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID), "test.io/finalizer"}),
+			},
+			sgsToReconcile: []sgToReconcile{
+				{
+					Name:             sg.ObjectMeta.Name,
+					ExpectedDeletion: false,
+				},
+			},
+			FinalizersAt: []*ReferencedPool{
+				{
+					Name:          "test-kops-machine-pool",
+					Namespace:     metav1.NamespaceDefault,
+					Kind:          "KopsMachinePool",
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
+					Expected:      false,
+				},
+				{
+					Name:          "test-kops-machine-pool",
+					Namespace:     metav1.NamespaceDefault,
+					Kind:          "KopsMachinePool",
+					FinalizerName: "test.io/finalizer",
+					Expected:      true,
+				},
+			},
+		},
+		{
+			description: "should remove the finalizer only from the deleting kmps of the kcp referenced by the sg",
+			k8sObjects: []client.Object{
+				cluster, defaultSecret, csg, sgKCP,
+				kcpWithFinalizer("test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID)}),
+				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID)}),
+				deletingKMPWithFinalizer("test-deleting-kops-machine-pool", "test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID), "test.io/finalizer"}),
+			},
+			sgsToReconcile: []sgToReconcile{
+				{
+					Name:             sgKCP.ObjectMeta.Name,
+					ExpectedDeletion: false,
+				},
+			},
+			FinalizersAt: []*ReferencedPool{
+				{
+					Name:          "test-kops-machine-pool",
+					Namespace:     metav1.NamespaceDefault,
+					Kind:          "KopsMachinePool",
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
+					Expected:      true,
+				},
+				{
+					Name:          "test-deleting-kops-machine-pool",
+					Namespace:     metav1.NamespaceDefault,
+					Kind:          "KopsMachinePool",
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
+					Expected:      false,
+				},
+				{
+					Name:          "test-deleting-kops-machine-pool",
+					Namespace:     metav1.NamespaceDefault,
+					Kind:          "KopsMachinePool",
+					FinalizerName: "test.io/finalizer",
 					Expected:      true,
 				},
 			},

@@ -914,6 +914,10 @@ func (r *SecurityGroupReconciliation) ensureAttachReferences(ctx context.Context
 			if err := r.Client.Get(ctx, key, &kmp); err != nil {
 				return resultError, err
 			}
+			if !kmp.DeletionTimestamp.IsZero() {
+				r.releaseDeletingKopsMachinePools(ctx, csg, kmp)
+				continue
+			}
 
 			kcp := kcontrolplanev1alpha1.KopsControlPlane{}
 			key = client.ObjectKey{
@@ -947,6 +951,7 @@ func (r *SecurityGroupReconciliation) ensureAttachReferences(ctx context.Context
 			if err != nil {
 				return resultError, err
 			}
+			kmps = r.releaseDeletingKopsMachinePools(ctx, csg, kmps...)
 			err = r.attachKopsMachinePool(ctx, csg, &kcp, kmps...)
 			if err != nil {
 				if errors.Is(err, ErrSecurityGroupNotAvailable) {
@@ -962,6 +967,25 @@ func (r *SecurityGroupReconciliation) ensureAttachReferences(ctx context.Context
 		}
 	}
 	return reconcile.Result{}, nil
+}
+
+// releaseDeletingKopsMachinePools removes the finalizer from the KopsMachinePools being deleted and returns the others.
+func (r *SecurityGroupReconciliation) releaseDeletingKopsMachinePools(ctx context.Context, csg *crossec2v1beta1.SecurityGroup, kmps ...kinfrastructurev1alpha1.KopsMachinePool) []kinfrastructurev1alpha1.KopsMachinePool {
+	var active []kinfrastructurev1alpha1.KopsMachinePool
+	for _, kmp := range kmps {
+		if kmp.DeletionTimestamp.IsZero() {
+			active = append(active, kmp)
+			continue
+		}
+		if !controllerutil.ContainsFinalizer(&kmp, getFinalizerName(csg.Status.AtProvider.SecurityGroupID)) {
+			continue
+		}
+		if err := r.detachSGFromKopsMachinePool(ctx, csg, kmp); err != nil {
+			r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "SecurityGroupDetachmentFailed", "failed to detach from deleting KopsMachinePool %s: %s", kmp.Name, err)
+		}
+		r.removeKMPFinalizer(ctx, csg, kmp)
+	}
+	return active
 }
 
 func (r *SecurityGroupReconciliation) ensureDetachRemovedReferences(ctx context.Context, csg *crossec2v1beta1.SecurityGroup) (ctrl.Result, error) {
