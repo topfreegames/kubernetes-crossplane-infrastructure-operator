@@ -1,8 +1,7 @@
 #!/bin/bash
+set -e
 
-kubectl apply -f ./hack/assets/dependencies/kubernetes-kops-operator.yaml -n kubernetes-kops-operator-system --context kind-$1
+kubectl apply --server-side -f ./hack/assets/dependencies/kubernetes-kops-operator.yaml -n kubernetes-kops-operator-system --context kind-$1
 
-while ! kubectl rollout status -n kubernetes-kops-operator-system deploy kubernetes-kops-operator-controller-manager-dev --context kind-$1 2> /dev/null; do
-    sleep 2
-done 
+kubectl wait --for=condition=Established crd/kopscontrolplanes.controlplane.cluster.x-k8s.io crd/kopsmachinepools.infrastructure.cluster.x-k8s.io --timeout=120s --context kind-$1
 
