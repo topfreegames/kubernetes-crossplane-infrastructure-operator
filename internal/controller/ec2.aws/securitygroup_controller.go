@@ -84,6 +84,7 @@ type SecurityGroupReconciler struct {
 	NewEC2ClientFactory             func(cfg aws.Config) ec2.EC2Client
 	NewAutoScalingClientFactory     func(cfg aws.Config) autoscaling.AutoScalingClient
 	NewOceanCloudProviderAWSFactory func() spot.OceanClient
+	RequestFilter                   func(ctx context.Context, req ctrl.Request) (bool, error)
 }
 
 type SecurityGroupReconciliation struct {
@@ -120,6 +121,13 @@ func DefaultReconciler(mgr manager.Manager) *SecurityGroupReconciler {
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update
 
 func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reconciliationErr error) {
+	if c.RequestFilter != nil {
+		ok, err := c.RequestFilter(ctx, req)
+		if err != nil || !ok {
+			return ctrl.Result{}, err
+		}
+	}
+
 	r := &SecurityGroupReconciliation{
 		SecurityGroupReconciler: *c,
 		start:                   time.Now(),

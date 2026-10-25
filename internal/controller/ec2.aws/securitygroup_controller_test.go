@@ -4987,3 +4987,26 @@ func TestFinalizersArePatchedNotUpdated(t *testing.T) {
 	g.Expect(getKMP().Finalizers).NotTo(ContainElement(finalizer))
 	g.Expect(patches).To(HaveLen(4))
 }
+
+func TestSecurityGroupReconcilerRequestFilter(t *testing.T) {
+	g := NewWithT(t)
+	g.Expect(securitygroupv1alpha2.AddToScheme(scheme.Scheme)).To(Succeed())
+	req := ctrl.Request{NamespacedName: client.ObjectKey{Name: "sg"}}
+
+	reconciler := &SecurityGroupReconciler{
+		RequestFilter: func(ctx context.Context, req ctrl.Request) (bool, error) { return false, nil },
+	}
+	result, err := reconciler.Reconcile(context.TODO(), req)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(result).To(Equal(ctrl.Result{}))
+
+	reconciler.RequestFilter = func(ctx context.Context, req ctrl.Request) (bool, error) { return false, errors.New("filter failed") }
+	_, err = reconciler.Reconcile(context.TODO(), req)
+	g.Expect(err).To(MatchError("filter failed"))
+
+	reconciler.Client = fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
+	reconciler.RequestFilter = func(ctx context.Context, req ctrl.Request) (bool, error) { return true, nil }
+	result, err = reconciler.Reconcile(context.TODO(), req)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(result).To(Equal(resultError))
+}

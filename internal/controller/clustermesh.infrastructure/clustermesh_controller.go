@@ -69,6 +69,7 @@ type ClusterMeshReconciler struct {
 	ReconcilePeeringsFactory       func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1alpha1.ClusterSpec) error
 	ReconcileSecurityGroupsFactory func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1alpha1.ClusterSpec) error
 	ReconcileRoutesFactory         func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1alpha1.ClusterSpec) (ctrl.Result, error)
+	RequestFilter                  func(ctx context.Context, req ctrl.Request) (bool, error)
 }
 
 type ClusterMeshReconciliation struct {
@@ -121,6 +122,13 @@ func getClusterMeshSecurityGroupName(clusterName string) string {
 }
 
 func (c *ClusterMeshReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	if c.RequestFilter != nil {
+		ok, err := c.RequestFilter(ctx, req)
+		if err != nil || !ok {
+			return ctrl.Result{}, err
+		}
+	}
+
 	r := &ClusterMeshReconciliation{
 		ClusterMeshReconciler: *c,
 		start:                 time.Now(),

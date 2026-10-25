@@ -18,6 +18,7 @@ package clustermesh
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -2877,4 +2878,26 @@ func TestValidateClusterMesh(t *testing.T) {
 
 		})
 	}
+}
+
+func TestClusterMeshReconcilerRequestFilter(t *testing.T) {
+	g := NewWithT(t)
+	g.Expect(clusterv1beta1.AddToScheme(scheme.Scheme)).To(Succeed())
+	req := ctrl.Request{NamespacedName: client.ObjectKey{Namespace: "kubernetes-cluster", Name: "cluster"}}
+
+	reconciler := &ClusterMeshReconciler{
+		RequestFilter: func(ctx context.Context, req ctrl.Request) (bool, error) { return false, nil },
+	}
+	result, err := reconciler.Reconcile(context.TODO(), req)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(result).To(Equal(ctrl.Result{}))
+
+	reconciler.RequestFilter = func(ctx context.Context, req ctrl.Request) (bool, error) { return false, errors.New("filter failed") }
+	_, err = reconciler.Reconcile(context.TODO(), req)
+	g.Expect(err).To(MatchError("filter failed"))
+
+	reconciler.Client = fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
+	reconciler.RequestFilter = func(ctx context.Context, req ctrl.Request) (bool, error) { return true, nil }
+	_, err = reconciler.Reconcile(context.TODO(), req)
+	g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 }
