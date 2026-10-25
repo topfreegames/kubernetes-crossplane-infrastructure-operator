@@ -76,7 +76,7 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.BoolVar(&dryRun, "dry-run", false,
 		"Reconcile without making changes. Kubernetes writes are sent with dryRun=All, "+
-			"AWS and Spot writes and events are only logged. Implies --leader-elect=false.")
+			"AWS and Spot writes and events are only logged. Implies --leader-elect=false and --metrics-bind-address=0.")
 	flag.StringVar(&dryRunCluster, "dry-run-cluster", "",
 		"With --dry-run, reconcile only the objects of the cluster with this KopsControlPlane name.")
 
@@ -94,9 +94,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	if dryRun && enableLeaderElection {
-		setupLog.Info("dry-run mode: disabling leader election")
+	if dryRun {
+		setupLog.Info("dry-run mode: disabling leader election and the metrics server")
 		enableLeaderElection = false
+		metricsAddr = "0"
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{

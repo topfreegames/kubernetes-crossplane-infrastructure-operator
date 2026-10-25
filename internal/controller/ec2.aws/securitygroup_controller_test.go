@@ -4990,6 +4990,7 @@ func TestFinalizersArePatchedNotUpdated(t *testing.T) {
 
 func TestSecurityGroupReconcilerRequestFilter(t *testing.T) {
 	g := NewWithT(t)
+	g.Expect(securitygroupv1alpha2.AddToScheme(scheme.Scheme)).To(Succeed())
 	req := ctrl.Request{NamespacedName: client.ObjectKey{Name: "sg"}}
 
 	reconciler := &SecurityGroupReconciler{

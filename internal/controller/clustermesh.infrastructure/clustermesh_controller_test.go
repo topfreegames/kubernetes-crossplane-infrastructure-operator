@@ -2882,6 +2882,7 @@ func TestValidateClusterMesh(t *testing.T) {
 
 func TestClusterMeshReconcilerRequestFilter(t *testing.T) {
 	g := NewWithT(t)
+	g.Expect(clusterv1beta1.AddToScheme(scheme.Scheme)).To(Succeed())
 	req := ctrl.Request{NamespacedName: client.ObjectKey{Namespace: "kubernetes-cluster", Name: "cluster"}}
 
 	reconciler := &ClusterMeshReconciler{

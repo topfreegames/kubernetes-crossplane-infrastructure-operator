@@ -77,10 +77,20 @@ func TestConfigureDryRunCluster(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "cluster-a", Namespace: "ns"},
 			Spec:       clusterv1beta1.ClusterSpec{ControlPlaneRef: &corev1.ObjectReference{Kind: "KopsControlPlane", Name: "cluster-a"}},
 		},
+		&clusterv1beta1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster-b", Namespace: "ns"},
+			Spec:       clusterv1beta1.ClusterSpec{ControlPlaneRef: &corev1.ObjectReference{Kind: "KopsControlPlane", Name: "cluster-b"}},
+		},
 		&securitygroupv1alpha2.SecurityGroup{
 			ObjectMeta: metav1.ObjectMeta{Name: "sg-a"},
 			Spec: securitygroupv1alpha2.SecurityGroupSpec{
 				InfrastructureRef: []*corev1.ObjectReference{{Kind: "KopsControlPlane", Namespace: "ns", Name: "cluster-a"}},
+			},
+		},
+		&securitygroupv1alpha2.SecurityGroup{
+			ObjectMeta: metav1.ObjectMeta{Name: "sg-b"},
+			Spec: securitygroupv1alpha2.SecurityGroupSpec{
+				InfrastructureRef: []*corev1.ObjectReference{{Kind: "KopsControlPlane", Namespace: "ns", Name: "cluster-b"}},
 			},
 		},
 	).Build()
@@ -92,7 +102,15 @@ func TestConfigureDryRunCluster(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(ok).To(BeTrue())
 
+	ok, err = clusterMeshReconciler.RequestFilter(ctx, ctrl.Request{NamespacedName: client.ObjectKey{Namespace: "ns", Name: "cluster-b"}})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(ok).To(BeFalse())
+
 	ok, err = sgReconciler.RequestFilter(ctx, ctrl.Request{NamespacedName: client.ObjectKey{Name: "sg-a"}})
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(ok).To(BeTrue())
+
+	ok, err = sgReconciler.RequestFilter(ctx, ctrl.Request{NamespacedName: client.ObjectKey{Name: "sg-b"}})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(ok).To(BeFalse())
 }

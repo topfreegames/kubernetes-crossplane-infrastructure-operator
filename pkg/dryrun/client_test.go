@@ -2,6 +2,7 @@ package dryrun
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/go-logr/logr/funcr"
@@ -22,6 +23,24 @@ func newLogContext(lines *[]string) context.Context {
 	return ctrl.LoggerInto(context.TODO(), log)
 }
 
+// decodingReader reads like the REST client: it decodes into obj without
+// resetting it first, so fields and map keys that are already set in obj stay.
+type decodingReader struct {
+	client.Client
+}
+
+func (r decodingReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	stored := obj.DeepCopyObject().(client.Object)
+	if err := r.Client.Get(ctx, key, stored, opts...); err != nil {
+		return err
+	}
+	data, err := json.Marshal(stored)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, obj)
+}
+
 func TestClientWritesAreNotPersisted(t *testing.T) {
 	g := NewWithT(t)
 	var lines []string
@@ -32,7 +51,7 @@ func TestClientWritesAreNotPersisted(t *testing.T) {
 		Data:       map[string]string{"key": "old"},
 	}
 	real := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(existing).Build()
-	c := NewClient(real, real)
+	c := NewClient(real, decodingReader{real})
 
 	created := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "created", Namespace: "default"}}
 	g.Expect(c.Create(ctx, created)).To(Succeed())
@@ -41,6 +60,8 @@ func TestClientWritesAreNotPersisted(t *testing.T) {
 
 	updated := existing.DeepCopy()
 	updated.Data["key"] = "new"
+	updated.Data["added"] = "value"
+	updated.Labels = map[string]string{"label": "added"}
 	g.Expect(c.Update(ctx, updated)).To(Succeed())
 
 	patched := existing.DeepCopy()
@@ -48,6 +69,7 @@ func TestClientWritesAreNotPersisted(t *testing.T) {
 	g.Expect(c.Patch(ctx, patched, client.MergeFrom(existing))).To(Succeed())
 
 	g.Expect(c.Delete(ctx, existing.DeepCopy())).To(Succeed())
+	g.Expect(c.DeleteAllOf(ctx, &corev1.ConfigMap{}, client.InNamespace("default"))).To(Succeed())
 
 	current := &corev1.ConfigMap{}
 	g.Expect(c.Get(ctx, client.ObjectKeyFromObject(existing), current)).To(Succeed())
@@ -56,7 +78,8 @@ func TestClientWritesAreNotPersisted(t *testing.T) {
 
 	g.Expect(lines).To(HaveLen(4))
 	g.Expect(lines[0]).To(And(ContainSubstring(`"verb"="create"`), ContainSubstring(`"kind"="ConfigMap"`), ContainSubstring(`"name"="created"`)))
-	g.Expect(lines[1]).To(And(ContainSubstring(`"verb"="update"`), ContainSubstring(`"name"="existing"`), ContainSubstring(`\"key\":\"new\"`)))
+	g.Expect(lines[1]).To(And(ContainSubstring(`"verb"="update"`), ContainSubstring(`"name"="existing"`), ContainSubstring(`\"key\":\"new\"`), ContainSubstring(`\"added\":\"value\"`), ContainSubstring(`\"label\":\"added\"`)))
+	g.Expect(lines[1]).NotTo(ContainSubstring(`apiVersion`))
 	g.Expect(lines[2]).To(And(ContainSubstring(`"verb"="patch"`), ContainSubstring(`example.com/finalizer`)))
 	g.Expect(lines[3]).To(And(ContainSubstring(`"verb"="delete"`), ContainSubstring(`"name"="existing"`)))
 }

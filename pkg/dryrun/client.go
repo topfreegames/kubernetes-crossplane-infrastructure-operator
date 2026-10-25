@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -44,13 +45,27 @@ func (c *loggingClient) describe(obj runtime.Object) []interface{} {
 // diff returns a JSON merge patch from the object currently in the cluster to
 // obj, or nil when the current object cannot be read.
 func (c *loggingClient) diff(ctx context.Context, obj client.Object) []byte {
-	current, ok := obj.DeepCopyObject().(client.Object)
-	if !ok {
+	gvk, err := c.GroupVersionKindFor(obj)
+	if err != nil {
 		return nil
 	}
+	var current client.Object
+	if _, ok := obj.(*unstructured.Unstructured); ok {
+		current = &unstructured.Unstructured{}
+	} else {
+		o, err := c.Scheme().New(gvk)
+		if err != nil {
+			return nil
+		}
+		if current, ok = o.(client.Object); !ok {
+			return nil
+		}
+	}
+	current.GetObjectKind().SetGroupVersionKind(gvk)
 	if err := c.reader.Get(ctx, client.ObjectKeyFromObject(obj), current); err != nil {
 		return nil
 	}
+	current.GetObjectKind().SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
 	data, err := client.MergeFrom(current).Data(obj)
 	if err != nil {
 		return nil
