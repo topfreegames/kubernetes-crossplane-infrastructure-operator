@@ -3,7 +3,9 @@ package crossplane
 import (
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
+	"slices"
 	"testing"
 
 	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
@@ -27,6 +29,7 @@ import (
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 var (
@@ -2043,4 +2046,244 @@ func TestGetOwnedRoutesRef(t *testing.T) {
 			g.Expect(cmp.Equal(ownedRoutes, tc.expectedOwnedRoutes)).To(BeTrue())
 		})
 	}
+}
+
+func newSecurityGroupTestClient(objects []client.Object, reverseKMPList func() bool, updates *int) client.Client {
+	return fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(objects...).WithInterceptorFuncs(interceptor.Funcs{
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if err := c.List(ctx, list, opts...); err != nil {
+				return err
+			}
+			if kmps, ok := list.(*kinfrastructurev1alpha1.KopsMachinePoolList); ok && reverseKMPList() {
+				slices.Reverse(kmps.Items)
+			}
+			return nil
+		},
+		Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			*updates++
+			return c.Update(ctx, obj, opts...)
+		},
+	}).Build()
+}
+
+func newTestKopsMachinePool(name string) *kinfrastructurev1alpha1.KopsMachinePool {
+	return &kinfrastructurev1alpha1.KopsMachinePool{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "testNamespace",
+			Labels: map[string]string{
+				"cluster.x-k8s.io/cluster-name": "testCluster",
+			},
+		},
+	}
+}
+
+func TestCreateOrUpdateCrossplaneSecurityGroupAnnotations(t *testing.T) {
+	testCases := []struct {
+		description         string
+		csgAnnotations      map[string]string
+		sgAnnotations       map[string]string
+		expectedAnnotations map[string]string
+	}{
+		{
+			description: "should keep existing crossplane annotations and add the security group ones",
+			csgAnnotations: map[string]string{
+				"crossplane.io/external-name":                "sg-123",
+				"crossplane.io/external-create-succeeded":    "2024-01-01T00:00:00Z",
+				"other.annotation.io/kept-on-the-crossplane": "true",
+			},
+			sgAnnotations: map[string]string{
+				"foo": "bar",
+			},
+			expectedAnnotations: map[string]string{
+				"crossplane.io/external-name":                "sg-123",
+				"crossplane.io/external-create-succeeded":    "2024-01-01T00:00:00Z",
+				"other.annotation.io/kept-on-the-crossplane": "true",
+				"foo": "bar",
+			},
+		},
+		{
+			description: "should update annotations that changed on the security group",
+			csgAnnotations: map[string]string{
+				"crossplane.io/external-name": "sg-123",
+				"foo":                         "old",
+			},
+			sgAnnotations: map[string]string{
+				"foo": "new",
+			},
+			expectedAnnotations: map[string]string{
+				"crossplane.io/external-name": "sg-123",
+				"foo":                         "new",
+			},
+		},
+		{
+			description: "should pause when the security group is paused",
+			csgAnnotations: map[string]string{
+				"crossplane.io/external-name": "sg-123",
+			},
+			sgAnnotations: map[string]string{
+				"crossplane.io/paused": "true",
+			},
+			expectedAnnotations: map[string]string{
+				"crossplane.io/external-name": "sg-123",
+				"crossplane.io/paused":        "true",
+			},
+		},
+		{
+			description: "should unpause when the pause annotation is removed from the security group",
+			csgAnnotations: map[string]string{
+				"crossplane.io/external-name": "sg-123",
+				"crossplane.io/paused":        "true",
+			},
+			sgAnnotations: nil,
+			expectedAnnotations: map[string]string{
+				"crossplane.io/external-name": "sg-123",
+			},
+		},
+	}
+
+	g := NewWithT(t)
+
+	err := crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	err = kinfrastructurev1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			g := NewWithT(t)
+			ctx := context.TODO()
+
+			sg := &securitygroupv1alpha2.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "test-sg",
+					Annotations: tc.sgAnnotations,
+				},
+			}
+			sgAnnotations := maps.Clone(tc.sgAnnotations)
+
+			updates := 0
+			fakeClient := newSecurityGroupTestClient([]client.Object{
+				&crossec2v1beta1.SecurityGroup{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:        "test-sg",
+						Annotations: tc.csgAnnotations,
+					},
+				},
+			}, func() bool { return false }, &updates)
+
+			_, err := CreateOrUpdateCrossplaneSecurityGroup(ctx, fakeClient, aws.String("vpc-xxx"), aws.String("us-east-1"), defaultProviderConfigName, "testCluster", sg)
+			g.Expect(err).NotTo(HaveOccurred())
+
+			csg := &crossec2v1beta1.SecurityGroup{}
+			err = fakeClient.Get(ctx, client.ObjectKey{Name: "test-sg"}, csg)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(csg.Annotations).To(Equal(tc.expectedAnnotations))
+			g.Expect(sg.Annotations).To(Equal(sgAnnotations))
+		})
+	}
+}
+
+func TestCreateOrUpdateCrossplaneSecurityGroupTags(t *testing.T) {
+	g := NewWithT(t)
+
+	err := crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	err = kinfrastructurev1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	sg := &securitygroupv1alpha2.SecurityGroup{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-sg",
+		},
+		Spec: securitygroupv1alpha2.SecurityGroupSpec{
+			InfrastructureRef: []*corev1.ObjectReference{
+				{
+					Kind:      "KopsControlPlane",
+					Name:      "testCluster",
+					Namespace: "testNamespace",
+				},
+			},
+		},
+	}
+
+	expectedTags := []crossec2v1beta1.Tag{
+		{
+			Key:   "ManagedBy",
+			Value: "kubernetes-crossplane-infrastructure-operator",
+		},
+		{
+			Key:   "karpenter/testCluster/testIGA",
+			Value: "true",
+		},
+		{
+			Key:   "karpenter/testCluster/testIGB",
+			Value: "true",
+		},
+		{
+			Key:   "karpenter/testCluster/testIGC",
+			Value: "true",
+		},
+	}
+
+	kmps := func() []client.Object {
+		return []client.Object{
+			newTestKopsMachinePool("testIGA"),
+			newTestKopsMachinePool("testIGB"),
+			newTestKopsMachinePool("testIGC"),
+		}
+	}
+
+	for _, reverse := range []bool{false, true} {
+		t.Run(fmt.Sprintf("should sort tags when kops machine pools are listed reversed=%t", reverse), func(t *testing.T) {
+			g := NewWithT(t)
+			ctx := context.TODO()
+
+			updates := 0
+			fakeClient := newSecurityGroupTestClient(kmps(), func() bool { return reverse }, &updates)
+
+			_, err := CreateOrUpdateCrossplaneSecurityGroup(ctx, fakeClient, aws.String("vpc-xxx"), aws.String("us-east-1"), defaultProviderConfigName, "testCluster", sg)
+			g.Expect(err).NotTo(HaveOccurred())
+
+			csg := &crossec2v1beta1.SecurityGroup{}
+			err = fakeClient.Get(ctx, client.ObjectKey{Name: "test-sg"}, csg)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(csg.Spec.ForProvider.Tags).To(Equal(expectedTags))
+		})
+	}
+
+	t.Run("should not update when called again with the same input", func(t *testing.T) {
+		g := NewWithT(t)
+		ctx := context.TODO()
+
+		reverse := false
+		updates := 0
+		objects := append(kmps(), &crossec2v1beta1.SecurityGroup{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-sg",
+				Annotations: map[string]string{
+					"crossplane.io/external-name": "sg-123",
+				},
+			},
+		})
+		fakeClient := newSecurityGroupTestClient(objects, func() bool { return reverse }, &updates)
+
+		_, err := CreateOrUpdateCrossplaneSecurityGroup(ctx, fakeClient, aws.String("vpc-xxx"), aws.String("us-east-1"), defaultProviderConfigName, "testCluster", sg)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(updates).To(Equal(1))
+
+		reverse = true
+		updates = 0
+		_, err = CreateOrUpdateCrossplaneSecurityGroup(ctx, fakeClient, aws.String("vpc-xxx"), aws.String("us-east-1"), defaultProviderConfigName, "testCluster", sg)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(updates).To(Equal(0))
+
+		csg := &crossec2v1beta1.SecurityGroup{}
+		err = fakeClient.Get(ctx, client.ObjectKey{Name: "test-sg"}, csg)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(csg.Annotations).To(HaveKeyWithValue("crossplane.io/external-name", "sg-123"))
+		g.Expect(csg.Spec.ForProvider.Tags).To(Equal(expectedTags))
+	})
 }

@@ -3,6 +3,8 @@ package crossplane
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -13,6 +15,7 @@ import (
 	crossec2v1alphav1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
 	crossec2v1beta1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1beta1"
 	crossplanev1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
+	"github.com/crossplane/crossplane-runtime/pkg/meta"
 	"github.com/google/go-cmp/cmp"
 	securitygroupv1alpha2 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/ec2.aws/v1alpha2"
 	corev1 "k8s.io/api/core/v1"
@@ -162,7 +165,10 @@ func CreateOrUpdateCrossplaneSecurityGroup(ctx context.Context, kubeClient clien
 		}
 
 		csg.Spec.ForProvider.Ingress = ingressRules
-		csg.Annotations = sg.Annotations
+		meta.AddAnnotations(csg, sg.Annotations)
+		if _, ok := sg.Annotations[meta.AnnotationKeyReconciliationPaused]; !ok {
+			meta.RemoveAnnotations(csg, meta.AnnotationKeyReconciliationPaused)
+		}
 		csg.Spec.ResourceSpec.ProviderConfigReference = &crossplanev1.Reference{Name: providerConfigName}
 		csg.Spec.ForProvider.VPCID = vpcId
 		csg.Spec.ForProvider.Tags = tags
@@ -412,5 +418,8 @@ func getTagsFromInfrastructureRefs(ctx context.Context, kubeClient client.Client
 			}
 		}
 	}
+	slices.SortStableFunc(tags, func(a, b crossec2v1beta1.Tag) int {
+		return strings.Compare(a.Key, b.Key)
+	})
 	return tags, nil
 }
