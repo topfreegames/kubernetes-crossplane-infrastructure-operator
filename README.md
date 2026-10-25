@@ -17,7 +17,9 @@ Start the manager with `--dry-run` to see what a version would change before you
 - AWS and Spot writes are not sent. The manager logs them and returns a fake success result: `CreateLaunchTemplateVersion`, `ModifyInstanceAttribute`, `UpdateAutoScalingGroup` and Ocean `UpdateLaunchSpec`. AWS and Spot reads are real.
 - Events are logged, not created.
 
-Each write the manager would make is logged with the message `would write`, the verb, the kind and the name. Patches and updates also log the change as a JSON patch. Events are logged with the message `would record event`.
+This applies to the Kubernetes client, the event recorder and the EC2, Auto Scaling and Ocean client factories of the reconcilers. A client that a future version creates in another way is not covered.
+
+Each write the manager would make is logged with the message `would write`, the verb, the kind and the name. Updates also log the change as a JSON merge patch against the object on the API server. Patches log the patch that is sent; for a merge patch made from the full object, that is the full object. Events are logged with the message `would record event`.
 
 ### Run next to the real operator
 `--dry-run` turns off leader election, so the dry-run manager does not take the lease from the real manager. Both managers reconcile the same objects at the same time.
@@ -28,17 +30,25 @@ Run it locally with a kubeconfig for the management cluster. Use other ports for
 go run ./cmd/main.go --dry-run --metrics-bind-address=:0 --health-probe-bind-address=:18081
 ```
 
-Or deploy a second Deployment with the new image, a different name and the same service account. Replace `--leader-elect` with `--dry-run` in the container args:
+Or deploy a second Deployment with the new image, a different name and the same service account. Give it pod labels and a selector that are different from the real manager, so that the metrics and webhook Services and the ServiceMonitor do not select the dry-run pod. Do not scrape its metrics: the dry-run manager never converges, so its error metrics have the same labels as the real ones but other values. Replace `--leader-elect` with `--dry-run` in the container args:
 
 ```yaml
         args:
         - --dry-run
 ```
 
+Add `--dry-run-cluster=<name>` to reconcile only one cluster. The name is the name of the cluster's KopsControlPlane. The dry-run manager then reconciles:
+
+- the Cluster whose control plane is that KopsControlPlane. The logs can also show changes for the other clusters in its mesh, for example the peerings with them.
+- the SecurityGroups whose `infrastructureRef`, or last applied `infrastructureRef`, points to that KopsControlPlane, to a KopsMachinePool of that cluster, or to a KopsMachinePool that does not exist anymore. A SecurityGroup that also references other clusters is reconciled in full, so the logs also show its changes to those clusters.
+
+The filter does not check namespaces. Two KopsControlPlanes with the same name in different namespaces both match.
+
 The dry-run manager needs the same RBAC, AWS credentials and Spot credentials as the real manager. The API server authorizes a dry-run request the same way as a real request.
 
 ### Limits
 - Nothing is stored, so the same actions repeat on every reconcile. For example, the manager logs the same finalizer patch each time, and a delete does not remove the object.
+- The dry-run manager uses the same AWS and Spot credentials as the real manager, and because nothing is stored it takes the longest path on every reconcile. The extra read calls count against the same EC2 and Spot API rate limits. Use `--dry-run-cluster` in production to keep this load small.
 - Write results are fake. A created launch template version gets the latest version number plus one, and the next steps use that number. A created Kubernetes object does not exist when the next reconcile reads it, so later steps can fail or take a different path than in a real run.
 - Admission webhooks run on dry-run requests as on real requests. If a validating webhook or a policy engine rejects a write, the dry-run manager logs a reconcile error. The real write would fail the same way.
 - A webhook with `sideEffects: NoneOnDryRun` must check the dry-run flag itself. If it does not, it can make real changes during a dry run. Before you run in production, check the webhooks that match the kinds this operator writes.

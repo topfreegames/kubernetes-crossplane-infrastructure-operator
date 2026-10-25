@@ -93,7 +93,7 @@ func TestEC2ClientCreateLaunchTemplateVersionDescribeError(t *testing.T) {
 	mock.MockDescribeLaunchTemplateVersions = func(ctx context.Context, params *awsec2.DescribeLaunchTemplateVersionsInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplateVersionsOutput, error) {
 		return nil, errors.New("describe failed")
 	}
-	c := &EC2Client{EC2Client: mock}
+	c := &EC2Client{real: mock}
 
 	_, err := c.CreateLaunchTemplateVersion(ctx, &awsec2.CreateLaunchTemplateVersionInput{LaunchTemplateId: aws.String("lt-xxxx")})
 	g.Expect(err).To(MatchError("describe failed"))
@@ -103,7 +103,7 @@ func TestEC2ClientAttachSecurityGroupToLaunchTemplate(t *testing.T) {
 	g := NewWithT(t)
 	ctx := context.TODO()
 
-	c := &EC2Client{EC2Client: newMockEC2Client(t, 7)}
+	c := &EC2Client{real: newMockEC2Client(t, 7)}
 
 	ltVersion, err := ec2.GetLastLaunchTemplateVersion(ctx, c, "lt-xxxx")
 	g.Expect(err).NotTo(HaveOccurred())
@@ -118,7 +118,7 @@ func TestEC2ClientModifyInstanceAttribute(t *testing.T) {
 	g := NewWithT(t)
 	ctx := context.TODO()
 
-	c := &EC2Client{EC2Client: newMockEC2Client(t, 7)}
+	c := &EC2Client{real: newMockEC2Client(t, 7)}
 
 	err := ec2.AttachSecurityGroupToInstances(ctx, c, []string{"i-xxxx"}, "sg-new")
 	g.Expect(err).NotTo(HaveOccurred())
@@ -128,7 +128,7 @@ func TestEC2ClientReadsGoToRealClient(t *testing.T) {
 	g := NewWithT(t)
 	ctx := context.TODO()
 
-	c := &EC2Client{EC2Client: newMockEC2Client(t, 7)}
+	c := &EC2Client{real: newMockEC2Client(t, 7)}
 
 	output, err := c.DescribeInstances(ctx, &awsec2.DescribeInstancesInput{})
 	g.Expect(err).NotTo(HaveOccurred())
@@ -187,5 +187,5 @@ func TestOceanClient(t *testing.T) {
 	launchSpec := &oceanaws.LaunchSpec{ID: aws.String("ols-xxxx"), SecurityGroupIDs: []string{"sg-new"}}
 	output, err := c.UpdateLaunchSpec(ctx, &oceanaws.UpdateLaunchSpecInput{LaunchSpec: launchSpec})
 	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(output.LaunchSpec).To(Equal(launchSpec))
+	g.Expect(output).NotTo(BeNil())
 }

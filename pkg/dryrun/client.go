@@ -11,11 +11,12 @@ import (
 )
 
 // NewClient returns a client that sends every write to the API server with
-// dryRun=All and logs it. Reads go to c unchanged.
-func NewClient(c client.Client) client.Client {
+// dryRun=All and logs it. Reads go to c unchanged. apiReader reads the current
+// object to log the change an update would make.
+func NewClient(c client.Client, apiReader client.Reader) client.Client {
 	return &loggingClient{
 		Client: client.NewDryRunClient(c),
-		reader: c,
+		reader: apiReader,
 	}
 }
 
@@ -89,11 +90,6 @@ func (c *loggingClient) Delete(ctx context.Context, obj client.Object, opts ...c
 	return c.Client.Delete(ctx, obj, opts...)
 }
 
-func (c *loggingClient) DeleteAllOf(ctx context.Context, obj client.Object, opts ...client.DeleteAllOfOption) error {
-	logger(ctx).Info("would write", append([]interface{}{"verb", "deletecollection"}, c.describe(obj)...)...)
-	return c.Client.DeleteAllOf(ctx, obj, opts...)
-}
-
 func (c *loggingClient) Status() client.SubResourceWriter {
 	return c.SubResource("status")
 }
@@ -110,11 +106,6 @@ type loggingSubResourceClient struct {
 	client.SubResourceClient
 	parent      *loggingClient
 	subResource string
-}
-
-func (c *loggingSubResourceClient) Create(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceCreateOption) error {
-	logger(ctx).Info("would write", append([]interface{}{"verb", "create", "subresource", c.subResource}, c.parent.describe(obj)...)...)
-	return c.SubResourceClient.Create(ctx, obj, subResource, opts...)
 }
 
 func (c *loggingSubResourceClient) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {

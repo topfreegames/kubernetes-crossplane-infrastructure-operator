@@ -32,6 +32,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -67,6 +68,7 @@ func main() {
 	var enableLeaderElection bool
 	var probeAddr string
 	var dryRun bool
+	var dryRunCluster string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
@@ -75,6 +77,8 @@ func main() {
 	flag.BoolVar(&dryRun, "dry-run", false,
 		"Reconcile without making changes. Kubernetes writes are sent with dryRun=All, "+
 			"AWS and Spot writes and events are only logged. Implies --leader-elect=false.")
+	flag.StringVar(&dryRunCluster, "dry-run-cluster", "",
+		"With --dry-run, reconcile only the objects of the cluster with this KopsControlPlane name.")
 
 	opts := zap.Options{
 		Development: true,
@@ -84,6 +88,11 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	if dryRunCluster != "" && !dryRun {
+		setupLog.Error(nil, "--dry-run-cluster requires --dry-run")
+		os.Exit(1)
+	}
 
 	if dryRun && enableLeaderElection {
 		setupLog.Info("dry-run mode: disabling leader election")
@@ -107,8 +116,8 @@ func main() {
 	clusterMeshReconciler := clustermeshcontrollers.DefaultReconciler(mgr)
 	sgReconciler := sgcontroller.DefaultReconciler(mgr)
 	if dryRun {
-		setupLog.Info("dry-run mode: no changes will be made to Kubernetes, AWS or Spot")
-		configureDryRun(clusterMeshReconciler, sgReconciler)
+		setupLog.Info("dry-run mode: no changes will be made to Kubernetes, AWS or Spot", "cluster", dryRunCluster)
+		configureDryRun(clusterMeshReconciler, sgReconciler, mgr.GetAPIReader(), dryRunCluster)
 	}
 
 	if err = clusterMeshReconciler.SetupWithManager(mgr); err != nil {
@@ -138,11 +147,16 @@ func main() {
 	}
 }
 
-func configureDryRun(clusterMeshReconciler *clustermeshcontrollers.ClusterMeshReconciler, sgReconciler *sgcontroller.SecurityGroupReconciler) {
-	clusterMeshReconciler.Client = dryrun.NewClient(clusterMeshReconciler.Client)
+func configureDryRun(clusterMeshReconciler *clustermeshcontrollers.ClusterMeshReconciler, sgReconciler *sgcontroller.SecurityGroupReconciler, apiReader client.Reader, clusterName string) {
+	if clusterName != "" {
+		clusterMeshReconciler.RequestFilter = dryrun.ClusterRequestFilter(clusterMeshReconciler.Client, clusterName)
+		sgReconciler.RequestFilter = dryrun.SecurityGroupRequestFilter(sgReconciler.Client, clusterName)
+	}
+
+	clusterMeshReconciler.Client = dryrun.NewClient(clusterMeshReconciler.Client, apiReader)
 	clusterMeshReconciler.NewEC2ClientFactory = dryrun.EC2ClientFactory(clusterMeshReconciler.NewEC2ClientFactory)
 
-	sgReconciler.Client = dryrun.NewClient(sgReconciler.Client)
+	sgReconciler.Client = dryrun.NewClient(sgReconciler.Client, apiReader)
 	sgReconciler.Recorder = dryrun.NewEventRecorder(ctrl.Log.WithName("securityGroup-controller"))
 	sgReconciler.NewEC2ClientFactory = dryrun.EC2ClientFactory(sgReconciler.NewEC2ClientFactory)
 	sgReconciler.NewAutoScalingClientFactory = dryrun.AutoScalingClientFactory(sgReconciler.NewAutoScalingClientFactory)

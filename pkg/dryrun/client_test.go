@@ -32,7 +32,7 @@ func TestClientWritesAreNotPersisted(t *testing.T) {
 		Data:       map[string]string{"key": "old"},
 	}
 	real := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(existing).Build()
-	c := NewClient(real)
+	c := NewClient(real, real)
 
 	created := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "created", Namespace: "default"}}
 	g.Expect(c.Create(ctx, created)).To(Succeed())
@@ -71,7 +71,7 @@ func TestClientStatusWritesAreNotPersisted(t *testing.T) {
 		Status:     corev1.PodStatus{Phase: corev1.PodPending},
 	}
 	real := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(existing).WithStatusSubresource(existing).Build()
-	c := NewClient(real)
+	c := NewClient(real, real)
 
 	updated := existing.DeepCopy()
 	updated.Status.Phase = corev1.PodRunning
