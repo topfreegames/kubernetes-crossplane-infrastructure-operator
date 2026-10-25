@@ -40,4 +40,5 @@ The dry-run manager needs the same RBAC, AWS credentials and Spot credentials as
 ### Limits
 - Nothing is stored, so the same actions repeat on every reconcile. For example, the manager logs the same finalizer patch each time, and a delete does not remove the object.
 - Write results are fake. A created launch template version gets the latest version number plus one, and the next steps use that number. A created Kubernetes object does not exist when the next reconcile reads it, so later steps can fail or take a different path than in a real run.
-- Admission webhooks that do not declare `sideEffects: None` or `NoneOnDryRun` reject dry-run requests. These rejections show as reconcile errors in the dry-run manager only.
+- Admission webhooks run on dry-run requests as on real requests. If a validating webhook or a policy engine rejects a write, the dry-run manager logs a reconcile error. The real write would fail the same way.
+- A webhook with `sideEffects: NoneOnDryRun` must check the dry-run flag itself. If it does not, it can make real changes during a dry run. Before you run in production, check the webhooks that match the kinds this operator writes.
