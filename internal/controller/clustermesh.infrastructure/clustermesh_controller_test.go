@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"slices"
 	"testing"
 
 	clustermeshv1alpha1 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/clustermesh.infrastructure/v1alpha1"
@@ -41,12 +43,14 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -2900,4 +2904,89 @@ func TestClusterMeshReconcilerRequestFilter(t *testing.T) {
 	reconciler.RequestFilter = func(ctx context.Context, req ctrl.Request) (bool, error) { return true, nil }
 	_, err = reconciler.Reconcile(context.TODO(), req)
 	g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+}
+
+func TestClusterMeshStatusIsNotRewrittenWhenRefsAreReordered(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.TODO()
+
+	env := &envtest.Environment{
+		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "config", "crd", "bases")},
+		ErrorIfCRDPathMissing: true,
+	}
+	restConfig, err := env.Start()
+	g.Expect(err).NotTo(HaveOccurred())
+	defer func() { g.Expect(env.Stop()).To(Succeed()) }()
+
+	s := runtime.NewScheme()
+	g.Expect(clustermeshv1alpha1.AddToScheme(s)).To(Succeed())
+	c, err := client.New(restConfig, client.Options{Scheme: s})
+	g.Expect(err).NotTo(HaveOccurred())
+
+	clusterSpec := &clustermeshv1alpha1.ClusterSpec{Name: "test-cluster"}
+	g.Expect(c.Create(ctx, &clustermeshv1alpha1.ClusterMesh{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-mesh"},
+		Spec:       clustermeshv1alpha1.ClusterMeshSpec{Clusters: []*clustermeshv1alpha1.ClusterSpec{clusterSpec}},
+	})).To(Succeed())
+
+	refs := func(kind string, names ...string) []*corev1.ObjectReference {
+		var r []*corev1.ObjectReference
+		for _, name := range names {
+			r = append(r, &corev1.ObjectReference{Kind: kind, Name: name})
+		}
+		return r
+	}
+	reconcileWith := func(peerings, securityGroups, routes []string) {
+		reconciliation := &ClusterMeshReconciliation{
+			ClusterMeshReconciler: ClusterMeshReconciler{
+				Client: c,
+				PopulateClusterSpecFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clusterv1beta1.Cluster) (*clustermeshv1alpha1.ClusterSpec, error) {
+					return clusterSpec, nil
+				},
+				ReconcilePeeringsFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1alpha1.ClusterSpec) error {
+					r.clustermesh.Status.CrossplanePeeringRef = refs("VPCPeeringConnection", peerings...)
+					return nil
+				},
+				ReconcileSecurityGroupsFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1alpha1.ClusterSpec) error {
+					r.clustermesh.Status.CrossplaneSecurityGroupRef = refs("SecurityGroup", securityGroups...)
+					return nil
+				},
+				ReconcileRoutesFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1alpha1.ClusterSpec) (ctrl.Result, error) {
+					r.clustermesh.Status.RoutesRef = refs("Route", routes...)
+					return ctrl.Result{}, nil
+				},
+			},
+			cluster: &clusterv1beta1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "test-cluster",
+					Labels:      map[string]string{GroupLabel: "test-mesh"},
+					Annotations: map[string]string{EnableAnnotation: "true"},
+				},
+			},
+			log:         ctrl.LoggerFrom(ctx),
+			clustermesh: &clustermeshv1alpha1.ClusterMesh{},
+		}
+		_, err := reconciliation.Reconcile(ctx, ctrl.Request{})
+		g.Expect(err).NotTo(HaveOccurred())
+	}
+	get := func() *clustermeshv1alpha1.ClusterMesh {
+		mesh := &clustermeshv1alpha1.ClusterMesh{}
+		g.Expect(c.Get(ctx, client.ObjectKey{Name: "test-mesh"}, mesh)).To(Succeed())
+		return mesh
+	}
+
+	reconcileWith([]string{"c", "a", "b"}, []string{"sg-b", "sg-a"}, []string{"rtb-2", "rtb-1"})
+	first := get()
+	g.Expect(first.Status.CrossplanePeeringRef).To(Equal(refs("VPCPeeringConnection", "a", "b", "c")))
+
+	reconcileWith([]string{"b", "c", "a"}, []string{"sg-a", "sg-b"}, []string{"rtb-1", "rtb-2"})
+	second := get()
+	g.Expect(second.ResourceVersion).To(Equal(first.ResourceVersion))
+
+	reordered := second.DeepCopy()
+	slices.Reverse(reordered.Status.CrossplanePeeringRef)
+	g.Expect(c.Status().Update(ctx, reordered)).To(Succeed())
+	third := get()
+	g.Expect(third.ResourceVersion).NotTo(Equal(second.ResourceVersion))
+	g.Expect(third.Status.CrossplanePeeringRef).To(Equal(refs("VPCPeeringConnection", "c", "b", "a")))
 }
