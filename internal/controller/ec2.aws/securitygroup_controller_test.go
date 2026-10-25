@@ -64,6 +64,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -4986,4 +4988,99 @@ func TestFinalizersArePatchedNotUpdated(t *testing.T) {
 	g.Expect(getKCP().Finalizers).NotTo(ContainElement(finalizer))
 	g.Expect(getKMP().Finalizers).NotTo(ContainElement(finalizer))
 	g.Expect(patches).To(HaveLen(4))
+}
+
+func TestFinalizersOrGenerationChanged(t *testing.T) {
+	g := NewWithT(t)
+	p := finalizersOrGenerationChanged()
+
+	obj := func(generation int64, finalizers []string, resourceVersion string) *kcontrolplanev1alpha1.KopsControlPlane {
+		return &kcontrolplanev1alpha1.KopsControlPlane{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            "test-cluster",
+				Namespace:       metav1.NamespaceDefault,
+				Generation:      generation,
+				Finalizers:      finalizers,
+				ResourceVersion: resourceVersion,
+			},
+		}
+	}
+	finalizer := getFinalizerName(csg.Status.AtProvider.SecurityGroupID)
+
+	g.Expect(p.Create(event.CreateEvent{Object: obj(1, nil, "1")})).To(BeFalse())
+	g.Expect(p.Delete(event.DeleteEvent{Object: obj(1, nil, "1")})).To(BeFalse())
+	g.Expect(p.Generic(event.GenericEvent{Object: obj(1, nil, "1")})).To(BeFalse())
+
+	testCases := []struct {
+		description string
+		old, new    client.Object
+		expected    bool
+	}{
+		{"status or metadata only change", obj(1, []string{finalizer}, "1"), obj(1, []string{finalizer}, "2"), false},
+		{"finalizer removed", obj(1, []string{"other", finalizer}, "1"), obj(1, []string{"other"}, "2"), true},
+		{"finalizer added", obj(1, []string{"other"}, "1"), obj(1, []string{"other", finalizer}, "2"), true},
+		{"generation changed", obj(1, []string{finalizer}, "1"), obj(2, []string{finalizer}, "2"), true},
+		{"missing old object", nil, obj(1, nil, "1"), false},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			g := NewWithT(t)
+			e := event.UpdateEvent{ObjectNew: tc.new}
+			if tc.old != nil {
+				e.ObjectOld = tc.old
+			}
+			g.Expect(p.Update(e)).To(Equal(tc.expected))
+		})
+	}
+}
+
+func TestKopsObjectsToSecurityGroups(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.TODO()
+
+	g.Expect(securitygroupv1alpha2.AddToScheme(scheme.Scheme)).To(Succeed())
+
+	newSG := func(name string, refs ...*corev1.ObjectReference) *securitygroupv1alpha2.SecurityGroup {
+		return &securitygroupv1alpha2.SecurityGroup{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Spec:       securitygroupv1alpha2.SecurityGroupSpec{InfrastructureRef: refs},
+		}
+	}
+	ref := func(kind, namespace, name string) *corev1.ObjectReference {
+		return &corev1.ObjectReference{Kind: kind, Namespace: namespace, Name: name}
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(
+		newSG("sg-kcp", ref("KopsControlPlane", "ns-a", "cluster-a")),
+		newSG("sg-kmp", ref("KopsMachinePool", "ns-a", "nodes")),
+		newSG("sg-kmp-and-other", ref("KopsMachinePool", "ns-b", "nodes"), ref("KopsMachinePool", "ns-a", "nodes")),
+		newSG("sg-other-cluster", ref("KopsControlPlane", "ns-b", "cluster-b"), ref("KopsMachinePool", "ns-b", "nodes")),
+		newSG("sg-same-name-other-namespace", ref("KopsControlPlane", "ns-b", "cluster-a"), ref("KopsMachinePool", "ns-b", "nodes-a")),
+		newSG("sg-nil-ref", nil, ref("KopsMachinePool", "ns-a", "other")),
+	).Build()
+
+	r := &SecurityGroupReconciler{Client: fakeClient}
+
+	names := func(requests []reconcile.Request) []string {
+		var result []string
+		for _, req := range requests {
+			g.Expect(req.Namespace).To(BeEmpty())
+			result = append(result, req.Name)
+		}
+		return result
+	}
+
+	kcp := &kcontrolplanev1alpha1.KopsControlPlane{ObjectMeta: metav1.ObjectMeta{Name: "cluster-a", Namespace: "ns-a"}}
+	g.Expect(names(r.kopsControlPlaneToSecurityGroups(ctx, kcp))).To(ConsistOf("sg-kcp"))
+
+	kmp := &kinfrastructurev1alpha1.KopsMachinePool{
+		ObjectMeta: metav1.ObjectMeta{Name: "nodes", Namespace: "ns-a"},
+		Spec:       kinfrastructurev1alpha1.KopsMachinePoolSpec{ClusterName: "cluster-a"},
+	}
+	g.Expect(names(r.kopsMachinePoolToSecurityGroups(ctx, kmp))).To(ConsistOf("sg-kcp", "sg-kmp", "sg-kmp-and-other"))
+
+	g.Expect(r.kopsMachinePoolToSecurityGroups(ctx, kcp)).To(BeEmpty())
+
+	unrelated := &kcontrolplanev1alpha1.KopsControlPlane{ObjectMeta: metav1.ObjectMeta{Name: "cluster-c", Namespace: "ns-a"}}
+	g.Expect(r.kopsControlPlaneToSecurityGroups(ctx, unrelated)).To(BeEmpty())
 }
