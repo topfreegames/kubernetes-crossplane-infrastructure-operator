@@ -187,7 +187,7 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 
 
 # Development environment targets
-KIND_IMAGE_VERSION ?= kindest/node:v1.24.15@sha256:7db4f8bea3e14b82d12e044e25e34bd53754b7f2b0e9d56df21774e6f66a70ab
+KIND_IMAGE_VERSION ?= kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0
 KIND_CLUSTER_NAME ?= kaas-cluster
 
 setup-dev-env: create-kind init-tilt
