@@ -19,6 +19,7 @@ package clustermesh
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -118,6 +119,12 @@ func New(name string, clSpecs ...*clustermeshv1alpha1.ClusterSpec) *clustermeshv
 	return ccm
 }
 
+func sortObjectReferences(refs []*corev1.ObjectReference) {
+	slices.SortFunc(refs, func(a, b *corev1.ObjectReference) int {
+		return strings.Compare(a.Kind+"/"+a.Name, b.Kind+"/"+b.Name)
+	})
+}
+
 func getClusterMeshSecurityGroupName(clusterName string) string {
 	return "clustermesh-" + clusterName + "-sg"
 }
@@ -183,6 +190,9 @@ func (r *ClusterMeshReconciliation) Reconcile(ctx context.Context, req ctrl.Requ
 				r.log.Error(err, fmt.Sprintf("error patching clustermesh %v", r.clustermesh))
 			}
 			r.clustermesh.Status = clustermeshHelper.Status
+			sortObjectReferences(r.clustermesh.Status.CrossplanePeeringRef)
+			sortObjectReferences(r.clustermesh.Status.CrossplaneSecurityGroupRef)
+			sortObjectReferences(r.clustermesh.Status.RoutesRef)
 			err = r.Status().Update(ctx, r.clustermesh)
 			if err != nil {
 				r.log.Error(err, fmt.Sprintf("error updating clustermesh %v status", r.clustermesh))
