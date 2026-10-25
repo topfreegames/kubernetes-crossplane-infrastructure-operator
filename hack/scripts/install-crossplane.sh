@@ -1,18 +1,21 @@
 #!/bin/bash
 set -e
 
+wait_crd_established() {
+    for _ in $(seq 60); do
+        [ "$(kubectl get crd "$1" --context "$2" -o jsonpath='{.status.conditions[?(@.type=="Established")].status}' 2> /dev/null)" = "True" ] && return 0
+        sleep 2
+    done
+    echo "CRD $1 was not Established after 120s" >&2
+    return 1
+}
+
 kubectl apply -f ./hack/assets/dependencies/crossplane.yaml -n kubernetes-crossplane-infrastructure-operator-system --context kind-$1
 
-while ! kubectl get crd --context kind-$1 | grep -q "providers.pkg.crossplane.io" 2> /dev/null; do
-    sleep 2
-done 
-kubectl wait --for=condition=Established crd/providers.pkg.crossplane.io --timeout=120s --context kind-$1
+wait_crd_established providers.pkg.crossplane.io kind-$1
 kubectl apply -f ./hack/assets/dependencies/provider.yaml -n kubernetes-crossplane-infrastructure-operator-system --context kind-$1
 
-while ! kubectl get crd --context kind-$1 | grep -q "providerconfigs.aws.crossplane.io" 2> /dev/null; do
-    sleep 2
-done 
-kubectl wait --for=condition=Established crd/providerconfigs.aws.crossplane.io --timeout=120s --context kind-$1
+wait_crd_established providerconfigs.aws.crossplane.io kind-$1
 kubectl apply -f ./hack/assets/dependencies/providerconfig.yaml -n kubernetes-crossplane-infrastructure-operator-system --context kind-$1
 
 while ! kubectl rollout status deployment -n kubernetes-crossplane-infrastructure-operator-system crossplane --context kind-$1 2> /dev/null; do

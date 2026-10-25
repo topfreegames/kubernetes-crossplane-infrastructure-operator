@@ -40,15 +40,13 @@ k8s_yaml('.kubernetes/manifests.yaml')
 
 k8s_resource(
   objects = [
-    'kubernetes-crossplane-infrastructure-operator-system:namespace',
-    'kubernetes-crossplane-infrastructure-operator-controller-manager:serviceaccount',
-    'kubernetes-crossplane-infrastructure-operator-leader-election-role:role',
-    'kubernetes-crossplane-infrastructure-operator-manager-role:clusterrole',
-    'kubernetes-crossplane-infrastructure-operator-leader-election-rolebinding:rolebinding',
-    'kubernetes-crossplane-infrastructure-operator-manager-rolebinding:clusterrolebinding',
-    'kubernetes-crossplane-infrastructure-operator-manager-config:configmap',
-    'clustermeshes.clustermesh.infrastructure.wildlife.io:customresourcedefinition',
-    'securitygroups.ec2.aws.wildlife.io:customresourcedefinition',
+    'kcio-system:namespace',
+    'kcio-controller-manager:serviceaccount',
+    'kcio-leader-election-role:role',
+    'kcio-manager-role:clusterrole',
+    'kcio-leader-election-rolebinding:rolebinding',
+    'kcio-manager-rolebinding:clusterrolebinding',
+    'kcio-manager-config:configmap',
   ],
   new_name = 'Deploy Kubernetes resources'
 )
