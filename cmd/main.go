@@ -40,6 +40,7 @@ import (
 	securitygroupv1alpha2 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/ec2.aws/v1alpha2"
 	clustermeshcontrollers "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/internal/controller/clustermesh.infrastructure"
 	sgcontroller "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/internal/controller/ec2.aws"
+	"github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/dryrun"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -65,11 +66,15 @@ func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
+	var dryRun bool
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.BoolVar(&dryRun, "dry-run", false,
+		"Reconcile without making changes. Kubernetes writes are sent with dryRun=All, "+
+			"AWS and Spot writes and events are only logged. Implies --leader-elect=false.")
 
 	opts := zap.Options{
 		Development: true,
@@ -79,6 +84,11 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	if dryRun && enableLeaderElection {
+		setupLog.Info("dry-run mode: disabling leader election")
+		enableLeaderElection = false
+	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
@@ -94,11 +104,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = clustermeshcontrollers.DefaultReconciler(mgr).SetupWithManager(mgr); err != nil {
+	clusterMeshReconciler := clustermeshcontrollers.DefaultReconciler(mgr)
+	sgReconciler := sgcontroller.DefaultReconciler(mgr)
+	if dryRun {
+		setupLog.Info("dry-run mode: no changes will be made to Kubernetes, AWS or Spot")
+		configureDryRun(clusterMeshReconciler, sgReconciler)
+	}
+
+	if err = clusterMeshReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterMesh")
 		os.Exit(1)
 	}
-	if err = sgcontroller.DefaultReconciler(mgr).SetupWithManager(mgr); err != nil {
+	if err = sgReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityGroup")
 		os.Exit(1)
 	}
@@ -119,4 +136,15 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func configureDryRun(clusterMeshReconciler *clustermeshcontrollers.ClusterMeshReconciler, sgReconciler *sgcontroller.SecurityGroupReconciler) {
+	clusterMeshReconciler.Client = dryrun.NewClient(clusterMeshReconciler.Client)
+	clusterMeshReconciler.NewEC2ClientFactory = dryrun.EC2ClientFactory(clusterMeshReconciler.NewEC2ClientFactory)
+
+	sgReconciler.Client = dryrun.NewClient(sgReconciler.Client)
+	sgReconciler.Recorder = dryrun.NewEventRecorder(ctrl.Log.WithName("securityGroup-controller"))
+	sgReconciler.NewEC2ClientFactory = dryrun.EC2ClientFactory(sgReconciler.NewEC2ClientFactory)
+	sgReconciler.NewAutoScalingClientFactory = dryrun.AutoScalingClientFactory(sgReconciler.NewAutoScalingClientFactory)
+	sgReconciler.NewOceanCloudProviderAWSFactory = dryrun.OceanClientFactory(sgReconciler.NewOceanCloudProviderAWSFactory)
 }
