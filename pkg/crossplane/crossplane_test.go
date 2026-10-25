@@ -1446,6 +1446,7 @@ func TestNewCrossplaneSecurityGroup(t *testing.T) {
 			csg := NewCrossplaneSecurityGroup(sg, &testVPCId, &testRegion, expectedProviderConfigName)
 			g.Expect(csg.Spec.ForProvider.Description).To(Equal(fmt.Sprintf("sg %s managed by kubernetes-crossplane-infrastructure-operator", sg.GetName())))
 			g.Expect(csg.Spec.ProviderConfigReference.Name).To(Equal(expectedProviderConfigName))
+			g.Expect(csg.Spec.ForProvider.Region).To(Equal(testRegion))
 		})
 	}
 }
@@ -1514,7 +1515,7 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 					},
 					Spec: crossec2v1beta1.SecurityGroupSpec{
 						ForProvider: crossec2v1beta1.SecurityGroupParameters{
-							Region:      aws.String("us-east-1"),
+							Region:      "us-east-1",
 							Description: "test-sg",
 							GroupName:   "test-sg",
 							VPCID:       &testVPCId,
@@ -1693,6 +1694,43 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 				g.Expect(tc.validateOutput(tc.wildlifeSecurityGroup, csg)).To(BeTrue())
 			}
 
+		})
+	}
+}
+
+func TestCreateOrUpdateCrossplaneSecurityGroupWithoutRegion(t *testing.T) {
+	err := crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	NewWithT(t).Expect(err).NotTo(HaveOccurred())
+
+	testCases := []struct {
+		description string
+		region      *string
+	}{
+		{
+			description: "should return error when region is nil",
+			region:      nil,
+		},
+		{
+			description: "should return error when region is empty",
+			region:      aws.String(""),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			g := NewWithT(t)
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
+			sg := &securitygroupv1alpha2.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-sg",
+				},
+			}
+
+			_, err := CreateOrUpdateCrossplaneSecurityGroup(context.TODO(), fakeClient, aws.String("vpc-xxx"), tc.region, defaultProviderConfigName, "testCluster", sg)
+			g.Expect(err).To(HaveOccurred())
+
+			err = fakeClient.Get(context.TODO(), client.ObjectKey{Name: "test-sg"}, &crossec2v1beta1.SecurityGroup{})
+			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		})
 	}
 }

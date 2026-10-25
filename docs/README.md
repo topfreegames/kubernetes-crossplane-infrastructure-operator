@@ -93,7 +93,7 @@ The SecurityGroup CR has a finalizer to allow to proper detachment of the Securi
 
 ## Running
 
-Before you start make sure you have access to the AWS account where you'll be creating your resources for testing. Also on your machine you should have Docker and tilt properly configured, including [enable kubernetes on docker](https://docs.docker.com/desktop/kubernetes/). Next we can start running
+Before you start make sure you have access to the AWS account where you'll be creating your resources for testing. Also on your machine you should have Docker and tilt properly configured, including [enable kubernetes on docker](https://docs.docker.com/desktop/kubernetes/). You also need [kind](https://kind.sigs.k8s.io/) v0.33.0 or newer, because the node image in `KIND_IMAGE_VERSION` is built for that release. Next we can start running
 
 ```
 make setup-dev-env

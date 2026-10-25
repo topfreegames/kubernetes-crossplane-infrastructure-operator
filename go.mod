@@ -11,8 +11,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/autoscaling v1.44.3
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.179.2
 	github.com/aws/karpenter-core v0.32.4
-	github.com/crossplane-contrib/provider-aws v0.35.0-rc.0.0.20221220103156-b59bf4223ff4
-	github.com/crossplane/crossplane-runtime v0.19.0-rc.0.0.20220930073209-84e629b95898
+	github.com/crossplane-contrib/provider-aws v0.50.6
+	github.com/crossplane/crossplane-runtime v1.16.0
 	github.com/go-logr/logr v1.4.2
 	github.com/google/go-cmp v0.6.0
 	github.com/hashicorp/go-multierror v1.1.1
@@ -34,6 +34,7 @@ require (
 require (
 	cloud.google.com/go/auth v0.4.2 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.2 // indirect
+	dario.cat/mergo v1.0.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.11.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.27.3 // indirect
 	github.com/awslabs/operatorpkg v0.0.0-20240805231134-67d0acfb6306 // indirect
@@ -70,7 +71,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.3.18 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.6.18 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.1 // indirect
-	github.com/aws/aws-sdk-go-v2/service/acmpca v1.12.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.11.20 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.23.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.31.3 // indirect
