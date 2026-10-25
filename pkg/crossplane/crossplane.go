@@ -130,6 +130,9 @@ func NewCrossplaneRoute(region, destinationCIDRBlock, routeTable string, provide
 }
 
 func CreateOrUpdateCrossplaneSecurityGroup(ctx context.Context, kubeClient client.Client, vpcId, region *string, providerConfigName, clusterName string, sg *securitygroupv1alpha2.SecurityGroup) (*crossec2v1beta1.SecurityGroup, error) {
+	if aws.ToString(region) == "" {
+		return nil, fmt.Errorf("region is required to create security group %s", sg.GetName())
+	}
 	csg := NewCrossplaneSecurityGroup(sg, vpcId, region, providerConfigName)
 	_, err := controllerutil.CreateOrUpdate(ctx, kubeClient, csg, func() error {
 		var ingressRules []crossec2v1beta1.IPPermission

@@ -1698,6 +1698,43 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 	}
 }
 
+func TestCreateOrUpdateCrossplaneSecurityGroupWithoutRegion(t *testing.T) {
+	err := crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
+	NewWithT(t).Expect(err).NotTo(HaveOccurred())
+
+	testCases := []struct {
+		description string
+		region      *string
+	}{
+		{
+			description: "should return error when region is nil",
+			region:      nil,
+		},
+		{
+			description: "should return error when region is empty",
+			region:      aws.String(""),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			g := NewWithT(t)
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
+			sg := &securitygroupv1alpha2.SecurityGroup{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-sg",
+				},
+			}
+
+			_, err := CreateOrUpdateCrossplaneSecurityGroup(context.TODO(), fakeClient, aws.String("vpc-xxx"), tc.region, defaultProviderConfigName, "testCluster", sg)
+			g.Expect(err).To(HaveOccurred())
+
+			err = fakeClient.Get(context.TODO(), client.ObjectKey{Name: "test-sg"}, &crossec2v1beta1.SecurityGroup{})
+			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+	}
+}
+
 func TestGetSecurityGroupAvailableCondition(t *testing.T) {
 	csg := &crossec2v1beta1.SecurityGroup{
 		Status: crossec2v1beta1.SecurityGroupStatus{
