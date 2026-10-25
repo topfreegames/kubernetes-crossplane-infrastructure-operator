@@ -69,6 +69,8 @@ func main() {
 	var probeAddr string
 	var dryRun bool
 	var dryRunCluster string
+	var clusterMeshWorkerCount int
+	var securityGroupWorkerCount int
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
@@ -79,6 +81,8 @@ func main() {
 			"AWS and Spot writes and events are only logged. Implies --leader-elect=false and --metrics-bind-address=0.")
 	flag.StringVar(&dryRunCluster, "dry-run-cluster", "",
 		"With --dry-run, reconcile only the objects of the cluster with this KopsControlPlane name.")
+	flag.IntVar(&clusterMeshWorkerCount, "clustermesh-worker-count", 1, "The number of ClusterMesh reconciles that run at the same time.")
+	flag.IntVar(&securityGroupWorkerCount, "securitygroup-worker-count", 5, "The number of SecurityGroup reconciles that run at the same time.")
 
 	opts := zap.Options{
 		Development: true,
@@ -91,6 +95,11 @@ func main() {
 
 	if dryRunCluster != "" && !dryRun {
 		setupLog.Error(nil, "--dry-run-cluster requires --dry-run")
+		os.Exit(1)
+	}
+
+	if clusterMeshWorkerCount < 1 || securityGroupWorkerCount < 1 {
+		setupLog.Error(nil, "--clustermesh-worker-count and --securitygroup-worker-count must be at least 1")
 		os.Exit(1)
 	}
 
@@ -111,11 +120,11 @@ func main() {
 		configureDryRun(clusterMeshReconciler, sgReconciler, mgr.GetAPIReader(), dryRunCluster)
 	}
 
-	if err = clusterMeshReconciler.SetupWithManager(mgr); err != nil {
+	if err = clusterMeshReconciler.SetupWithManager(mgr, clusterMeshWorkerCount); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterMesh")
 		os.Exit(1)
 	}
-	if err = sgReconciler.SetupWithManager(mgr); err != nil {
+	if err = sgReconciler.SetupWithManager(mgr, securityGroupWorkerCount); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SecurityGroup")
 		os.Exit(1)
 	}
