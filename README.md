@@ -10,6 +10,14 @@ See this [document](docs/README.md) for more details.
 
 
 
+## Worker count
+Each controller reconciles a number of objects at the same time. Set the number with these flags. The value must be 1 or more.
+
+- `--securitygroup-worker-count` (default `5`): the number of SecurityGroups. Two SecurityGroups of the same cluster are not reconciled at the same time, because they change the same launch templates, Auto Scaling groups, instances, Ocean launch specs, KopsMachinePools and KopsControlPlane. SecurityGroups of different clusters are reconciled at the same time.
+- `--clustermesh-worker-count` (default `1`): the number of Clusters for the ClusterMesh controller. All clusters of a mesh write the same ClusterMesh, and two clusters can both create the peering between them. Keep the value at 1.
+
+Each worker makes its AWS and Spot calls one after the other, so more workers send more calls at the same time. The AWS calls of a cluster go to the account and region of that cluster, and clusters in the same account and region share its API rate limits. All Spot calls go to the one Spot account of the operator.
+
 ## Dry-run mode
 Start the manager with `--dry-run` to see what a version would change before you roll it out. The manager reconciles as usual, but it makes no changes:
 

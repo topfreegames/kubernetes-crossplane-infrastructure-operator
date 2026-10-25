@@ -5010,3 +5010,9 @@ func TestSecurityGroupReconcilerRequestFilter(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(result).To(Equal(resultError))
 }
+
+func TestClusterLock(t *testing.T) {
+	g := NewWithT(t)
+	g.Expect(clusterLock("cluster-a")).To(BeIdenticalTo(clusterLock("cluster-a")))
+	g.Expect(clusterLock("cluster-a")).NotTo(BeIdenticalTo(clusterLock("cluster-b")))
+}

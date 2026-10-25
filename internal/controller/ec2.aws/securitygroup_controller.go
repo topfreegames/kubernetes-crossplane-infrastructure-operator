@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -54,6 +55,7 @@ import (
 	"sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -64,6 +66,7 @@ var (
 	resultDefault                = ctrl.Result{RequeueAfter: 1 * time.Hour}
 	resultError                  = ctrl.Result{RequeueAfter: 30 * time.Minute}
 	ErrSecurityGroupNotAvailable = errors.New("security group not available")
+	clusterLocks                 sync.Map
 )
 
 const (
@@ -74,6 +77,11 @@ const (
 
 func getFinalizerName(sgID string) string {
 	return securityGroupFinalizer + "/" + sgID
+}
+
+func clusterLock(clusterName string) *sync.Mutex {
+	mu, _ := clusterLocks.LoadOrStore(clusterName, &sync.Mutex{})
+	return mu.(*sync.Mutex)
 }
 
 // SecurityGroupReconciler reconciles a SecurityGroup object
@@ -184,6 +192,10 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		r.log.Error(err, fmt.Sprintf("could not retrieve infra info from any of refs of security group %v", r.sg))
 		return resultError, err
 	}
+
+	mu := clusterLock(r.clusterName)
+	mu.Lock()
+	defer mu.Unlock()
 
 	if !r.sg.ObjectMeta.DeletionTimestamp.IsZero() {
 		return r.reconcileDelete(ctx, r.sg)
@@ -839,9 +851,10 @@ func (r *SecurityGroupReconciliation) detachSGFromASG(ctx context.Context, asgNa
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *SecurityGroupReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *SecurityGroupReconciler) SetupWithManager(mgr ctrl.Manager, workerCount int) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&securitygroupv1alpha2.SecurityGroup{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: workerCount}).
 		Complete(r)
 }
 
