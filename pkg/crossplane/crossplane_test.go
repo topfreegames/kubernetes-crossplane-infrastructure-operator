@@ -1446,6 +1446,7 @@ func TestNewCrossplaneSecurityGroup(t *testing.T) {
 			csg := NewCrossplaneSecurityGroup(sg, &testVPCId, &testRegion, expectedProviderConfigName)
 			g.Expect(csg.Spec.ForProvider.Description).To(Equal(fmt.Sprintf("sg %s managed by kubernetes-crossplane-infrastructure-operator", sg.GetName())))
 			g.Expect(csg.Spec.ProviderConfigReference.Name).To(Equal(expectedProviderConfigName))
+			g.Expect(csg.Spec.ForProvider.Region).To(Equal(testRegion))
 		})
 	}
 }
