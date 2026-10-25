@@ -1514,7 +1514,7 @@ func TestCreateOrUpdateCrossplaneSecurityGroup(t *testing.T) {
 					},
 					Spec: crossec2v1beta1.SecurityGroupSpec{
 						ForProvider: crossec2v1beta1.SecurityGroupParameters{
-							Region:      aws.String("us-east-1"),
+							Region:      "us-east-1",
 							Description: "test-sg",
 							GroupName:   "test-sg",
 							VPCID:       &testVPCId,

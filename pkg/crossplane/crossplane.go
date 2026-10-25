@@ -79,7 +79,7 @@ func NewCrossplaneSecurityGroup(sg *securitygroupv1alpha2.SecurityGroup, vpcId, 
 				GroupName:   sg.GetName(),
 				Ingress:     []crossec2v1beta1.IPPermission{},
 				VPCID:       vpcId,
-				Region:      region,
+				Region:      aws.ToString(region),
 			},
 			ResourceSpec: crossplanev1.ResourceSpec{
 				ProviderConfigReference: &crossplanev1.Reference{
