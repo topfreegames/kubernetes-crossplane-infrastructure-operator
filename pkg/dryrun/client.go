@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,6 +29,12 @@ func logger(ctx context.Context) logr.Logger {
 	return ctrl.LoggerFrom(ctx).WithName("dry-run")
 }
 
+// isSecret reports whether obj is a Secret, whose payload must not be logged.
+func (c *loggingClient) isSecret(obj runtime.Object) bool {
+	gvk, err := c.GroupVersionKindFor(obj)
+	return err == nil && gvk.Group == "" && gvk.Kind == "Secret"
+}
+
 func (c *loggingClient) describe(obj runtime.Object) []interface{} {
 	kind := ""
 	if gvk, err := c.GroupVersionKindFor(obj); err == nil {
@@ -49,19 +54,14 @@ func (c *loggingClient) diff(ctx context.Context, obj client.Object) []byte {
 	if err != nil {
 		return nil
 	}
-	var current client.Object
-	if _, ok := obj.(*unstructured.Unstructured); ok {
-		current = &unstructured.Unstructured{}
-	} else {
-		o, err := c.Scheme().New(gvk)
-		if err != nil {
-			return nil
-		}
-		if current, ok = o.(client.Object); !ok {
-			return nil
-		}
+	o, err := c.Scheme().New(gvk)
+	if err != nil {
+		return nil
 	}
-	current.GetObjectKind().SetGroupVersionKind(gvk)
+	current, ok := o.(client.Object)
+	if !ok {
+		return nil
+	}
 	if err := c.reader.Get(ctx, client.ObjectKeyFromObject(obj), current); err != nil {
 		return nil
 	}
@@ -75,7 +75,7 @@ func (c *loggingClient) diff(ctx context.Context, obj client.Object) []byte {
 
 func (c *loggingClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
 	kv := append([]interface{}{"verb", "create"}, c.describe(obj)...)
-	if data, err := json.Marshal(obj); err == nil {
+	if data, err := json.Marshal(obj); err == nil && !c.isSecret(obj) {
 		kv = append(kv, "object", string(data))
 	}
 	logger(ctx).Info("would write", kv...)
@@ -84,7 +84,7 @@ func (c *loggingClient) Create(ctx context.Context, obj client.Object, opts ...c
 
 func (c *loggingClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
 	kv := append([]interface{}{"verb", "update"}, c.describe(obj)...)
-	if data := c.diff(ctx, obj); data != nil {
+	if data := c.diff(ctx, obj); data != nil && !c.isSecret(obj) {
 		kv = append(kv, "patch", string(data))
 	}
 	logger(ctx).Info("would write", kv...)
@@ -93,7 +93,7 @@ func (c *loggingClient) Update(ctx context.Context, obj client.Object, opts ...c
 
 func (c *loggingClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 	kv := append([]interface{}{"verb", "patch"}, c.describe(obj)...)
-	if data, err := patch.Data(obj); err == nil {
+	if data, err := patch.Data(obj); err == nil && !c.isSecret(obj) {
 		kv = append(kv, "patchType", string(patch.Type()), "patch", string(data))
 	}
 	logger(ctx).Info("would write", kv...)

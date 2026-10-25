@@ -114,3 +114,26 @@ func TestConfigureDryRunCluster(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(ok).To(BeFalse())
 }
+
+func TestManagerOptions(t *testing.T) {
+	testCases := []struct {
+		description          string
+		enableLeaderElection bool
+		dryRun               bool
+		expectedLeader       bool
+		expectedMetricsAddr  string
+	}{
+		{"should keep the flags without dry-run", true, false, true, ":8080"},
+		{"should disable leader election and metrics with dry-run", true, true, false, "0"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			g := NewWithT(t)
+			opts := managerOptions(":8080", ":8081", tc.enableLeaderElection, tc.dryRun)
+			g.Expect(opts.LeaderElection).To(Equal(tc.expectedLeader))
+			g.Expect(opts.Metrics.BindAddress).To(Equal(tc.expectedMetricsAddr))
+			g.Expect(opts.HealthProbeBindAddress).To(Equal(":8081"))
+			g.Expect(opts.LeaderElectionID).To(Equal("1334ff7b.infrastructure.wildlife.io"))
+		})
+	}
+}

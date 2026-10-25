@@ -19,7 +19,9 @@ Start the manager with `--dry-run` to see what a version would change before you
 
 This applies to the Kubernetes client, the event recorder and the EC2, Auto Scaling and Ocean client factories of the reconcilers. A client that a future version creates in another way is not covered.
 
-Each create, update, patch and delete the manager would make is logged with the message `would write`, the verb, the kind and the name. Updates also log the change as a JSON merge patch against the object on the API server. Patches log the patch that is sent; for a merge patch made from the full object, that is the full object. Events are logged with the message `would record event`.
+Each create, update, patch and delete the manager would make is logged with the message `would write`, the verb, the kind and the name, before the request is sent. If the API server rejects the request, the reconcile error follows in the log. `DeleteAllOf` and subresource creates are sent with `dryRun=All` but are not logged; this operator does not use them.
+
+Creates also log the object. Updates also log a JSON merge patch from the object on the API server to the object that is sent. This patch can contain fields that the API server ignores, for example status changes on an update of the main resource. Patches log the patch that is sent; for a merge patch made from the full object, that is the full object. The payload of a Secret is never logged. Events are logged with the message `would record event`.
 
 ### Run next to the real operator
 `--dry-run` turns off leader election, so the dry-run manager does not take the lease from the real manager. It also turns off the metrics server, so the dry-run manager does not report metrics with the same names and labels as the real manager. Both managers reconcile the same objects at the same time.
@@ -30,7 +32,7 @@ Run it locally with a kubeconfig for the management cluster. Use another port fo
 go run ./cmd/main.go --dry-run --health-probe-bind-address=:18081
 ```
 
-Or deploy a second Deployment with the new image, a different name and the same service account. Give it pod labels and a selector that are different from the real manager, so that no Service of the real manager selects the dry-run pod. Remove the `ad.datadoghq.com/*` pod annotations, because the dry-run pod has no metrics endpoint. Replace `--leader-elect` with `--dry-run` in the container args:
+Or deploy a second Deployment with the new image, a different name and the same service account. Give it pod labels and a selector that are different from the real manager, so that no Service of the real manager selects the dry-run pod. Remove the `ad.datadoghq.com/*` pod annotations, because the dry-run pod has no metrics endpoint. Give its logs a different service tag, or exclude the pod from log monitors: the dry-run manager logs errors that are expected in dry-run mode. Replace `--leader-elect` with `--dry-run` in the container args:
 
 ```yaml
         args:

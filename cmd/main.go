@@ -96,19 +96,9 @@ func main() {
 
 	if dryRun {
 		setupLog.Info("dry-run mode: disabling leader election and the metrics server")
-		enableLeaderElection = false
-		metricsAddr = "0"
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme: scheme,
-		Metrics: server.Options{
-			BindAddress: metricsAddr,
-		},
-		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "1334ff7b.infrastructure.wildlife.io",
-	})
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), managerOptions(metricsAddr, probeAddr, enableLeaderElection, dryRun))
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
@@ -145,6 +135,22 @@ func main() {
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
+	}
+}
+
+func managerOptions(metricsAddr, probeAddr string, enableLeaderElection, dryRun bool) ctrl.Options {
+	if dryRun {
+		enableLeaderElection = false
+		metricsAddr = "0"
+	}
+	return ctrl.Options{
+		Scheme: scheme,
+		Metrics: server.Options{
+			BindAddress: metricsAddr,
+		},
+		HealthProbeBindAddress: probeAddr,
+		LeaderElection:         enableLeaderElection,
+		LeaderElectionID:       "1334ff7b.infrastructure.wildlife.io",
 	}
 }
 

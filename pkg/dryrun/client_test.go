@@ -121,3 +121,36 @@ func TestEventRecorder(t *testing.T) {
 	g.Expect(lines).To(HaveLen(1))
 	g.Expect(lines[0]).To(And(ContainSubstring("would record event"), ContainSubstring(`"reason"="Reason"`), ContainSubstring(`"message"="failed here"`), ContainSubstring(`"name"="cm"`)))
 }
+
+func TestClientDoesNotLogSecretData(t *testing.T) {
+	g := NewWithT(t)
+	var lines []string
+	ctx := newLogContext(&lines)
+
+	existing := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "existing", Namespace: "default"},
+		StringData: map[string]string{"token": "old-secret-value"},
+	}
+	real := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(existing).Build()
+	c := NewClient(real, decodingReader{real})
+
+	created := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "created", Namespace: "default"},
+		StringData: map[string]string{"token": "created-secret-value"},
+	}
+	g.Expect(c.Create(ctx, created)).To(Succeed())
+
+	updated := existing.DeepCopy()
+	updated.StringData = map[string]string{"token": "updated-secret-value"}
+	g.Expect(c.Update(ctx, updated)).To(Succeed())
+
+	patched := existing.DeepCopy()
+	patched.StringData = map[string]string{"token": "patched-secret-value"}
+	g.Expect(c.Patch(ctx, patched, client.MergeFrom(existing))).To(Succeed())
+
+	g.Expect(lines).To(HaveLen(3))
+	for _, line := range lines {
+		g.Expect(line).To(ContainSubstring(`"kind"="Secret"`))
+		g.Expect(line).NotTo(ContainSubstring("secret-value"))
+	}
+}
