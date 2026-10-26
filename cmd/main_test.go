@@ -10,6 +10,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -134,6 +135,7 @@ func TestManagerOptions(t *testing.T) {
 			g.Expect(opts.Metrics.BindAddress).To(Equal(tc.expectedMetricsAddr))
 			g.Expect(opts.HealthProbeBindAddress).To(Equal(":8081"))
 			g.Expect(opts.LeaderElectionID).To(Equal("1334ff7b.infrastructure.wildlife.io"))
+			g.Expect(opts.Controller.UsePriorityQueue).To(Equal(ptr.To(false)))
 		})
 	}
 }

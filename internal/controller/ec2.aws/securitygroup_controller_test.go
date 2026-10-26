@@ -21,12 +21,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
-
-	karpenterv1alpha5 "github.com/aws/karpenter-core/pkg/apis/v1alpha5"
-
-	karpenterv1beta1 "sigs.k8s.io/karpenter/pkg/apis/v1beta1"
+	"unicode/utf8"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsautoscaling "github.com/aws/aws-sdk-go-v2/service/autoscaling"
@@ -295,33 +293,6 @@ var (
 		},
 	}
 
-	karpenterKMPProvisioner = &kinfrastructurev1alpha1.KopsMachinePool{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: metav1.NamespaceDefault,
-			Name:      "test-kops-machine-pool",
-			Labels: map[string]string{
-				"cluster.x-k8s.io/cluster-name": "test-cluster",
-			},
-		},
-		Spec: kinfrastructurev1alpha1.KopsMachinePoolSpec{
-			ClusterName: "test-cluster",
-			KarpenterProvisioners: []karpenterv1alpha5.Provisioner{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "test-provisioner",
-					},
-				},
-			},
-			KopsInstanceGroupSpec: kopsapi.InstanceGroupSpec{
-				Manager: "Karpenter",
-				NodeLabels: map[string]string{
-					"kops.k8s.io/instance-group-name": "test-ig",
-					"kops.k8s.io/instance-group-role": "Node",
-				},
-			},
-		},
-	}
-
 	karpenterKMPNodePool = &kinfrastructurev1alpha1.KopsMachinePool{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: metav1.NamespaceDefault,
@@ -332,7 +303,7 @@ var (
 		},
 		Spec: kinfrastructurev1alpha1.KopsMachinePoolSpec{
 			ClusterName: "test-cluster",
-			KarpenterNodePools: []karpenterv1beta1.NodePool{
+			KarpenterNodePoolsV1: []kinfrastructurev1alpha1.KarpenterNodePoolsV1{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-node-pool",
@@ -1783,17 +1754,6 @@ func TestAttachKopsMachinePool(t *testing.T) {
 			kmp: spotKMP,
 		},
 		{
-			description: "should reconcile without error with karpenter KMP Provisioner",
-			k8sObjects: []client.Object{
-				cluster,
-				kcp,
-				sg,
-				csg,
-				defaultSecret,
-			},
-			kmp: karpenterKMPProvisioner,
-		},
-		{
 			description: "should reconcile without error with karpenter KMP NodePool",
 			k8sObjects: []client.Object{
 				cluster,
@@ -1803,17 +1763,6 @@ func TestAttachKopsMachinePool(t *testing.T) {
 				defaultSecret,
 			},
 			kmp: karpenterKMPNodePool,
-		},
-		{
-			description: "should reconcile without error with karpenter KMP NodePool",
-			k8sObjects: []client.Object{
-				cluster,
-				kcp,
-				sg,
-				csg,
-				defaultSecret,
-			},
-			kmp: karpenterKMPProvisioner,
 		},
 		{
 			description: "should fail with wrong spotKMP clusterName",
@@ -2006,38 +1955,6 @@ func TestAttachKopsMachinePool(t *testing.T) {
 			errorExpected: multierror.Append(errors.New("failed to retrieve role from KopsMachinePool test-kops-machine-pool")),
 		},
 		{
-			description: "should fail when failing to attach with karpenterKMP with Provisioner",
-			k8sObjects: []client.Object{
-				kmp, cluster, kcp, csg, sg, defaultSecret,
-			},
-			kmp: &kinfrastructurev1alpha1.KopsMachinePool{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: metav1.NamespaceDefault,
-					Name:      "test-kops-machine-pool",
-					Labels: map[string]string{
-						"cluster.x-k8s.io/cluster-name": "test-cluster",
-					},
-				},
-				Spec: kinfrastructurev1alpha1.KopsMachinePoolSpec{
-					ClusterName: "test-cluster",
-					KarpenterProvisioners: []karpenterv1alpha5.Provisioner{
-						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name: "test-provisioner",
-							},
-						},
-					},
-					KopsInstanceGroupSpec: kopsapi.InstanceGroupSpec{
-						Manager: "Karpenter",
-						NodeLabels: map[string]string{
-							"kops.k8s.io/instance-group-name": "test-ig",
-						},
-					},
-				},
-			},
-			errorExpected: multierror.Append(errors.New("failed to retrieve role from KopsMachinePool test-kops-machine-pool")),
-		},
-		{
 			description: "should fail when failing to attach with karpenterKMP with NodePool",
 			k8sObjects: []client.Object{
 				kmp, cluster, kcp, csg, sg, defaultSecret,
@@ -2060,7 +1977,7 @@ func TestAttachKopsMachinePool(t *testing.T) {
 				},
 				Spec: kinfrastructurev1alpha1.KopsMachinePoolSpec{
 					ClusterName: "test-cluster",
-					KarpenterNodePools: []karpenterv1beta1.NodePool{
+					KarpenterNodePoolsV1: []kinfrastructurev1alpha1.KarpenterNodePoolsV1{
 						{
 							ObjectMeta: metav1.ObjectMeta{
 								Name: "test-node-pool",
@@ -2181,27 +2098,6 @@ func TestAttachKopsMachinePool(t *testing.T) {
 				}, nil
 			}
 
-			fakeEC2Client.MockDescribeLaunchTemplates = func(ctx context.Context, params *awsec2.DescribeLaunchTemplatesInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplatesOutput, error) {
-				return &awsec2.DescribeLaunchTemplatesOutput{
-					LaunchTemplates: []ec2types.LaunchTemplate{
-						{
-							LaunchTemplateId:   aws.String("lt-xxxx"),
-							LaunchTemplateName: aws.String("test-launch-template"),
-							Tags: []ec2types.Tag{
-								{
-									Key:   aws.String("tag:KubernetesCluster"),
-									Value: aws.String("test-cluster"),
-								},
-								{
-									Key:   aws.String("tag:Name"),
-									Value: aws.String("test-launch-template"),
-								},
-							},
-						},
-					},
-				}, nil
-			}
-
 			fakeOceanClient := &fakeocean.MockOceanCloudProviderAWS{}
 
 			fakeOceanClient.MockListClusters = func(ctx context.Context, listClusterInput *oceanaws.ListClustersInput) (*oceanaws.ListClustersOutput, error) {
@@ -2263,7 +2159,7 @@ func TestAttachKopsMachinePool(t *testing.T) {
 				asgClient:               reconciler.NewAutoScalingClientFactory(aws.Config{}),
 			}
 
-			err = reconciliation.attachKopsMachinePool(ctx, csg, kcp, *tc.kmp)
+			err = reconciliation.attachKopsMachinePool(ctx, csg, *tc.kmp)
 			if tc.errorExpected == nil {
 				if !errors.Is(err, ErrSecurityGroupNotAvailable) {
 					g.Expect(err).To(BeNil())
@@ -2604,248 +2500,6 @@ func TestAttachSGToASG(t *testing.T) {
 			}
 
 			err = reconciliation.attachSGToASG(ctx, "test-asg", "sg-yyyy")
-			if tc.errorExpected == nil {
-				g.Expect(err).To(BeNil())
-			} else {
-				g.Expect(err.Error()).To(ContainSubstring((tc.errorExpected.Error())))
-			}
-		})
-	}
-}
-
-func TestAttachSGToLaunchTemplate(t *testing.T) {
-	testCases := []struct {
-		description                       string
-		k8sObjects                        []client.Object
-		instances                         []ec2types.Instance
-		expectedSecurityGroups            []string
-		errorExpected                     error
-		errorGetLaunchTemplate            bool
-		errorGetLastLaunchTemplateVersion bool
-		errorCreateLaunchTemplateVersion  bool
-		errorGetReservations              bool
-		errorAttachIGToInstances          bool
-	}{
-		{
-			description: "should attach SecurityGroup to the launch template",
-			k8sObjects: []client.Object{
-				karpenterKMPProvisioner, cluster, kcp, sg,
-			},
-			expectedSecurityGroups: []string{"sg-xxxx", "sg-yyyy"},
-		},
-		{
-			description: "should attach SecurityGroup to the launch template instance",
-			k8sObjects: []client.Object{
-				karpenterKMPProvisioner, cluster, kcp, sg,
-			},
-			instances: []ec2types.Instance{
-				{
-					InstanceId: aws.String("i-xxx"),
-					SecurityGroups: []ec2types.GroupIdentifier{
-						{
-							GroupId: aws.String("sg-xxxx"),
-						},
-					},
-					State: &ec2types.InstanceState{
-						Name: ec2types.InstanceStateNameRunning,
-					},
-				},
-			},
-			expectedSecurityGroups: []string{"sg-xxxx", "sg-yyyy"},
-		},
-		{
-			description: "should fail when not finding launch template",
-			k8sObjects: []client.Object{
-				karpenterKMPProvisioner, cluster, kcp, sg,
-			},
-			expectedSecurityGroups: []string{"sg-xxxx", "sg-yyyy"},
-			errorExpected:          errors.New("some error when retrieving launch template"),
-			errorGetLaunchTemplate: true,
-		},
-		{
-			description: "should fail when not finding launch template version",
-			k8sObjects: []client.Object{
-				karpenterKMPProvisioner, cluster, kcp, sg,
-			},
-			expectedSecurityGroups:            []string{"sg-xxxx", "sg-yyyy"},
-			errorExpected:                     errors.New("some error when retrieving launch template version"),
-			errorGetLastLaunchTemplateVersion: true,
-		},
-		{
-			description: "should fail when not create launch template version",
-			k8sObjects: []client.Object{
-				karpenterKMPProvisioner, cluster, kcp, sg,
-			},
-			expectedSecurityGroups:           []string{"sg-xxxx", "sg-yyyy"},
-			errorExpected:                    errors.New("some error when creating launch template version"),
-			errorCreateLaunchTemplateVersion: true,
-		},
-		{
-			description: "should fail when not able to get reservations",
-			k8sObjects: []client.Object{
-				karpenterKMPProvisioner, cluster, kcp, sg,
-			},
-			expectedSecurityGroups: []string{"sg-xxxx", "sg-yyyy"},
-			errorExpected:          errors.New("some error when get reservations"),
-			errorGetReservations:   true,
-		},
-		{
-			description: "should fail when not able to attach ig to instances",
-			k8sObjects: []client.Object{
-				karpenterKMPProvisioner, cluster, kcp, sg,
-			},
-			instances: []ec2types.Instance{
-				{
-					InstanceId: aws.String("i-xxx"),
-					SecurityGroups: []ec2types.GroupIdentifier{
-						{
-							GroupId: aws.String("sg-xxxx"),
-						},
-					},
-					State: &ec2types.InstanceState{
-						Name: ec2types.InstanceStateNameRunning,
-					},
-				},
-			},
-			expectedSecurityGroups:   []string{"sg-xxxx", "sg-yyyy"},
-			errorExpected:            errors.New("some error when attach ig to instances"),
-			errorAttachIGToInstances: true,
-		},
-	}
-	RegisterFailHandler(Fail)
-	g := NewWithT(t)
-
-	err := clusterv1beta1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = securitygroupv1alpha2.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = kcontrolplanev1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	for _, tc := range testCases {
-		t.Run(tc.description, func(t *testing.T) {
-			ctx := context.TODO()
-
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).Build()
-			fakeEC2Client := &fakeec2.MockEC2Client{}
-			if tc.errorGetLastLaunchTemplateVersion {
-				fakeEC2Client.MockDescribeLaunchTemplateVersions = func(ctx context.Context, params *awsec2.DescribeLaunchTemplateVersionsInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplateVersionsOutput, error) {
-					return nil, errors.New("some error when retrieving launch template version")
-				}
-			} else {
-				fakeEC2Client.MockDescribeLaunchTemplateVersions = func(ctx context.Context, params *awsec2.DescribeLaunchTemplateVersionsInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplateVersionsOutput, error) {
-					return &awsec2.DescribeLaunchTemplateVersionsOutput{
-						LaunchTemplateVersions: []ec2types.LaunchTemplateVersion{
-							{
-								LaunchTemplateId: params.LaunchTemplateId,
-								LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
-									NetworkInterfaces: []ec2types.LaunchTemplateInstanceNetworkInterfaceSpecification{
-										{
-											Groups: []string{
-												"sg-xxxx",
-											},
-										},
-									},
-								},
-							},
-						},
-					}, nil
-				}
-			}
-
-			if tc.errorAttachIGToInstances {
-				fakeEC2Client.MockModifyInstanceAttribute = func(ctx context.Context, params *awsec2.ModifyInstanceAttributeInput, opts []func(*awsec2.Options)) (*awsec2.ModifyInstanceAttributeOutput, error) {
-					g.Expect(params.Groups).To(BeEquivalentTo(tc.expectedSecurityGroups))
-					return nil, errors.New("some error when attach ig to instances")
-				}
-			} else {
-				fakeEC2Client.MockModifyInstanceAttribute = func(ctx context.Context, params *awsec2.ModifyInstanceAttributeInput, opts []func(*awsec2.Options)) (*awsec2.ModifyInstanceAttributeOutput, error) {
-					g.Expect(params.Groups).To(BeEquivalentTo(tc.expectedSecurityGroups))
-					return &awsec2.ModifyInstanceAttributeOutput{}, nil
-				}
-			}
-
-			if tc.errorGetReservations {
-				fakeEC2Client.MockDescribeInstances = func(ctx context.Context, input *awsec2.DescribeInstancesInput, opts []func(*awsec2.Options)) (*awsec2.DescribeInstancesOutput, error) {
-					return nil, errors.New("some error when get reservations")
-				}
-			} else {
-				fakeEC2Client.MockDescribeInstances = func(ctx context.Context, input *awsec2.DescribeInstancesInput, opts []func(*awsec2.Options)) (*awsec2.DescribeInstancesOutput, error) {
-					return &awsec2.DescribeInstancesOutput{
-						Reservations: []ec2types.Reservation{
-							{
-								Instances: tc.instances,
-							},
-						},
-					}, nil
-				}
-			}
-
-			if tc.errorCreateLaunchTemplateVersion {
-				fakeEC2Client.MockCreateLaunchTemplateVersion = func(ctx context.Context, params *awsec2.CreateLaunchTemplateVersionInput, optFns []func(*awsec2.Options)) (*awsec2.CreateLaunchTemplateVersionOutput, error) {
-					g.Expect(params.LaunchTemplateData.NetworkInterfaces[0].Groups).To(BeEquivalentTo(tc.expectedSecurityGroups))
-					return nil, errors.New("some error when creating launch template version")
-				}
-			} else {
-				fakeEC2Client.MockCreateLaunchTemplateVersion = func(ctx context.Context, params *awsec2.CreateLaunchTemplateVersionInput, optFns []func(*awsec2.Options)) (*awsec2.CreateLaunchTemplateVersionOutput, error) {
-					g.Expect(params.LaunchTemplateData.NetworkInterfaces[0].Groups).To(BeEquivalentTo(tc.expectedSecurityGroups))
-					return &awsec2.CreateLaunchTemplateVersionOutput{
-						LaunchTemplateVersion: &ec2types.LaunchTemplateVersion{
-							LaunchTemplateId: params.LaunchTemplateId,
-							VersionNumber:    aws.Int64(2),
-						},
-					}, nil
-				}
-			}
-			fakeEC2Client.MockDescribeSecurityGroups = func(ctx context.Context, params *awsec2.DescribeSecurityGroupsInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeSecurityGroupsOutput, error) {
-				return &awsec2.DescribeSecurityGroupsOutput{}, nil
-			}
-			if tc.errorGetLaunchTemplate {
-				fakeEC2Client.MockDescribeLaunchTemplates = func(ctx context.Context, params *awsec2.DescribeLaunchTemplatesInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplatesOutput, error) {
-					return nil, errors.New("some error when retrieving launch template")
-				}
-			} else {
-				fakeEC2Client.MockDescribeLaunchTemplates = func(ctx context.Context, params *awsec2.DescribeLaunchTemplatesInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplatesOutput, error) {
-					return &awsec2.DescribeLaunchTemplatesOutput{
-						LaunchTemplates: []ec2types.LaunchTemplate{
-							{
-								LaunchTemplateId:   aws.String("lt-xxxx"),
-								LaunchTemplateName: aws.String("test-launch-template"),
-								Tags: []ec2types.Tag{
-									{
-										Key:   aws.String("tag:KubernetesCluster"),
-										Value: aws.String("test-cluster"),
-									},
-									{
-										Key:   aws.String("tag:Name"),
-										Value: aws.String("test-launch-template"),
-									},
-								},
-							},
-						},
-					}, nil
-				}
-			}
-
-			reconciler := SecurityGroupReconciler{
-				Client:   fakeClient,
-				Recorder: record.NewFakeRecorder(3),
-			}
-
-			reconciliation := &SecurityGroupReconciliation{
-				SecurityGroupReconciler: reconciler,
-				ec2Client:               fakeEC2Client,
-			}
-
-			err = reconciliation.attachSGToLaunchTemplate(ctx, "test-cluster", "test-launch-template", "sg-yyyy")
 			if tc.errorExpected == nil {
 				g.Expect(err).To(BeNil())
 			} else {
@@ -3301,17 +2955,6 @@ func TestDetachSGFromKopsMachinePool(t *testing.T) {
 			},
 		},
 		{
-			description: "should detach sg if kmp manager is karpenter with Provisioners",
-			k8sObjects: []client.Object{
-				defaultSecret,
-			},
-			csg: csg,
-			kcp: kcp,
-			kmps: []kinfrastructurev1alpha1.KopsMachinePool{
-				*karpenterKMPProvisioner,
-			},
-		},
-		{
 			description: "should detach sg if kmp manager is karpenter with NodePool",
 			k8sObjects: []client.Object{
 				defaultSecret,
@@ -3393,26 +3036,6 @@ func TestDetachSGFromKopsMachinePool(t *testing.T) {
 				}, nil
 			}
 
-			fakeEC2Client.MockDescribeLaunchTemplates = func(ctx context.Context, params *awsec2.DescribeLaunchTemplatesInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplatesOutput, error) {
-				return &awsec2.DescribeLaunchTemplatesOutput{
-					LaunchTemplates: []ec2types.LaunchTemplate{
-						{
-							LaunchTemplateId:   aws.String("lt-xxxx"),
-							LaunchTemplateName: aws.String("test-launch-template"),
-							Tags: []ec2types.Tag{
-								{
-									Key:   aws.String("tag:KubernetesCluster"),
-									Value: aws.String("test-cluster"),
-								},
-								{
-									Key:   aws.String("tag:Name"),
-									Value: aws.String("test-launch-template"),
-								},
-							},
-						},
-					},
-				}, nil
-			}
 			reconciler := SecurityGroupReconciler{
 				Client:   fakeClient,
 				Recorder: record.NewFakeRecorder(3),
@@ -4396,7 +4019,7 @@ func TestSecurityGroupStatus(t *testing.T) {
 		description                   string
 		k8sObjects                    []client.Object
 		mockDescribeAutoScalingGroups func(ctx context.Context, params *awsautoscaling.DescribeAutoScalingGroupsInput, optFns []func(*awsautoscaling.Options)) (*awsautoscaling.DescribeAutoScalingGroupsOutput, error)
-		mockDescribeLaunchTemplates   func(ctx context.Context, params *awsec2.DescribeLaunchTemplatesInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplatesOutput, error)
+		mockDescribeInstances         func(ctx context.Context, input *awsec2.DescribeInstancesInput, opts []func(*awsec2.Options)) (*awsec2.DescribeInstancesOutput, error)
 		conditionsToAssert            []*clusterv1beta1.Condition
 		errorExpected                 error
 		expectedReadiness             bool
@@ -4474,12 +4097,12 @@ func TestSecurityGroupStatus(t *testing.T) {
 			errorExpected: errors.New("failed to retrieve AutoScalingGroup"),
 		},
 		{
-			description: "should mark attach condition as false when failed attach to launch template",
+			description: "should mark attach condition as false when failed to list the instances of a karpenter node pool",
 			k8sObjects: []client.Object{
-				karpenterKMPProvisioner, cluster, kcp, sg, csg, defaultSecret,
+				karpenterKMPNodePool, cluster, kcp, sg, csg, defaultSecret,
 			},
-			mockDescribeLaunchTemplates: func(ctx context.Context, params *awsec2.DescribeLaunchTemplatesInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplatesOutput, error) {
-				return nil, errors.New("some error when retrieving launch template")
+			mockDescribeInstances: func(ctx context.Context, input *awsec2.DescribeInstancesInput, opts []func(*awsec2.Options)) (*awsec2.DescribeInstancesOutput, error) {
+				return nil, errors.New("some error when describing instances")
 			},
 			conditionsToAssert: []*clusterv1beta1.Condition{
 				conditions.TrueCondition(securitygroupv1alpha2.SecurityGroupReadyCondition),
@@ -4487,9 +4110,9 @@ func TestSecurityGroupStatus(t *testing.T) {
 				conditions.FalseCondition(securitygroupv1alpha2.SecurityGroupAttachedCondition,
 					securitygroupv1alpha2.SecurityGroupAttachmentFailedReason,
 					clusterv1beta1.ConditionSeverityError,
-					"some error when retrieving launch template"),
+					"some error when describing instances"),
 			},
-			errorExpected: errors.New("some error when retrieving launch template"),
+			errorExpected: errors.New("some error when describing instances"),
 		},
 		{
 			description: "should create a SecurityGroup with infrastructureRef in the status",
@@ -4589,6 +4212,12 @@ func TestSecurityGroupStatus(t *testing.T) {
 
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.k8sObjects...).WithStatusSubresource(sg).Build()
 			fakeEC2Client := &fakeec2.MockEC2Client{}
+			fakeEC2Client.MockDescribeInstances = func(ctx context.Context, input *awsec2.DescribeInstancesInput, opts []func(*awsec2.Options)) (*awsec2.DescribeInstancesOutput, error) {
+				return &awsec2.DescribeInstancesOutput{}, nil
+			}
+			if tc.mockDescribeInstances != nil {
+				fakeEC2Client.MockDescribeInstances = tc.mockDescribeInstances
+			}
 			fakeEC2Client.MockDescribeVpcs = func(ctx context.Context, input *awsec2.DescribeVpcsInput, opts []func(*awsec2.Options)) (*awsec2.DescribeVpcsOutput, error) {
 				return &awsec2.DescribeVpcsOutput{
 					Vpcs: []ec2types.Vpc{
@@ -4625,31 +4254,6 @@ func TestSecurityGroupStatus(t *testing.T) {
 			}
 			fakeEC2Client.MockDescribeSecurityGroups = func(ctx context.Context, params *awsec2.DescribeSecurityGroupsInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeSecurityGroupsOutput, error) {
 				return &awsec2.DescribeSecurityGroupsOutput{}, nil
-			}
-
-			if tc.mockDescribeLaunchTemplates == nil {
-				fakeEC2Client.MockDescribeLaunchTemplates = func(ctx context.Context, params *awsec2.DescribeLaunchTemplatesInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplatesOutput, error) {
-					return &awsec2.DescribeLaunchTemplatesOutput{
-						LaunchTemplates: []ec2types.LaunchTemplate{
-							{
-								LaunchTemplateId:   aws.String("lt-xxxx"),
-								LaunchTemplateName: aws.String("test-launch-template"),
-								Tags: []ec2types.Tag{
-									{
-										Key:   aws.String("tag:KubernetesCluster"),
-										Value: aws.String("test-cluster"),
-									},
-									{
-										Key:   aws.String("tag:Name"),
-										Value: aws.String("test-launch-template"),
-									},
-								},
-							},
-						},
-					}, nil
-				}
-			} else {
-				fakeEC2Client.MockDescribeLaunchTemplates = tc.mockDescribeLaunchTemplates
 			}
 
 			fakeASGClient := &fakeasg.MockAutoScalingClient{}
@@ -4773,6 +4377,9 @@ func TestCustomMetrics(t *testing.T) {
 		}, nil
 	}
 	fakeEC2Client := &fakeec2.MockEC2Client{}
+	fakeEC2Client.MockDescribeInstances = func(ctx context.Context, input *awsec2.DescribeInstancesInput, opts []func(*awsec2.Options)) (*awsec2.DescribeInstancesOutput, error) {
+		return &awsec2.DescribeInstancesOutput{}, nil
+	}
 	fakeEC2Client.MockDescribeSecurityGroups = func(ctx context.Context, params *awsec2.DescribeSecurityGroupsInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeSecurityGroupsOutput, error) {
 		return &awsec2.DescribeSecurityGroupsOutput{}, nil
 	}
@@ -4810,31 +4417,11 @@ func TestCustomMetrics(t *testing.T) {
 			},
 		}, nil
 	}
-	fakeEC2Client.MockDescribeLaunchTemplates = func(ctx context.Context, params *awsec2.DescribeLaunchTemplatesInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplatesOutput, error) {
-		return &awsec2.DescribeLaunchTemplatesOutput{
-			LaunchTemplates: []ec2types.LaunchTemplate{
-				{
-					LaunchTemplateId:   aws.String("lt-xxxx"),
-					LaunchTemplateName: aws.String("test-launch-template"),
-					Tags: []ec2types.Tag{
-						{
-							Key:   aws.String("tag:KubernetesCluster"),
-							Value: aws.String("test-cluster"),
-						},
-						{
-							Key:   aws.String("tag:Name"),
-							Value: aws.String("test-launch-template"),
-						},
-					},
-				},
-			},
-		}, nil
-	}
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
 			custommetrics.ReconciliationConsecutiveErrorsTotal.Reset()
 
-			fakeClient := fake.NewClientBuilder().WithObjects(kcp, cluster, defaultSecret, karpenterKMPProvisioner, sg, csg).WithScheme(scheme.Scheme).WithStatusSubresource(sg).Build()
+			fakeClient := fake.NewClientBuilder().WithObjects(kcp, cluster, defaultSecret, karpenterKMPNodePool, sg, csg).WithScheme(scheme.Scheme).WithStatusSubresource(sg).Build()
 
 			reconciler := &SecurityGroupReconciler{
 				Client: fakeClient,
@@ -5168,4 +4755,32 @@ func TestReleaseDeletingKopsMachinePools(t *testing.T) {
 
 	g.Expect(recorder.Events).To(HaveLen(1))
 	g.Expect(<-recorder.Events).To(ContainSubstring("SecurityGroupDetachmentFailed"))
+}
+
+func TestMarkFalseTruncatesMessage(t *testing.T) {
+	g := NewWithT(t)
+	sg := &securitygroupv1alpha2.SecurityGroup{}
+	conditionType := securitygroupv1alpha2.SecurityGroupAttachedCondition
+	reason := securitygroupv1alpha2.SecurityGroupAttachmentFailedReason
+
+	markFalse(sg, conditionType, reason, clusterv1beta1.ConditionSeverityError, "short message: %s", "error")
+	g.Expect(conditions.Get(sg, conditionType).Message).To(Equal("short message: error"))
+
+	markFalse(sg, conditionType, reason, clusterv1beta1.ConditionSeverityError, "%s", strings.Repeat("a", maxConditionMessageLength-1)+"é")
+	message := conditions.Get(sg, conditionType).Message
+	g.Expect(utf8.ValidString(message)).To(BeTrue())
+	g.Expect(message).To(Equal(strings.Repeat("a", maxConditionMessageLength-1)))
+
+	long := strings.Repeat("x", maxConditionMessageLength+100)
+	markFalse(sg, conditionType, reason, clusterv1beta1.ConditionSeverityError, "failed: %s", long)
+	g.Expect(conditions.Get(sg, conditionType).Message).To(HaveLen(maxConditionMessageLength))
+
+	transition := metav1.NewTime(time.Now().Add(-time.Hour).Truncate(time.Second))
+	for i := range sg.Status.Conditions {
+		if sg.Status.Conditions[i].Type == conditionType {
+			sg.Status.Conditions[i].LastTransitionTime = transition
+		}
+	}
+	markFalse(sg, conditionType, reason, clusterv1beta1.ConditionSeverityError, "failed: %s", long)
+	g.Expect(conditions.Get(sg, conditionType).LastTransitionTime).To(Equal(transition))
 }

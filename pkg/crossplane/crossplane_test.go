@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	crossec2v1alphav1 "github.com/crossplane-contrib/provider-aws/apis/ec2/v1alpha1"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	securitygroupv1alpha2 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/ec2.aws/v1alpha2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
@@ -297,7 +298,7 @@ func TestGetOwnedVPCPeeringConnections(t *testing.T) {
 		t.Run(tc.description, func(t *testing.T) {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.objects...).Build()
 			ownedVPCPeerings, _ := GetOwnedVPCPeeringConnections(context.TODO(), owner, fakeClient)
-			g.Expect(cmp.Equal(ownedVPCPeerings.Items, tc.expectedOwnedVPCPeeringConnections)).To(BeTrue())
+			g.Expect(cmp.Equal(ownedVPCPeerings.Items, tc.expectedOwnedVPCPeeringConnections, cmpopts.IgnoreTypes(metav1.TypeMeta{}))).To(BeTrue())
 		})
 	}
 }
@@ -490,7 +491,7 @@ func TestGetOwnedSecurityGroups(t *testing.T) {
 		t.Run(tc.description, func(t *testing.T) {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.objects...).Build()
 			ownedSecurityGroups, _ := GetOwnedSecurityGroups(context.TODO(), owner, fakeClient)
-			g.Expect(cmp.Equal(ownedSecurityGroups.Items, tc.expectedOwnedSecurityGroups)).To(BeTrue())
+			g.Expect(cmp.Equal(ownedSecurityGroups.Items, tc.expectedOwnedSecurityGroups, cmpopts.IgnoreTypes(metav1.TypeMeta{}))).To(BeTrue())
 		})
 	}
 }
@@ -633,7 +634,7 @@ func TestGetOwnedRoutes(t *testing.T) {
 		t.Run(tc.description, func(t *testing.T) {
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(tc.objects...).Build()
 			ownedSecurityGroups, _ := GetOwnedRoutes(context.TODO(), owner, fakeClient)
-			g.Expect(cmp.Equal(ownedSecurityGroups.Items, tc.expectedOwnedSecurityGroups)).To(BeTrue())
+			g.Expect(cmp.Equal(ownedSecurityGroups.Items, tc.expectedOwnedSecurityGroups, cmpopts.IgnoreTypes(metav1.TypeMeta{}))).To(BeTrue())
 		})
 	}
 }
@@ -2324,4 +2325,64 @@ func TestCreateOrUpdateCrossplaneSecurityGroupTags(t *testing.T) {
 		g.Expect(csg.Annotations).To(HaveKeyWithValue("crossplane.io/external-name", "sg-123"))
 		g.Expect(csg.Spec.ForProvider.Tags).To(Equal(expectedTags))
 	})
+}
+
+func TestGetOwnedWithOwnerReadFromClient(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.TODO()
+
+	g.Expect(clustermeshv1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
+	g.Expect(securitygroupv1alpha2.AddToScheme(scheme.Scheme)).To(Succeed())
+	g.Expect(crossec2v1alphav1.SchemeBuilder.AddToScheme(scheme.Scheme)).To(Succeed())
+	g.Expect(crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)).To(Succeed())
+
+	meshOwnerRef := metav1.OwnerReference{
+		APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
+		Kind:       "ClusterMesh",
+		Name:       "test-mesh",
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(
+		&clustermeshv1alpha1.ClusterMesh{ObjectMeta: metav1.ObjectMeta{Name: "test-mesh"}},
+		&securitygroupv1alpha2.SecurityGroup{ObjectMeta: metav1.ObjectMeta{Name: "test-sg", OwnerReferences: []metav1.OwnerReference{meshOwnerRef}}},
+		&crossec2v1alphav1.VPCPeeringConnection{ObjectMeta: metav1.ObjectMeta{Name: "test-peering", OwnerReferences: []metav1.OwnerReference{meshOwnerRef}}},
+		&crossec2v1beta1.SecurityGroup{ObjectMeta: metav1.ObjectMeta{Name: "test-crossplane-sg", OwnerReferences: []metav1.OwnerReference{meshOwnerRef}}},
+		&crossec2v1alphav1.Route{ObjectMeta: metav1.ObjectMeta{Name: "test-route", OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
+			Kind:       "VPCPeeringConnection",
+			Name:       "test-peering",
+		}}}},
+	).Build()
+
+	mesh := &clustermeshv1alpha1.ClusterMesh{}
+	g.Expect(fakeClient.Get(ctx, client.ObjectKey{Name: "test-mesh"}, mesh)).To(Succeed())
+	g.Expect(mesh.GetObjectKind().GroupVersionKind().Empty()).To(BeTrue())
+
+	sgRefs, err := GetOwnedSecurityGroupsRef(ctx, mesh, fakeClient)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(sgRefs).To(Equal([]*corev1.ObjectReference{{APIVersion: "ec2.aws.wildlife.io/v1alpha2", Kind: "SecurityGroup", Name: "test-sg"}}))
+
+	peeringRefs, err := GetOwnedVPCPeeringConnectionsRef(ctx, mesh, fakeClient)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(peeringRefs).To(Equal([]*corev1.ObjectReference{{APIVersion: "ec2.aws.crossplane.io/v1alpha1", Kind: "VPCPeeringConnection", Name: "test-peering"}}))
+
+	crossplaneSGs, err := GetOwnedSecurityGroups(ctx, mesh, fakeClient)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(crossplaneSGs.Items).To(HaveLen(1))
+
+	peerings, err := GetOwnedVPCPeeringConnections(ctx, mesh, fakeClient)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(peerings.Items).To(HaveLen(1))
+
+	routes, err := GetOwnedRoutes(ctx, &peerings.Items[0], fakeClient)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(routes.Items).To(HaveLen(1))
+
+	routeRefs, err := GetOwnedRoutesRef(ctx, &peerings.Items[0], fakeClient)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(routeRefs).To(Equal([]*corev1.ObjectReference{{APIVersion: "ec2.aws.crossplane.io/v1alpha1", Kind: "Route", Name: "test-route"}}))
+
+	route := NewCrossplaneRoute("us-east-1", "10.0.0.0/16", "rtb-1", "default", peerings.Items[0])
+	g.Expect(route.OwnerReferences).To(HaveLen(1))
+	g.Expect(route.OwnerReferences[0].APIVersion).To(Equal("ec2.aws.crossplane.io/v1alpha1"))
+	g.Expect(route.OwnerReferences[0].Kind).To(Equal("VPCPeeringConnection"))
 }
