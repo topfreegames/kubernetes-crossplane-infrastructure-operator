@@ -21,8 +21,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsautoscaling "github.com/aws/aws-sdk-go-v2/service/autoscaling"
@@ -4753,4 +4755,22 @@ func TestReleaseDeletingKopsMachinePools(t *testing.T) {
 
 	g.Expect(recorder.Events).To(HaveLen(1))
 	g.Expect(<-recorder.Events).To(ContainSubstring("SecurityGroupDetachmentFailed"))
+}
+
+func TestTruncateConditionMessages(t *testing.T) {
+	g := NewWithT(t)
+
+	long := strings.Repeat("a", maxConditionMessageLength-1) + "é" + "b"
+	conds := clusterv1beta1.Conditions{
+		{Type: "Short", Message: "short message"},
+		{Type: "Long", Message: strings.Repeat("x", maxConditionMessageLength+100)},
+		{Type: "Multibyte", Message: long},
+	}
+	truncateConditionMessages(conds)
+
+	g.Expect(conds[0].Message).To(Equal("short message"))
+	g.Expect(conds[1].Message).To(HaveLen(maxConditionMessageLength))
+	g.Expect(utf8.ValidString(conds[2].Message)).To(BeTrue())
+	g.Expect(len(conds[2].Message)).To(BeNumerically("<=", maxConditionMessageLength))
+	g.Expect(conds[2].Message).To(Equal(strings.Repeat("a", maxConditionMessageLength-1)))
 }

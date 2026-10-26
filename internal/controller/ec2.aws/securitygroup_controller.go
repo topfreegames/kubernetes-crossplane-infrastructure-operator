@@ -23,6 +23,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -70,7 +71,8 @@ var (
 )
 
 const (
-	securityGroupFinalizer = "securitygroup.wildlife.infrastructure.io"
+	securityGroupFinalizer    = "securitygroup.wildlife.infrastructure.io"
+	maxConditionMessageLength = 10240
 
 	AnnotationKeyReconciliationPaused = "crossplane.io/paused"
 )
@@ -172,6 +174,7 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 		if securityGroupHelper.ObjectMeta.DeletionTimestamp.IsZero() {
 			r.sg.Status = securityGroupHelper.Status
+			truncateConditionMessages(r.sg.Status.Conditions)
 			if err := r.Status().Update(ctx, r.sg); err != nil {
 				r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdateStatus", "failed to update security group status %s: %s", r.sg.Name, err)
 				if reconciliationErr == nil {
@@ -202,6 +205,14 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	return r.reconcileNormal(ctx)
+}
+
+func truncateConditionMessages(conds clusterv1beta1.Conditions) {
+	for i := range conds {
+		if len(conds[i].Message) > maxConditionMessageLength {
+			conds[i].Message = strings.ToValidUTF8(conds[i].Message[:maxConditionMessageLength], "")
+		}
+	}
 }
 
 func (r *SecurityGroupReconciliation) retrieveKCPNetworkInfo(ctx context.Context, name string, namespace string) (*string, *string, *string, error) {
