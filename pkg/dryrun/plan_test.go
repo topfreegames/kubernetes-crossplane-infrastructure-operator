@@ -8,596 +8,424 @@ import (
 	"time"
 
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/format"
+	kinfrastructurev1alpha1 "github.com/topfreegames/kubernetes-kops-operator/apis/infrastructure/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/kubernetes/scheme"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	securitygroupv1alpha2 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/ec2.aws/v1alpha2"
+	clustermeshcontrollers "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/internal/controller/clustermesh.infrastructure"
+	sgcontroller "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/internal/controller/ec2.aws"
 )
 
-var source = Source{Kind: "Cluster", Namespace: "kubernetes-a", Name: "a", Clusters: []string{"a"}}
+func init() {
+	// Show the whole plan when a comparison fails.
+	format.MaxLength = 0
+	format.TruncatedDiff = false
+}
 
-func reportText(g *WithT, r *Report) string {
+var source = Source{Kind: "Cluster", Namespace: "ns", Name: "a", Clusters: []string{"a"}}
+
+func writePlan(g *WithT, p *Plan) (string, Summary) {
 	var b strings.Builder
-	g.Expect(r.WriteText(&b)).To(Succeed())
-	return b.String()
+	s, err := p.Write(&b)
+	g.Expect(err).NotTo(HaveOccurred())
+	return b.String(), s
 }
 
 func TestPlanRecordsKubernetesWrites(t *testing.T) {
 	g := NewWithT(t)
-	var lines []string
 	plan := NewPlan()
-	ctx := WithPlan(newLogContext(&lines), plan, source)
+	ctx := WithPlan(context.TODO(), plan, source)
 
-	unchanged := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: "unchanged", Namespace: "default"},
-		Data:       map[string]string{"key": "value"},
-	}
-	updated := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: "updated", Namespace: "default"},
-		Data:       map[string]string{"key": "old", "removed": "value"},
-	}
+	unchanged := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "unchanged", Namespace: "default"}, Data: map[string]string{"key": "value"}}
+	updated := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "updated", Namespace: "default"}, Data: map[string]string{"key": "old"}}
 	patched := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "patched", Namespace: "default"}}
 	deleted := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "deleted", Namespace: "default"}}
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "default"},
-		Status:     corev1.PodStatus{Phase: corev1.PodPending},
-	}
-	real := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(unchanged, updated, patched, deleted, pod).WithStatusSubresource(pod).Build()
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "default"}, Status: corev1.PodStatus{Phase: corev1.PodPending}}
+	real := fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).WithObjects(unchanged, updated, patched, deleted, pod).WithStatusSubresource(pod).Build()
 	c := NewClient(real, real)
 
-	current := &corev1.ConfigMap{}
-	g.Expect(c.Get(ctx, client.ObjectKeyFromObject(unchanged), current)).To(Succeed())
-	g.Expect(c.Update(ctx, current)).To(Succeed())
-
-	current = &corev1.ConfigMap{}
-	g.Expect(c.Get(ctx, client.ObjectKeyFromObject(updated), current)).To(Succeed())
-	current.Data = map[string]string{"key": "new"}
-	g.Expect(c.Update(ctx, current)).To(Succeed())
-
-	current = &corev1.ConfigMap{}
-	g.Expect(c.Get(ctx, client.ObjectKeyFromObject(patched), current)).To(Succeed())
-	base := current.DeepCopy()
-	current.Finalizers = []string{"example.com/finalizer"}
-	g.Expect(c.Patch(ctx, current, client.MergeFrom(base))).To(Succeed())
-
-	g.Expect(c.Delete(ctx, deleted.DeepCopy())).To(Succeed())
-
-	created := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: "created", Namespace: "default"},
-		Data:       map[string]string{"key": "value"},
+	get := func(obj client.Object) {
+		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(obj), obj)).To(Succeed())
 	}
-	g.Expect(c.Create(ctx, created)).To(Succeed())
+	get(unchanged)
+	g.Expect(c.Update(ctx, unchanged)).To(Succeed())
 
-	currentPod := &corev1.Pod{}
-	g.Expect(c.Get(ctx, client.ObjectKeyFromObject(pod), currentPod)).To(Succeed())
-	currentPod.Labels = map[string]string{"label": "added"}
-	g.Expect(c.Update(ctx, currentPod)).To(Succeed())
-	currentPod.Status.Phase = corev1.PodRunning
-	g.Expect(c.Status().Update(ctx, currentPod)).To(Succeed())
+	get(updated)
+	updated.Data["key"] = "new"
+	g.Expect(c.Update(ctx, updated)).To(Succeed())
 
-	report := plan.Report()
-	g.Expect(report.Summary).To(Equal(Summary{Create: 1, Update: 3, Delete: 1}))
-	g.Expect(report.HasChanges()).To(BeTrue())
+	get(patched)
+	base := patched.DeepCopy()
+	patched.Finalizers = []string{"example.com/finalizer"}
+	g.Expect(c.Patch(ctx, patched, client.MergeFrom(base))).To(Succeed())
 
-	text := reportText(g, report)
+	g.Expect(c.Delete(ctx, deleted)).To(Succeed())
+	g.Expect(c.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "created", Namespace: "default"}, Data: map[string]string{"key": "value"}})).To(Succeed())
+
+	// A status update and an update of the main resource are one change.
+	get(pod)
+	pod.Labels = map[string]string{"label": "added"}
+	g.Expect(c.Update(ctx, pod)).To(Succeed())
+	pod.Status.Phase = corev1.PodRunning
+	g.Expect(c.Status().Update(ctx, pod)).To(Succeed())
+
+	text, summary := writePlan(g, plan)
+	g.Expect(summary).To(Equal(Summary{Create: 1, Update: 3, Delete: 1}))
+	g.Expect(summary.ExitCode()).To(Equal(ExitChanges))
 	g.Expect(text).To(Equal(`# cluster a
 + ConfigMap default/created (create)
-+     data.key: "value"
-+     metadata.name: "created"
-+     metadata.namespace: "default"
++ data:
++   key: value
++ metadata:
++   name: created
++   namespace: default
 - ConfigMap default/deleted (delete)
 ~ ConfigMap default/patched (update)
-+     metadata.finalizers[]: "example.com/finalizer"
+@@ -1,3 +1,5 @@
+ metadata:
++  finalizers:
++  - example.com/finalizer
+   name: patched
+   namespace: default
 ~ ConfigMap default/updated (update)
--     data.key: "old"
-+     data.key: "new"
--     data.removed: "value"
+@@ -1,4 +1,4 @@
+ data:
+-  key: old
++  key: new
+ metadata:
+   name: updated
 ~ Pod default/pod (update)
-+     metadata.labels.label: "added"
--     status.phase: "Pending"
-+     status.phase: "Running"
+@@ -1,3 +1,5 @@
+ metadata:
++  labels:
++    label: added
+   name: pod
+   namespace: default
+@@ -5,3 +7,3 @@
+   containers: null
+ status:
+-  phase: Pending
++  phase: Running
 
-Plan: 1 to create, 3 to update (0 only reorder lists), 1 to delete, 0 AWS/Spot changes. Reconciled 0 objects: 0 skipped (paused), 0 pending, 0 errors.
+Plan: 1 to create, 3 to update (0 only reorder lists), 1 to delete, 0 AWS/Spot changes. Results: 0 ok, 0 skipped (paused), 0 pending, 0 errors.
 `))
-	g.Expect(text).NotTo(ContainSubstring("unchanged"))
 }
 
-func TestPlanWithoutContextOnlyLogs(t *testing.T) {
+func TestPlanLabels(t *testing.T) {
 	g := NewWithT(t)
-	var lines []string
-	ctx := newLogContext(&lines)
-
-	existing := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "existing", Namespace: "default"}}
-	real := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(existing).Build()
-	c := NewClient(real, real)
-
-	// Without a plan, a failed read of the current object only drops the
-	// patch from the log.
-	missing := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "missing", Namespace: "default"}}
-	err := c.Update(ctx, missing)
-	if err != nil {
-		g.Expect(err.Error()).NotTo(ContainSubstring("dry-run plan"))
-	}
-	g.Expect(lines).To(HaveLen(1))
-	g.Expect(lines[0]).NotTo(ContainSubstring("patch"))
-}
-
-func TestPlanUpdateFailsWhenCurrentObjectCannotBeRead(t *testing.T) {
-	g := NewWithT(t)
-	var lines []string
-	ctx := WithPlan(newLogContext(&lines), NewPlan(), source)
-
-	real := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
-	c := NewClient(real, real)
-
-	missing := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "missing", Namespace: "default"}}
-	err := c.Update(ctx, missing)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("dry-run plan"))
-	g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
-}
-
-func TestPlanHidesSecretValues(t *testing.T) {
-	g := NewWithT(t)
-	var lines []string
 	plan := NewPlan()
-	ctx := WithPlan(newLogContext(&lines), plan, source)
-
-	existing := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "existing", Namespace: "default"},
-		Data:       map[string][]byte{"token": []byte("old-secret-value")},
+	key := func(name string) objectKey { return objectKey{Group: "example.com", Kind: "Thing", Name: name} }
+	ref := func(name string) interface{} { return map[string]interface{}{"name": name} }
+	rule := func(cidrs ...interface{}) interface{} { return map[string]interface{}{"cidrs": cidrs} }
+	meta := func(finalizers ...interface{}) map[string]interface{} {
+		m := map[string]interface{}{"deletionTimestamp": "2025-05-13T15:28:24Z"}
+		if len(finalizers) > 0 {
+			m["finalizers"] = finalizers
+		}
+		return map[string]interface{}{"metadata": m}
 	}
-	real := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(existing).Build()
-	c := NewClient(real, real)
 
-	current := &corev1.Secret{}
-	g.Expect(c.Get(ctx, client.ObjectKeyFromObject(existing), current)).To(Succeed())
-	current.Data["token"] = []byte("new-secret-value")
-	g.Expect(c.Update(ctx, current)).To(Succeed())
+	plan.recordStatusUpdate(source, key("reordered"),
+		map[string]interface{}{"status": map[string]interface{}{"refs": []interface{}{ref("b"), ref("a")}, "rules": []interface{}{rule("2", "1")}}},
+		map[string]interface{}{"status": map[string]interface{}{"refs": []interface{}{ref("a"), ref("b")}, "rules": []interface{}{rule("1", "2")}}})
+	// An empty list and a missing list are the same.
+	plan.recordUpdate(source, key("empty-list"), map[string]interface{}{"spec": map[string]interface{}{}}, map[string]interface{}{"spec": map[string]interface{}{"refs": []interface{}{}}})
+	plan.recordUpdate(source, key("released"), meta("example.com/sg"), meta())
+	plan.recordUpdate(source, key("kept"), meta("example.com/sg", "example.com/other"), meta("example.com/other"))
+	plan.recordDelete(source, key("already-deleting"), meta("example.com/sg"), nil)
 
-	text := reportText(g, plan.Report())
-	g.Expect(text).To(ContainSubstring("data.token"))
-	g.Expect(text).To(ContainSubstring("sensitive"))
-	g.Expect(text).NotTo(ContainSubstring("secret-value"))
-	g.Expect(text).NotTo(ContainSubstring("c2VjcmV0"))
+	text, summary := writePlan(g, plan)
+	g.Expect(summary).To(Equal(Summary{Update: 2, Reorder: 1, Delete: 1}))
+	g.Expect(text).To(Equal(`# cluster a
+~ Thing.example.com kept (update)
+@@ -3,3 +3,2 @@
+   finalizers:
+   - example.com/other
+-  - example.com/sg
+- Thing.example.com released (delete, last finalizer removed)
+@@ -1,4 +1,2 @@
+ metadata:
+   deletionTimestamp: "2025-05-13T15:28:24Z"
+-  finalizers:
+-  - example.com/sg
+~ Thing.example.com reordered (update, order only)
+
+Plan: 0 to create, 2 to update (1 only reorder lists), 1 to delete, 0 AWS/Spot changes. Results: 0 ok, 0 skipped (paused), 0 pending, 0 errors.
+`))
 }
 
-func TestPlanVariants(t *testing.T) {
+func TestPlanShowsEachVersionOfAnObject(t *testing.T) {
 	g := NewWithT(t)
 	plan := NewPlan()
 	key := objectKey{Group: "example.com", Kind: "Mesh", Name: "mesh"}
 	live := map[string]interface{}{"status": map[string]interface{}{"ready": false}}
-	a := Source{Kind: "Cluster", Name: "a", Clusters: []string{"a"}}
-	b := Source{Kind: "Cluster", Name: "b", Clusters: []string{"b"}}
-	c := Source{Kind: "Cluster", Name: "c", Clusters: []string{"c"}}
+	for _, name := range []string{"a", "b"} {
+		plan.recordStatusUpdate(Source{Kind: "Cluster", Name: name, Clusters: []string{name}}, key, live, map[string]interface{}{"status": map[string]interface{}{"ready": true}})
+	}
+	plan.recordStatusUpdate(Source{Kind: "Cluster", Name: "c", Clusters: []string{"c"}}, key, live, map[string]interface{}{"status": map[string]interface{}{"ready": false, "reason": "x"}})
 
-	plan.recordStatusUpdate(a, key, live, map[string]interface{}{"status": map[string]interface{}{"ready": true}})
-	plan.recordStatusUpdate(b, key, live, map[string]interface{}{"status": map[string]interface{}{"ready": true}})
-	plan.recordStatusUpdate(c, key, live, map[string]interface{}{"status": map[string]interface{}{"ready": false, "reason": "x"}})
-
-	report := plan.Report()
-	g.Expect(report.Changes).To(HaveLen(1))
-	g.Expect(report.Changes[0].Clusters).To(Equal([]string{"a", "b", "c"}))
-	g.Expect(report.Changes[0].Variants).To(HaveLen(2))
-	g.Expect(report.Changes[0].Variants[0].Sources).To(Equal([]string{"Cluster/a", "Cluster/b"}))
-	g.Expect(reportText(g, report)).To(ContainSubstring(`# cluster a, b, c
+	text, summary := writePlan(g, plan)
+	g.Expect(summary.Update).To(Equal(1))
+	g.Expect(text).To(HavePrefix(`# cluster a, b, c
 ~ Mesh.example.com mesh (update)
   # update from Cluster/a, Cluster/b
--     status.ready: false
-+     status.ready: true
+@@ -1,2 +1,2 @@
+ status:
+-  ready: false
++  ready: true
   # update from Cluster/c
-+     status.reason: "x"
+@@ -1,2 +1,3 @@
+ status:
+   ready: false
++  reason: x
 `))
 }
 
-func TestPlanUpdateKeepsRecordedStatus(t *testing.T) {
+func TestPlanHidesSecretValues(t *testing.T) {
 	g := NewWithT(t)
 	plan := NewPlan()
-	key := objectKey{Kind: "Thing", Name: "thing"}
-	live := map[string]interface{}{"spec": map[string]interface{}{"a": "1"}, "status": map[string]interface{}{"ready": false}}
+	ctx := WithPlan(context.TODO(), plan, source)
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "secret", Namespace: "default"}, Data: map[string][]byte{"token": []byte("old-secret-value")}}
+	real := fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).WithObjects(secret).Build()
+	c := NewClient(real, real)
 
-	plan.recordStatusUpdate(source, key, live, map[string]interface{}{"spec": map[string]interface{}{"a": "1"}, "status": map[string]interface{}{"ready": true}})
-	// The response of a later update of the main resource has the live status.
-	plan.recordUpdate(source, key, live, map[string]interface{}{"spec": map[string]interface{}{"a": "2"}, "status": map[string]interface{}{"ready": false}})
+	g.Expect(c.Get(ctx, client.ObjectKeyFromObject(secret), secret)).To(Succeed())
+	secret.Data["token"] = []byte("new-secret-value")
+	g.Expect(c.Update(ctx, secret)).To(Succeed())
 
-	g.Expect(plan.Report().Changes[0].Variants[0].Diff).To(Equal([]string{
-		`-     spec.a: "1"`,
-		`+     spec.a: "2"`,
-		`-     status.ready: false`,
-		`+     status.ready: true`,
-	}))
+	text, _ := writePlan(g, plan)
+	g.Expect(text).To(ContainSubstring("token: (sensitive, sha256 "))
+	g.Expect(text).NotTo(Or(ContainSubstring("secret-value"), ContainSubstring("c2VjcmV0")))
 }
 
-func TestDiffListOrder(t *testing.T) {
+func TestPlanUpdateFailsWhenCurrentObjectCannotBeRead(t *testing.T) {
 	g := NewWithT(t)
-	tags := func(kv ...string) []interface{} {
-		var l []interface{}
-		for i := 0; i < len(kv); i += 2 {
-			l = append(l, map[string]interface{}{"key": kv[i], "value": kv[i+1]})
-		}
-		return l
+	real := fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).Build()
+	c := NewClient(real, real)
+	missing := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "missing", Namespace: "default"}}
+
+	err := c.Update(WithPlan(context.TODO(), NewPlan(), source), missing)
+	g.Expect(err).To(MatchError(ContainSubstring("dry-run plan")))
+	g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+	// Without a plan, the update goes on and only the log misses the patch.
+	err = c.Update(context.TODO(), missing)
+	if err != nil {
+		g.Expect(err.Error()).NotTo(ContainSubstring("dry-run plan"))
 	}
-
-	var lines []string
-	diffValue("tags", tags("a", "1", "b", "2", "c", "3"), tags("a", "1", "b", "2", "c", "3"), &lines)
-	g.Expect(lines).To(BeEmpty())
-
-	diffValue("tags", tags("c", "3", "a", "1", "b", "2"), tags("a", "1", "b", "2", "c", "3"), &lines)
-	g.Expect(lines).To(Equal([]string{"~     tags: the order of the elements changes"}))
-
-	lines = nil
-	diffValue("refs", []interface{}{"y", "x"}, []interface{}{"x", "y"}, &lines)
-	g.Expect(lines).To(Equal([]string{"~     refs: the order of the elements changes"}))
-
-	// A change of the elements is shown instead of a change of their order.
-	lines = nil
-
-	diffValue("tags", tags("a", "1", "b", "2"), tags("b", "3", "a", "1", "d", "4"), &lines)
-	g.Expect(lines).To(Equal([]string{
-		`-     tags[key=b].value: "2"`,
-		`+     tags[key=b].value: "3"`,
-		`+     tags[key=d].key: "d"`,
-		`+     tags[key=d].value: "4"`,
-	}))
-
-	lines = nil
-	diffValue("refs", []interface{}{"x", "y"}, []interface{}{"y", "z"}, &lines)
-	g.Expect(lines).To(Equal([]string{`-     refs[]: "x"`, `+     refs[]: "z"`}))
-
-	lines = nil
-	rule := func(cidr string) interface{} {
-		return map[string]interface{}{"fromPort": -1, "cidrs": []interface{}{cidr}}
-	}
-	diffValue("rules", []interface{}{rule("10.0.0.0/8")}, []interface{}{rule("10.0.0.0/8"), rule("172.16.0.0/12")}, &lines)
-	g.Expect(lines).To(Equal([]string{`+     rules[]: {"cidrs":["172.16.0.0/12"],"fromPort":-1}`}))
-
-	lines = nil
-	diffValue("", map[string]interface{}{"metadata": map[string]interface{}{"annotations": map[string]interface{}{"crossplane.io/paused": "true"}}}, map[string]interface{}{}, &lines)
-	g.Expect(lines).To(Equal([]string{`-     metadata.annotations[crossplane.io/paused]: "true"`}))
 }
 
 func TestPlanCloudChanges(t *testing.T) {
 	g := NewWithT(t)
 	plan := NewPlan()
-	change := func(src Source) CloudChange {
-		return CloudChange{
-			Source: src,
-			Kind:   "Instance",
-			ID:     "i-1",
-			Call:   "ModifyInstanceAttribute",
-			Before: map[string][]string{"securityGroups": {"sg-1"}},
-			After:  map[string][]string{"securityGroups": {"sg-1", "sg-2"}},
-		}
-	}
-	plan.RecordCloudChange(change(Source{Kind: "SecurityGroup", Name: "x", Clusters: []string{"a"}}))
-	plan.RecordCloudChange(change(Source{Kind: "SecurityGroup", Name: "y", Clusters: []string{"a"}}))
+	lines := []string{"~ Instance i-1 (ModifyInstanceAttribute)", "-   security groups [sg-1]", "+   security groups [sg-1, sg-2]"}
+	plan.RecordCloudChange(Source{Kind: "SecurityGroup", Name: "x", Clusters: []string{"a"}}, lines...)
+	plan.RecordCloudChange(Source{Kind: "SecurityGroup", Name: "x", Clusters: []string{"a"}}, lines...)
+	plan.RecordCloudChange(Source{Kind: "SecurityGroup", Name: "y", Clusters: []string{"a"}}, lines...)
+	g.Expect(plan.cloud[strings.Join(lines, "\n")].sources).To(HaveLen(2))
 
-	report := plan.Report()
-	g.Expect(report.Cloud).To(HaveLen(1))
-	g.Expect(report.Cloud[0].Sources).To(Equal([]string{"SecurityGroup/x", "SecurityGroup/y"}))
-	g.Expect(report.HasChanges()).To(BeTrue())
-	g.Expect(reportText(g, report)).To(ContainSubstring(`# AWS and Spot
+	text, summary := writePlan(g, plan)
+	g.Expect(summary.Cloud).To(Equal(1))
+	g.Expect(text).To(HavePrefix("# cluster a\n" + strings.Join(lines, "\n") + "\n\n"))
 
-# cluster a
-~ Instance i-1 (ModifyInstanceAttribute)
--     securityGroups: [sg-1]
-+     securityGroups: [sg-1, sg-2]
-`))
-
-	plan.forget(Source{Kind: "SecurityGroup", Name: "x", Clusters: []string{"a"}})
-	plan.forget(Source{Kind: "SecurityGroup", Name: "y", Clusters: []string{"a"}})
-	g.Expect(plan.Report().HasChanges()).To(BeFalse())
+	plan.forget(Source{Kind: "SecurityGroup", Name: "x"})
+	plan.forget(Source{Kind: "SecurityGroup", Name: "y"})
+	_, summary = writePlan(g, plan)
+	g.Expect(summary.ExitCode()).To(Equal(ExitNoChanges))
 }
 
 func TestPlanRun(t *testing.T) {
 	g := NewWithT(t)
 	plan := NewPlan()
-	errWaiting := errors.New("waiting")
-	src := func(name string) Source { return Source{Kind: "SecurityGroup", Name: name} }
+	plan.recordCreate(Source{Kind: "Cluster", Name: "creator"}, objectKey{Group: "ec2.aws.crossplane.io", Kind: "SecurityGroup", Name: "sg"}, nil, map[string]interface{}{})
+	real := fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).Build()
+	c := NewClient(real, real)
 	conflicts := 0
 
-	created := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "created-sg"}}
-	plan.recordCreate(src("creator"), keyFor(schema.GroupVersionKind{Kind: "ConfigMap"}, created), map[string]interface{}{})
-
-	targets := []Target{
-		{Source: src("ok"), Reconcile: func(ctx context.Context) (ctrl.Result, error) {
-			return ctrl.Result{RequeueAfter: time.Hour}, nil
+	reconcile := func(result ctrl.Result, err error) func(context.Context) (ctrl.Result, error) {
+		return func(context.Context) (ctrl.Result, error) { return result, err }
+	}
+	notFound := func(group string) error {
+		return apierrors.NewNotFound(schema.GroupResource{Group: group, Resource: "securitygroups"}, "sg")
+	}
+	targets := []target{
+		{source: Source{Name: "ok"}, reconcile: reconcile(ctrl.Result{RequeueAfter: time.Hour}, nil)},
+		{source: Source{Name: "paused"}, skipReason: "paused", reconcile: func(context.Context) (ctrl.Result, error) {
+			panic("a skipped target was reconciled")
 		}},
-		{Source: src("paused"), SkipReason: "paused", Reconcile: func(ctx context.Context) (ctrl.Result, error) {
-			t.Fatal("a skipped target was reconciled")
+		{source: Source{Name: "requeue"}, reconcile: reconcile(ctrl.Result{RequeueAfter: 30 * time.Second}, nil)},
+		{source: Source{Name: "sg-not-available"}, reconcile: reconcile(ctrl.Result{}, sgcontroller.ErrSecurityGroupNotAvailable)},
+		{source: Source{Name: "needs-created"}, reconcile: reconcile(ctrl.Result{}, notFound("ec2.aws.crossplane.io"))},
+		{source: Source{Name: "needs-other-group"}, reconcile: reconcile(ctrl.Result{}, notFound("ec2.aws.wildlife.io"))},
+		{source: Source{Name: "failed"}, reconcile: reconcile(ctrl.Result{}, errors.New("boom"))},
+		{source: Source{Name: "panic"}, reconcile: func(context.Context) (ctrl.Result, error) { panic("oops") }},
+		{source: Source{Name: "ignored-write-error"}, reconcile: func(ctx context.Context) (ctrl.Result, error) {
+			missing := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "missing", Namespace: "default"}}
+			_ = c.Patch(ctx, missing, client.MergeFrom(missing.DeepCopy()))
+			// Expected write errors do not fail the reconcile.
+			recordWriteError(ctx, "create", missing, apierrors.NewAlreadyExists(schema.GroupResource{}, "missing"))
 			return ctrl.Result{}, nil
 		}},
-		{Source: src("requeue"), Reconcile: func(ctx context.Context) (ctrl.Result, error) {
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-		}},
-		{Source: src("waiting"), Reconcile: func(ctx context.Context) (ctrl.Result, error) {
-			return ctrl.Result{}, errWaiting
-		}},
-		{Source: src("needs-created"), Reconcile: func(ctx context.Context) (ctrl.Result, error) {
-			return ctrl.Result{}, apierrors.NewNotFound(schema.GroupResource{Resource: "configmaps"}, "created-sg")
-		}},
-		{Source: src("not-found"), Reconcile: func(ctx context.Context) (ctrl.Result, error) {
-			return ctrl.Result{}, apierrors.NewNotFound(schema.GroupResource{Resource: "configmaps"}, "other")
-		}},
-		{Source: src("failed"), Reconcile: func(ctx context.Context) (ctrl.Result, error) {
-			return ctrl.Result{}, errors.New("boom")
-		}},
-		{Source: src("panic"), Reconcile: func(ctx context.Context) (ctrl.Result, error) {
-			panic("oops")
-		}},
-		{Source: src("conflict"), Reconcile: func(ctx context.Context) (ctrl.Result, error) {
+		{source: Source{Name: "conflict"}, reconcile: func(ctx context.Context) (ctrl.Result, error) {
 			conflicts++
 			if conflicts == 1 {
-				return ctrl.Result{}, apierrors.NewConflict(schema.GroupResource{Resource: "configmaps"}, "conflict", errors.New("changed"))
+				recordWriteError(ctx, "patch", &corev1.ConfigMap{}, apierrors.NewConflict(schema.GroupResource{}, "cm", errors.New("changed")))
 			}
 			return ctrl.Result{}, nil
 		}},
 	}
-	plan.Run(context.TODO(), 3, targets, func(err error) bool { return errors.Is(err, errWaiting) })
+	plan.run(context.TODO(), 3, targets)
 
+	g.Expect(conflicts).To(Equal(2))
 	statuses := map[string]Status{}
-	for _, r := range plan.Report().Results {
-		statuses[r.Source.Name] = r.Status
+	for _, r := range plan.results {
+		statuses[r.source.Name] = r.status
 	}
 	g.Expect(statuses).To(Equal(map[string]Status{
-		"ok":            StatusOK,
-		"paused":        StatusSkipped,
-		"requeue":       StatusPending,
-		"waiting":       StatusPending,
-		"needs-created": StatusPending,
-		"not-found":     StatusError,
-		"failed":        StatusError,
-		"panic":         StatusError,
-		"conflict":      StatusOK,
+		"ok":                  StatusOK,
+		"paused":              StatusSkipped,
+		"requeue":             StatusPending,
+		"sg-not-available":    StatusPending,
+		"needs-created":       StatusPending,
+		"needs-other-group":   StatusError,
+		"failed":              StatusError,
+		"panic":               StatusError,
+		"ignored-write-error": StatusError,
+		"conflict":            StatusOK,
 	}))
-	g.Expect(conflicts).To(Equal(2))
+	g.Expect(plan.results["/ignored-write-error"].reason).To(ContainSubstring("a write failed: patch default/missing"))
 
-	report := plan.Report()
-	g.Expect(report.Summary.Errors).To(Equal(3))
-	g.Expect(report.HasErrors()).To(BeTrue())
-	g.Expect(reportText(g, report)).To(ContainSubstring("! error SecurityGroup/failed: boom\n"))
+	text, summary := writePlan(g, plan)
+	g.Expect(summary.ExitCode()).To(Equal(ExitError))
+	g.Expect(text).To(ContainSubstring("! error /failed: boom\n"))
 }
 
 func TestPlanRunStopsAtDeadline(t *testing.T) {
 	g := NewWithT(t)
 	plan := NewPlan()
 	ctx, cancel := context.WithCancel(context.TODO())
-
-	targets := []Target{
-		{Source: Source{Kind: "SecurityGroup", Name: "slow"}, Reconcile: func(ctx context.Context) (ctrl.Result, error) {
+	plan.run(ctx, 1, []target{
+		{source: Source{Name: "slow"}, reconcile: func(ctx context.Context) (ctrl.Result, error) {
 			cancel()
 			<-ctx.Done()
 			return ctrl.Result{}, ctx.Err()
 		}},
-		{Source: Source{Kind: "SecurityGroup", Name: "late"}, Reconcile: func(ctx context.Context) (ctrl.Result, error) {
-			return ctrl.Result{}, nil
-		}},
-	}
-	plan.Run(ctx, 1, targets, func(error) bool { return false })
+		{source: Source{Name: "late"}, reconcile: func(context.Context) (ctrl.Result, error) { return ctrl.Result{}, nil }},
+	})
 
-	report := plan.Report()
-	g.Expect(report.Summary.Errors).To(Equal(2))
-	g.Expect(reportText(g, report)).To(ContainSubstring("! error SecurityGroup/late: not reconciled: context canceled"))
+	g.Expect(plan.results["/late"].reason).To(Equal("not reconciled: context canceled"))
+	_, summary := writePlan(g, plan)
+	g.Expect(summary.Errors).To(Equal(2))
 }
 
-func TestPlanRunFailsOnIgnoredWriteErrors(t *testing.T) {
+func TestPlanOnce(t *testing.T) {
+	g := NewWithT(t)
+	scheme := runtime.NewScheme()
+	g.Expect(clientgoscheme.AddToScheme(scheme)).To(Succeed())
+	g.Expect(clusterv1beta1.AddToScheme(scheme)).To(Succeed())
+	g.Expect(kinfrastructurev1alpha1.AddToScheme(scheme)).To(Succeed())
+	g.Expect(securitygroupv1alpha2.AddToScheme(scheme)).To(Succeed())
+
+	paused := map[string]string{sgcontroller.AnnotationKeyReconciliationPaused: "true"}
+	real := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		// The reconciler fails on a Cluster without a KopsControlPlane.
+		&clusterv1beta1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "cluster-a", Namespace: "ns"}},
+		&securitygroupv1alpha2.SecurityGroup{
+			ObjectMeta: metav1.ObjectMeta{Name: "sg-paused", Annotations: paused},
+			Spec:       securitygroupv1alpha2.SecurityGroupSpec{InfrastructureRef: []*corev1.ObjectReference{{Kind: "KopsControlPlane", Name: "kcp-a"}}},
+		},
+		// The reconciler fails on a SecurityGroup without infrastructureRef
+		// before it checks the pause annotation.
+		&securitygroupv1alpha2.SecurityGroup{ObjectMeta: metav1.ObjectMeta{Name: "sg-no-ref", Annotations: paused}},
+	).Build()
+	cm := &clustermeshcontrollers.ClusterMeshReconciler{Client: real}
+	sg := &sgcontroller.SecurityGroupReconciler{Client: real}
+
+	plan := NewPlan()
+	g.Expect(plan.Once(context.TODO(), real, cm, sg, 1, 1, "")).To(Succeed())
+	g.Expect(plan.results["Cluster/ns/cluster-a"].status).To(Equal(StatusError))
+	g.Expect(plan.results["SecurityGroup/sg-paused"].status).To(Equal(StatusSkipped))
+	g.Expect(plan.results["SecurityGroup/sg-no-ref"].status).To(Equal(StatusError))
+
+	// A --cluster that matches nothing fails instead of planning no changes.
+	cm.RequestFilter = func(context.Context, ctrl.Request) (bool, error) { return false, nil }
+	sg.RequestFilter = cm.RequestFilter
+	err := NewPlan().Once(context.TODO(), real, cm, sg, 1, 1, "typo")
+	g.Expect(err).To(MatchError("no Cluster matches --cluster=typo"))
+}
+
+func TestSecurityGroupClusters(t *testing.T) {
+	g := NewWithT(t)
+	scheme := runtime.NewScheme()
+	g.Expect(kinfrastructurev1alpha1.AddToScheme(scheme)).To(Succeed())
+	real := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&kinfrastructurev1alpha1.KopsMachinePool{
+		ObjectMeta: metav1.ObjectMeta{Name: "nodes", Namespace: "ns"},
+		Spec:       kinfrastructurev1alpha1.KopsMachinePoolSpec{ClusterName: "kcp-b"},
+	}).Build()
+
+	clusters, err := securityGroupClusters(context.TODO(), real, &securitygroupv1alpha2.SecurityGroup{
+		Spec: securitygroupv1alpha2.SecurityGroupSpec{InfrastructureRef: []*corev1.ObjectReference{
+			{Kind: "KopsMachinePool", Namespace: "ns", Name: "nodes"},
+			{Kind: "KopsMachinePool", Namespace: "ns", Name: "deleted"},
+			{Kind: "KopsControlPlane", Namespace: "ns", Name: "kcp-a"},
+		}},
+	})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(clusters).To(Equal([]string{"kcp-a", "kcp-b"}))
+}
+
+func TestPlanLabelsAnObjectByAllItsChanges(t *testing.T) {
 	g := NewWithT(t)
 	plan := NewPlan()
-	existing := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "existing", Namespace: "default"}}
-	real := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(existing).Build()
-	c := NewClient(real, real)
-	src := func(name string) Source { return Source{Kind: "SecurityGroup", Name: name} }
-
-	targets := []Target{
-		{Source: src("ignores-failed-patch"), Reconcile: func(ctx context.Context) (ctrl.Result, error) {
-			missing := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "missing", Namespace: "default"}}
-			_ = c.Patch(ctx, missing, client.MergeFrom(missing.DeepCopy()))
-			return ctrl.Result{}, nil
-		}},
-		{Source: src("creates-existing"), Reconcile: func(ctx context.Context) (ctrl.Result, error) {
-			// The fake client does not return AlreadyExists for a dry-run create.
-			recordWriteError(ctx, "create", existing, apierrors.NewAlreadyExists(schema.GroupResource{Resource: "configmaps"}, "existing"))
-			return ctrl.Result{}, nil
-		}},
-		{Source: src("deletes-missing"), Reconcile: func(ctx context.Context) (ctrl.Result, error) {
-			err := c.Delete(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "missing", Namespace: "default"}})
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}},
-	}
-	plan.Run(context.TODO(), 1, targets, func(error) bool { return false })
-
-	results := map[string]Result{}
-	for _, r := range plan.Report().Results {
-		results[r.Source.Name] = r
-	}
-	g.Expect(results["ignores-failed-patch"].Status).To(Equal(StatusError))
-	g.Expect(results["ignores-failed-patch"].Reason).To(ContainSubstring("a write failed: patch default/missing"))
-	g.Expect(results["creates-existing"].Status).To(Equal(StatusOK))
-	g.Expect(results["deletes-missing"].Status).To(Equal(StatusOK))
-}
-
-func TestPlanRunRetriesIgnoredWriteConflicts(t *testing.T) {
-	g := NewWithT(t)
-	plan := NewPlan()
-	attempts := 0
-	target := Target{Source: Source{Kind: "SecurityGroup", Name: "sg"}, Reconcile: func(ctx context.Context) (ctrl.Result, error) {
-		attempts++
-		if attempts == 1 {
-			recordWriteError(ctx, "patch", &corev1.ConfigMap{}, apierrors.NewConflict(schema.GroupResource{Resource: "configmaps"}, "cm", errors.New("changed")))
-		}
-		return ctrl.Result{}, nil
-	}}
-	plan.Run(context.TODO(), 0, []Target{target}, func(error) bool { return false })
-
-	g.Expect(attempts).To(Equal(2))
-	g.Expect(plan.Report().Results[0].Status).To(Equal(StatusOK))
-}
-
-func TestPlanCloudChangeOrderIsStable(t *testing.T) {
-	g := NewWithT(t)
-	var outputs []string
-	for i := 0; i < 20; i++ {
-		plan := NewPlan()
-		for _, sg := range []string{"sg-b", "sg-a", "sg-c"} {
-			plan.RecordCloudChange(CloudChange{
-				Source: Source{Kind: "SecurityGroup", Name: sg, Clusters: []string{"a"}},
-				Kind:   "LaunchTemplate",
-				ID:     "lt-1",
-				Call:   "CreateLaunchTemplateVersion",
-				After:  map[string][]string{"securityGroups": {sg}},
-			})
-		}
-		outputs = append(outputs, reportText(g, plan.Report()))
-	}
-	for _, o := range outputs {
-		g.Expect(o).To(Equal(outputs[0]))
-	}
-}
-
-func TestPlanOrderOnlyAndReleasedChanges(t *testing.T) {
-	g := NewWithT(t)
-	plan := NewPlan()
+	key := objectKey{Group: "example.com", Kind: "Mesh", Name: "mesh"}
 	ref := func(name string) interface{} { return map[string]interface{}{"name": name} }
+	live := map[string]interface{}{"status": map[string]interface{}{"refs": []interface{}{ref("b"), ref("a")}}}
+	// Cluster a only sorts the refs, cluster b also adds one.
+	plan.recordStatusUpdate(Source{Kind: "Cluster", Name: "a"}, key, live, map[string]interface{}{"status": map[string]interface{}{"refs": []interface{}{ref("a"), ref("b")}}})
+	plan.recordStatusUpdate(Source{Kind: "Cluster", Name: "b"}, key, live, map[string]interface{}{"status": map[string]interface{}{"refs": []interface{}{ref("a"), ref("b"), ref("c")}}})
 
-	mesh := objectKey{Group: "example.com", Kind: "Mesh", Name: "mesh"}
-	plan.recordStatusUpdate(source, mesh,
-		map[string]interface{}{"status": map[string]interface{}{"refs": []interface{}{ref("b"), ref("a")}}},
-		map[string]interface{}{"status": map[string]interface{}{"refs": []interface{}{ref("a"), ref("b")}}})
-
-	pool := objectKey{Group: "example.com", Kind: "Pool", Namespace: "ns", Name: "pool"}
-	live := map[string]interface{}{"metadata": map[string]interface{}{
-		"name":              "pool",
-		"deletionTimestamp": "2025-05-13T15:28:24Z",
-		"finalizers":        []interface{}{"example.com/sg"},
-	}}
-	plan.recordUpdate(source, pool, live, map[string]interface{}{"metadata": map[string]interface{}{
-		"name":              "pool",
-		"deletionTimestamp": "2025-05-13T15:28:24Z",
-	}})
-
-	// Removing one of two finalizers does not delete the object.
-	kept := objectKey{Group: "example.com", Kind: "Pool", Namespace: "ns", Name: "kept"}
-	plan.recordUpdate(source, kept, map[string]interface{}{"metadata": map[string]interface{}{
-		"deletionTimestamp": "2025-05-13T15:28:24Z",
-		"finalizers":        []interface{}{"example.com/sg", "example.com/other"},
-	}}, map[string]interface{}{"metadata": map[string]interface{}{
-		"deletionTimestamp": "2025-05-13T15:28:24Z",
-		"finalizers":        []interface{}{"example.com/other"},
-	}})
-
-	report := plan.Report()
-	g.Expect(report.Summary).To(Equal(Summary{Update: 2, Reorder: 1, Delete: 1}))
-	g.Expect(reportText(g, report)).To(Equal(`# cluster a
-~ Mesh.example.com mesh (update, order only)
-~     status.refs: the order of the elements changes
-~ Pool.example.com ns/kept (update)
--     metadata.finalizers[]: "example.com/sg"
-- Pool.example.com ns/pool (delete)
-  # removes the last finalizer of an object that is being deleted, so the object is deleted
--     metadata.finalizers[]: "example.com/sg"
-
-Plan: 0 to create, 2 to update (1 only reorder lists), 1 to delete, 0 AWS/Spot changes. Reconciled 0 objects: 0 skipped (paused), 0 pending, 0 errors.
-`))
+	text, summary := writePlan(g, plan)
+	g.Expect(summary).To(Equal(Summary{Update: 1}))
+	g.Expect(text).To(ContainSubstring("~ Mesh.example.com mesh (update)\n  # update, order only from Cluster/a\n  # update from Cluster/b\n"))
 }
 
-func TestDiffListNestedOrderAndEmptyLists(t *testing.T) {
+func TestPlanReleaseAndDeleteOfADeletingObject(t *testing.T) {
 	g := NewWithT(t)
-	rule := func(cidrs ...interface{}) interface{} {
-		return map[string]interface{}{"fromPort": -1, "cidrs": cidrs}
-	}
+	live := map[string]interface{}{"metadata": map[string]interface{}{"deletionTimestamp": "2025-05-13T15:28:24Z", "finalizers": []interface{}{"example.com/sg"}}}
+	released := map[string]interface{}{"metadata": map[string]interface{}{"deletionTimestamp": "2025-05-13T15:28:24Z"}}
+	key := objectKey{Kind: "Pool", Name: "pool"}
 
-	var lines []string
-	diffValue("rules", []interface{}{rule("10.0.0.0/8", "172.16.0.0/12")}, []interface{}{rule("172.16.0.0/12", "10.0.0.0/8")}, &lines)
-	g.Expect(lines).To(Equal([]string{"~     rules: the order of the elements changes"}))
-	g.Expect(orderOnly(lines)).To(BeTrue())
-
-	lines = nil
-	diffValue("rules", []interface{}{rule("10.0.0.0/8")}, []interface{}{rule("10.0.0.0/8", "192.168.0.0/16")}, &lines)
-	g.Expect(lines).To(Equal([]string{
-		`-     rules[]: {"cidrs":["10.0.0.0/8"],"fromPort":-1}`,
-		`+     rules[]: {"cidrs":["10.0.0.0/8","192.168.0.0/16"],"fromPort":-1}`,
-	}))
-
-	lines = nil
-	diffValue("", map[string]interface{}{}, map[string]interface{}{"refs": []interface{}{}}, &lines)
-	diffValue("", map[string]interface{}{"refs": []interface{}{}}, map[string]interface{}{"refs": nil}, &lines)
-	g.Expect(lines).To(BeEmpty())
-}
-
-func TestPlanDeleteOfDeletingObjectIsNoChange(t *testing.T) {
-	g := NewWithT(t)
-	var lines []string
-	plan := NewPlan()
-	ctx := WithPlan(newLogContext(&lines), plan, source)
-
-	deleting := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
-		Name:              "deleting",
-		Namespace:         "default",
-		Finalizers:        []string{"example.com/finalizer"},
-		DeletionTimestamp: &metav1.Time{Time: time.Now()},
-	}}
-	live := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "live", Namespace: "default"}}
-	real := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(deleting, live).Build()
-	c := NewClient(real, real)
-
-	g.Expect(c.Delete(ctx, deleting.DeepCopy())).To(Succeed())
-	g.Expect(c.Delete(ctx, live.DeepCopy())).To(Succeed())
-
-	report := plan.Report()
-	g.Expect(report.Summary.Delete).To(Equal(1))
-	g.Expect(report.Changes).To(HaveLen(1))
-	g.Expect(report.Changes[0].Name).To(Equal("live"))
-}
-
-func TestPlanCloudChangeSourcesAndNoOps(t *testing.T) {
-	g := NewWithT(t)
-	plan := NewPlan()
-	src := Source{Kind: "SecurityGroup", Name: "sg", Clusters: []string{"a"}}
-	change := CloudChange{
-		Source: src,
-		Kind:   "AutoScalingGroup",
-		ID:     "asg",
-		Call:   "UpdateAutoScalingGroup",
-		Before: map[string][]string{"launchTemplate": {"lt-1:7"}},
-		After:  map[string][]string{"launchTemplate": {"lt-1:8"}},
-	}
-	plan.RecordCloudChange(change)
-	plan.RecordCloudChange(change)
-
-	noop := change
-	noop.ID = "asg-noop"
-	noop.After = map[string][]string{"launchTemplate": {"lt-1:7"}}
-	plan.RecordCloudChange(noop)
-
-	report := plan.Report()
-	g.Expect(report.Cloud).To(HaveLen(1))
-	g.Expect(report.Cloud[0].ID).To(Equal("asg"))
-	g.Expect(report.Cloud[0].Sources).To(Equal([]string{"SecurityGroup/sg"}))
-	g.Expect(report.Summary.Cloud).To(Equal(1))
-}
-
-func TestPlanRunPendingNeedsObjectOfSameGroup(t *testing.T) {
-	g := NewWithT(t)
-	plan := NewPlan()
-	plan.recordCreate(Source{Kind: "Cluster", Name: "a"}, objectKey{Group: "ec2.aws.crossplane.io", Kind: "SecurityGroup", Name: "sg"}, map[string]interface{}{})
-
-	notFound := func(group string) func(ctx context.Context) (ctrl.Result, error) {
-		return func(ctx context.Context) (ctrl.Result, error) {
-			return ctrl.Result{}, apierrors.NewNotFound(schema.GroupResource{Group: group, Resource: "securitygroups"}, "sg")
+	for _, deleteFirst := range []bool{true, false} {
+		plan := NewPlan()
+		if deleteFirst {
+			plan.recordDelete(source, key, live, nil)
 		}
+		plan.recordUpdate(source, key, live, released)
+		if !deleteFirst {
+			plan.recordDelete(source, key, live, nil)
+		}
+		_, summary := writePlan(g, plan)
+		g.Expect(summary).To(Equal(Summary{Delete: 1}), "delete first: %v", deleteFirst)
 	}
-	plan.Run(context.TODO(), 1, []Target{
-		{Source: Source{Kind: "SecurityGroup", Name: "same-group"}, Reconcile: notFound("ec2.aws.crossplane.io")},
-		{Source: Source{Kind: "SecurityGroup", Name: "other-group"}, Reconcile: notFound("ec2.aws.wildlife.io")},
-	}, func(error) bool { return false })
+}
 
-	statuses := map[string]Status{}
-	for _, r := range plan.Report().Results {
-		statuses[r.Source.Name] = r.Status
-	}
-	g.Expect(statuses).To(Equal(map[string]Status{"same-group": StatusPending, "other-group": StatusError}))
+func TestFailedPlanDoesNotSayNoChanges(t *testing.T) {
+	g := NewWithT(t)
+	plan := NewPlan()
+	plan.SetResult(Source{Kind: "Plan", Name: "run"}, StatusError, "listing Clusters: connection refused")
+
+	text, summary := writePlan(g, plan)
+	g.Expect(summary.ExitCode()).To(Equal(ExitError))
+	g.Expect(text).NotTo(ContainSubstring("No changes."))
+	g.Expect(text).To(ContainSubstring("! error Plan/run: listing Clusters: connection refused\n"))
 }

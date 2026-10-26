@@ -142,12 +142,9 @@ func (c *loggingClient) record(ctx context.Context, obj, live client.Object, f r
 }
 
 func (c *loggingClient) planMap(obj client.Object) (map[string]interface{}, error) {
-	m, err := toMap(obj)
+	m, err := toMap(obj, c.isSecret(obj))
 	if err != nil {
 		return nil, fmt.Errorf("dry-run plan: converting %s: %w", client.ObjectKeyFromObject(obj), err)
-	}
-	if c.isSecret(obj) {
-		hideSecretData(m)
 	}
 	return m, nil
 }
@@ -162,9 +159,7 @@ func (c *loggingClient) Create(ctx context.Context, obj client.Object, opts ...c
 	if err := c.Client.Create(ctx, obj, opts...); err != nil {
 		return err
 	}
-	return c.record(ctx, obj, nil, func(p *Plan, source Source, key objectKey, _, obj map[string]interface{}) {
-		p.recordCreate(source, key, obj)
-	})
+	return c.record(ctx, obj, nil, (*Plan).recordCreate)
 }
 
 func (c *loggingClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) (err error) {
@@ -219,9 +214,7 @@ func (c *loggingClient) Delete(ctx context.Context, obj client.Object, opts ...c
 	if err != nil {
 		return err
 	}
-	return c.record(ctx, obj, current, func(p *Plan, source Source, key objectKey, live, _ map[string]interface{}) {
-		p.recordDelete(source, key, live)
-	})
+	return c.record(ctx, obj, current, (*Plan).recordDelete)
 }
 
 func (c *loggingClient) Status() client.SubResourceWriter {

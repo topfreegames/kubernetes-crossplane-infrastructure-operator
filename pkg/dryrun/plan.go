@@ -12,16 +12,18 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/pmezard/go-difflib/difflib"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 )
 
-// Source is the object whose reconcile made a write.
+// Source is the object whose reconcile makes a write.
 type Source struct {
-	Kind      string   `json:"kind"`
-	Namespace string   `json:"namespace,omitempty"`
-	Name      string   `json:"name"`
-	Clusters  []string `json:"clusters,omitempty"`
+	Kind      string
+	Namespace string
+	Name      string
+	Clusters  []string
 }
 
 func (s Source) String() string {
@@ -30,17 +32,6 @@ func (s Source) String() string {
 	}
 	return s.Kind + "/" + s.Namespace + "/" + s.Name
 }
-
-// Action is the kind of change a plan entry makes.
-type Action string
-
-const (
-	ActionCreate Action = "create"
-	ActionUpdate Action = "update"
-	ActionDelete Action = "delete"
-)
-
-var actionSymbols = map[Action]string{ActionCreate: "+", ActionUpdate: "~", ActionDelete: "-"}
 
 // Status is the outcome of the reconcile of one object.
 type Status string
@@ -52,24 +43,25 @@ const (
 	StatusError   Status = "error"
 )
 
-// Plan collects the writes that reconciles would make and the outcome of
-// each reconcile. A context carries the plan and the source of the reconcile;
-// writes made with a context without a plan are only logged.
+// Plan collects the writes that reconciles would make and the outcome of each
+// reconcile. A context made with WithPlan carries the plan and the source of
+// the reconcile; writes made with a context without a plan are only logged.
 type Plan struct {
-	mu      sync.Mutex
-	entries map[objectKey]map[string]*entry
-	cloud   map[string]*CloudChange
-	results map[string]Result
-	// writeErrors has the first failed write of each source.
+	mu sync.Mutex
+	// objects has, for each object, what each source would write to it.
+	objects map[objectKey]map[string]*write
+	// cloud has the AWS and Spot changes by their text.
+	cloud       map[string]*cloudChange
+	results     map[string]result
 	writeErrors map[string]error
 }
 
 // NewPlan returns an empty plan.
 func NewPlan() *Plan {
 	return &Plan{
-		entries:     map[objectKey]map[string]*entry{},
-		cloud:       map[string]*CloudChange{},
-		results:     map[string]Result{},
+		objects:     map[objectKey]map[string]*write{},
+		cloud:       map[string]*cloudChange{},
+		results:     map[string]result{},
 		writeErrors: map[string]error{},
 	}
 }
@@ -89,31 +81,29 @@ func (k objectKey) String() string {
 	return kind + " " + k.Namespace + "/" + k.Name
 }
 
-type entry struct {
+func keyFor(gvk schema.GroupVersionKind, obj client.Object) objectKey {
+	return objectKey{Group: gvk.Group, Kind: gvk.Kind, Namespace: obj.GetNamespace(), Name: obj.GetName()}
+}
+
+// write is what one source would write to one object: desired replaces
+// live, or the object is created or deleted.
+type write struct {
 	source  Source
-	action  Action
+	created bool
+	deleted bool
 	live    map[string]interface{}
 	desired map[string]interface{}
 }
 
-// CloudChange is a write to AWS or Spot. Before is empty when the current
-// value is not known.
-type CloudChange struct {
-	Source Source              `json:"-"`
-	Kind   string              `json:"kind"`
-	ID     string              `json:"id"`
-	Call   string              `json:"call"`
-	Before map[string][]string `json:"before,omitempty"`
-	After  map[string][]string `json:"after"`
-
+type cloudChange struct {
+	lines   []string
 	sources []Source
 }
 
-// Result is the outcome of the reconcile of one object.
-type Result struct {
-	Source Source `json:"source"`
-	Status Status `json:"status"`
-	Reason string `json:"reason,omitempty"`
+type result struct {
+	source Source
+	status Status
+	reason string
 }
 
 type planContextKey struct{}
@@ -137,31 +127,27 @@ func planFrom(ctx context.Context) (*Plan, Source, bool) {
 	return pc.plan, pc.source, true
 }
 
-func keyFor(gvk schema.GroupVersionKind, obj client.Object) objectKey {
-	return objectKey{Group: gvk.Group, Kind: gvk.Kind, Namespace: obj.GetNamespace(), Name: obj.GetName()}
+// writeFor returns the write of source to key, starting from live.
+func (p *Plan) writeFor(key objectKey, source Source, live map[string]interface{}) *write {
+	bySource, ok := p.objects[key]
+	if !ok {
+		bySource = map[string]*write{}
+		p.objects[key] = bySource
+	}
+	w, ok := bySource[source.String()]
+	if !ok {
+		w = &write{source: source, live: live, desired: deepCopy(live)}
+		bySource[source.String()] = w
+	}
+	return w
 }
 
-// entryFor returns the entry of key for source, starting from live.
-func (p *Plan) entryFor(key objectKey, source Source, live map[string]interface{}) *entry {
-	bySource, ok := p.entries[key]
-	if !ok {
-		bySource = map[string]*entry{}
-		p.entries[key] = bySource
-	}
-	e, ok := bySource[source.String()]
-	if !ok {
-		e = &entry{source: source, action: ActionUpdate, live: live, desired: deepCopyMap(live)}
-		bySource[source.String()] = e
-	}
-	return e
-}
-
-func (p *Plan) recordCreate(source Source, key objectKey, obj map[string]interface{}) {
+func (p *Plan) recordCreate(source Source, key objectKey, _, obj map[string]interface{}) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	e := p.entryFor(key, source, nil)
-	e.action = ActionCreate
-	e.desired = obj
+	w := p.writeFor(key, source, nil)
+	w.created = true
+	w.desired = obj
 }
 
 // recordUpdate records a write of the main resource. The status of obj is
@@ -169,61 +155,54 @@ func (p *Plan) recordCreate(source Source, key objectKey, obj map[string]interfa
 func (p *Plan) recordUpdate(source Source, key objectKey, live, obj map[string]interface{}) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	e := p.entryFor(key, source, live)
-	if e.action == ActionDelete {
-		return
-	}
-	desired := deepCopyMap(obj)
-	if status, ok := e.desired["status"]; ok {
+	w := p.writeFor(key, source, live)
+	desired := deepCopy(obj)
+	if status, ok := w.desired["status"]; ok {
 		desired["status"] = status
 	} else {
 		delete(desired, "status")
 	}
-	e.desired = desired
+	w.desired = desired
 }
 
 func (p *Plan) recordStatusUpdate(source Source, key objectKey, live, obj map[string]interface{}) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	e := p.entryFor(key, source, live)
-	if e.action == ActionDelete {
-		return
-	}
-	if e.desired == nil {
-		e.desired = map[string]interface{}{}
+	w := p.writeFor(key, source, live)
+	if w.desired == nil {
+		w.desired = map[string]interface{}{}
 	}
 	if status, ok := obj["status"]; ok {
-		e.desired["status"] = status
+		w.desired["status"] = status
 	} else {
-		delete(e.desired, "status")
+		delete(w.desired, "status")
 	}
 }
 
-func (p *Plan) recordDelete(source Source, key objectKey, live map[string]interface{}) {
+func (p *Plan) recordDelete(source Source, key objectKey, live, _ map[string]interface{}) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	e := p.entryFor(key, source, live)
-	e.action = ActionDelete
-	e.desired = nil
+	p.writeFor(key, source, live).deleted = true
 }
 
-// RecordCloudChange records a write to AWS or Spot. The same change made by
-// several reconciles is kept once.
-func (p *Plan) RecordCloudChange(c CloudChange) {
+// RecordCloudChange records a write to AWS or Spot as diff lines: a header
+// that starts with "~ ", then the old values with "-" and the new values with
+// "+" in the first column. The same change from several sources is kept once.
+func (p *Plan) RecordCloudChange(source Source, lines ...string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	id := cloudChangeID(c)
-	if existing, ok := p.cloud[id]; ok {
-		for _, s := range existing.sources {
-			if s.String() == c.Source.String() {
-				return
-			}
+	id := strings.Join(lines, "\n")
+	c, ok := p.cloud[id]
+	if !ok {
+		c = &cloudChange{lines: lines}
+		p.cloud[id] = c
+	}
+	for _, s := range c.sources {
+		if s.String() == source.String() {
+			return
 		}
-		existing.sources = append(existing.sources, c.Source)
-		return
 	}
-	c.sources = []Source{c.Source}
-	p.cloud[id] = &c
+	c.sources = append(c.sources, source)
 }
 
 func (p *Plan) recordWriteError(source Source, err error) {
@@ -240,36 +219,15 @@ func (p *Plan) writeError(source Source) error {
 	return p.writeErrors[source.String()]
 }
 
-// unchanged reports whether every value of c is the same before and after.
-// It is false when the values before are not known.
-func (c *CloudChange) unchanged() bool {
-	if len(c.Before) == 0 {
-		return false
-	}
-	for field, after := range c.After {
-		before, ok := c.Before[field]
-		if !ok || !reflect.DeepEqual(before, after) {
-			return false
-		}
-	}
-	return true
-}
-
-// cloudChangeID identifies a change by its kind, ID, call and values.
-func cloudChangeID(c CloudChange) string {
-	data, _ := json.Marshal(c)
-	return string(data)
-}
-
 // forget drops what source recorded, before its reconcile runs again.
 func (p *Plan) forget(source Source) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	delete(p.writeErrors, source.String())
-	for key, bySource := range p.entries {
+	for key, bySource := range p.objects {
 		delete(bySource, source.String())
 		if len(bySource) == 0 {
-			delete(p.entries, key)
+			delete(p.objects, key)
 		}
 	}
 	for id, c := range p.cloud {
@@ -286,17 +244,17 @@ func (p *Plan) forget(source Source) {
 	}
 }
 
-// createdName reports whether a source created an object named name in the
-// API group group.
-func (p *Plan) createdName(group, name string) bool {
+// created reports whether a source creates an object named name in the API
+// group group.
+func (p *Plan) created(group, name string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	for key, bySource := range p.entries {
+	for key, bySource := range p.objects {
 		if key.Group != group || key.Name != name {
 			continue
 		}
-		for _, e := range bySource {
-			if e.action == ActionCreate {
+		for _, w := range bySource {
+			if w.created {
 				return true
 			}
 		}
@@ -308,285 +266,312 @@ func (p *Plan) createdName(group, name string) bool {
 func (p *Plan) SetResult(source Source, status Status, reason string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.results[source.String()] = Result{Source: source, Status: status, Reason: reason}
+	p.results[source.String()] = result{source: source, status: status, reason: reason}
 }
 
-// Change is one object that the plan changes.
-type Change struct {
-	Clusters  []string  `json:"clusters"`
-	Group     string    `json:"group,omitempty"`
-	Kind      string    `json:"kind"`
-	Namespace string    `json:"namespace,omitempty"`
-	Name      string    `json:"name"`
-	Action    Action    `json:"action"`
-	Variants  []Variant `json:"variants"`
-}
-
-func (c Change) orderOnly() bool {
-	for _, v := range c.Variants {
-		if !v.OrderOnly {
-			return false
-		}
-	}
-	return true
-}
-
-// Variant is a change that one or more sources would make. An object has
-// more than one variant when reconciles disagree on it.
-type Variant struct {
-	Action  Action   `json:"action"`
-	Sources []string `json:"sources"`
-	Diff    []string `json:"diff"`
-	// Released is true when the update removes the last finalizer of an
-	// object that is being deleted, so the API server deletes the object.
-	Released bool `json:"released,omitempty"`
-	// OrderOnly is true when the update only changes the order of list
-	// elements.
-	OrderOnly bool `json:"orderOnly,omitempty"`
-}
-
-// CloudChangeSummary is a CloudChange with the clusters and sources that make it.
-type CloudChangeSummary struct {
-	CloudChange
-	Clusters []string `json:"clusters"`
-	Sources  []string `json:"sources"`
-}
-
-// Summary counts the changes and outcomes of a plan.
+// Summary counts the changes and the outcomes of a plan.
 type Summary struct {
-	Create int `json:"create"`
-	Update int `json:"update"`
-	// Reorder is the number of updates that only change the order of list
-	// elements. They are counted in Update.
-	Reorder int `json:"reorder"`
-	Delete  int `json:"delete"`
-	Cloud   int `json:"cloud"`
-	OK      int `json:"ok"`
-	Skipped int `json:"skipped"`
-	Pending int `json:"pending"`
-	Errors  int `json:"errors"`
+	Create, Update, Reorder, Delete, Cloud int
+	OK, Skipped, Pending, Errors           int
 }
 
-// Report is the result of a plan.
-type Report struct {
-	Summary Summary              `json:"summary"`
-	Changes []Change             `json:"changes"`
-	Cloud   []CloudChangeSummary `json:"cloud"`
-	Results []Result             `json:"results"`
+// Exit codes of a plan, like terraform plan -detailed-exitcode.
+const (
+	ExitNoChanges = 0
+	ExitError     = 1
+	ExitChanges   = 2
+)
+
+// ExitCode returns ExitError when a reconcile failed or is pending, because
+// the plan is then not complete, ExitChanges when the plan changes something
+// and ExitNoChanges otherwise.
+func (s Summary) ExitCode() int {
+	switch {
+	case s.Errors > 0 || s.Pending > 0:
+		return ExitError
+	case s.Create+s.Update+s.Delete+s.Cloud > 0:
+		return ExitChanges
+	default:
+		return ExitNoChanges
+	}
 }
 
-// HasChanges reports whether the plan changes anything.
-func (r *Report) HasChanges() bool {
-	return len(r.Changes) > 0 || len(r.Cloud) > 0
+const (
+	labelOrderOnly = "update, order only"
+	labelReleased  = "delete, last finalizer removed"
+)
+
+// change is what one or more sources would do to an object.
+type change struct {
+	label   string
+	lines   []string
+	sources []string
 }
 
-// HasErrors reports whether a reconcile failed.
-func (r *Report) HasErrors() bool {
-	return r.Summary.Errors > 0
-}
-
-// Report computes the changes of the plan, without the writes that change
-// nothing, in a stable order.
-func (p *Plan) Report() *Report {
+// Write writes the plan as a diff, grouped by the clusters of the sources:
+// removed lines start with "-" and added lines with "+" in the first column.
+// It returns the summary of the plan.
+func (p *Plan) Write(w io.Writer) (Summary, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	r := &Report{Changes: []Change{}, Cloud: []CloudChangeSummary{}, Results: []Result{}}
-	for key, bySource := range p.entries {
-		variants := map[string]*Variant{}
+	var s Summary
+	type entry struct{ group, key, text string }
+	var entries []entry
+
+	for key, bySource := range p.objects {
+		changes := map[string]*change{}
 		clusters := map[string]bool{}
-		for _, e := range bySource {
-			diff := diffObjects(e.live, e.desired, e.action)
-			if len(diff) == 0 && e.action == ActionUpdate || e.action == ActionDelete && deleting(e.live) {
+		for _, wr := range bySource {
+			c := describe(wr)
+			if c == nil {
 				continue
 			}
-			action, released := e.action, false
-			if action == ActionUpdate && releases(e.live, e.desired) {
-				action, released = ActionDelete, true
+			id := c.label + "\n" + strings.Join(c.lines, "\n")
+			if existing, ok := changes[id]; ok {
+				c = existing
+			} else {
+				changes[id] = c
 			}
-			id := string(action) + "\x00" + strings.Join(diff, "\n")
-			v, ok := variants[id]
-			if !ok {
-				v = &Variant{Action: action, Diff: diff, Released: released, OrderOnly: action == ActionUpdate && orderOnly(diff)}
-				variants[id] = v
-			}
-			v.Sources = append(v.Sources, e.source.String())
-			for _, c := range e.source.Clusters {
-				clusters[c] = true
+			c.sources = append(c.sources, wr.source.String())
+			for _, cl := range wr.source.Clusters {
+				clusters[cl] = true
 			}
 		}
-		if len(variants) == 0 {
+		if len(changes) == 0 {
 			continue
 		}
-		c := Change{Group: key.Group, Kind: key.Kind, Namespace: key.Namespace, Name: key.Name, Clusters: sortedKeys(clusters)}
-		for _, v := range variants {
-			sort.Strings(v.Sources)
-			c.Variants = append(c.Variants, *v)
-		}
-		sort.Slice(c.Variants, func(i, j int) bool { return c.Variants[i].Sources[0] < c.Variants[j].Sources[0] })
-		c.Action = c.Variants[0].Action
-		for _, v := range c.Variants {
-			if v.Action == ActionDelete {
-				c.Action = ActionDelete
-			}
-		}
-		switch c.Action {
-		case ActionCreate:
-			r.Summary.Create++
-		case ActionUpdate:
-			r.Summary.Update++
-			if c.orderOnly() {
-				r.Summary.Reorder++
-			}
-		case ActionDelete:
-			r.Summary.Delete++
-		}
-		r.Changes = append(r.Changes, c)
-	}
-	sort.Slice(r.Changes, func(i, j int) bool {
-		a, b := r.Changes[i], r.Changes[j]
-		if ca, cb := strings.Join(a.Clusters, ","), strings.Join(b.Clusters, ","); ca != cb {
-			return ca < cb
-		}
-		return objectKey{a.Group, a.Kind, a.Namespace, a.Name}.String() < objectKey{b.Group, b.Kind, b.Namespace, b.Name}.String()
-	})
 
-	for _, c := range p.cloud {
-		if c.unchanged() {
-			continue
+		var list []*change
+		for _, c := range changes {
+			sort.Strings(c.sources)
+			list = append(list, c)
 		}
-		s := CloudChangeSummary{CloudChange: *c}
+		sort.Slice(list, func(i, j int) bool { return list[i].sources[0] < list[j].sources[0] })
+		// The object is labeled order only when every change is, and a delete
+		// wins over the other changes.
+		label := labelOrderOnly
+		for _, c := range list {
+			if c.label != labelOrderOnly {
+				label = c.label
+				break
+			}
+		}
+		for _, c := range list {
+			if symbol(c.label) == "-" {
+				label = c.label
+			}
+		}
+		switch symbol(label) {
+		case "+":
+			s.Create++
+		case "-":
+			s.Delete++
+		default:
+			s.Update++
+			if label == labelOrderOnly {
+				s.Reorder++
+			}
+		}
+
+		var b strings.Builder
+		fmt.Fprintf(&b, "%s %s (%s)\n", symbol(label), key, label)
+		for _, c := range list {
+			if len(list) > 1 {
+				fmt.Fprintf(&b, "  # %s from %s\n", c.label, strings.Join(c.sources, ", "))
+			}
+			for _, line := range c.lines {
+				b.WriteString(line + "\n")
+			}
+		}
+		entries = append(entries, entry{group: strings.Join(sortedKeys(clusters), ", "), key: key.String(), text: b.String()})
+	}
+
+	for id, c := range p.cloud {
 		clusters := map[string]bool{}
 		for _, src := range c.sources {
-			s.Sources = append(s.Sources, src.String())
 			for _, cl := range src.Clusters {
 				clusters[cl] = true
 			}
 		}
-		sort.Strings(s.Sources)
-		s.Clusters = sortedKeys(clusters)
-		r.Cloud = append(r.Cloud, s)
+		s.Cloud++
+		entries = append(entries, entry{group: strings.Join(sortedKeys(clusters), ", "), key: "~ " + id, text: id + "\n"})
 	}
-	sort.Slice(r.Cloud, func(i, j int) bool {
-		a, b := r.Cloud[i], r.Cloud[j]
-		if ca, cb := strings.Join(a.Clusters, ","), strings.Join(b.Clusters, ","); ca != cb {
-			return ca < cb
+
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].group != entries[j].group {
+			return entries[i].group < entries[j].group
 		}
-		if a.Kind != b.Kind {
-			return a.Kind < b.Kind
-		}
-		if a.ID != b.ID {
-			return a.ID < b.ID
-		}
-		if a.Call != b.Call {
-			return a.Call < b.Call
-		}
-		return cloudChangeID(a.CloudChange) < cloudChangeID(b.CloudChange)
+		return entries[i].key < entries[j].key
 	})
-	r.Summary.Cloud = len(r.Cloud)
 
-	for _, res := range p.results {
-		r.Results = append(r.Results, res)
-		switch res.Status {
-		case StatusOK:
-			r.Summary.OK++
-		case StatusSkipped:
-			r.Summary.Skipped++
-		case StatusPending:
-			r.Summary.Pending++
-		case StatusError:
-			r.Summary.Errors++
-		}
-	}
-	sort.Slice(r.Results, func(i, j int) bool { return r.Results[i].Source.String() < r.Results[j].Source.String() })
-	return r
-}
-
-// WriteText writes the report as a diff: removed values start with "-" and
-// added values with "+" in the first column.
-func (r *Report) WriteText(w io.Writer) error {
 	var b strings.Builder
 	group := "\x00"
-	header := func(clusters []string) {
-		g := strings.Join(clusters, ", ")
-		if g == group {
-			return
+	for _, e := range entries {
+		if e.group != group {
+			group = e.group
+			name := group
+			if name == "" {
+				name = "(none)"
+			}
+			fmt.Fprintf(&b, "\n# cluster %s\n", name)
 		}
-		group = g
-		if g == "" {
-			g = "(none)"
-		}
-		fmt.Fprintf(&b, "\n# cluster %s\n", g)
+		b.WriteString(e.text)
 	}
 
-	for _, c := range r.Changes {
-		header(c.Clusters)
-		key := objectKey{c.Group, c.Kind, c.Namespace, c.Name}
-		label := string(c.Action)
-		if c.Action == ActionUpdate && c.orderOnly() {
-			label += ", order only"
-		}
-		fmt.Fprintf(&b, "%s %s (%s)\n", actionSymbols[c.Action], key, label)
-		for _, v := range c.Variants {
-			if len(c.Variants) > 1 {
-				fmt.Fprintf(&b, "  # %s from %s\n", v.Action, strings.Join(v.Sources, ", "))
-			}
-			if v.Released {
-				b.WriteString("  # removes the last finalizer of an object that is being deleted, so the object is deleted\n")
-			}
-			for _, line := range v.Diff {
-				fmt.Fprintf(&b, "%s\n", line)
-			}
+	var incomplete []result
+	for _, r := range p.results {
+		switch r.status {
+		case StatusOK:
+			s.OK++
+		case StatusSkipped:
+			s.Skipped++
+		case StatusPending:
+			s.Pending++
+			incomplete = append(incomplete, r)
+		case StatusError:
+			s.Errors++
+			incomplete = append(incomplete, r)
 		}
 	}
-
-	if len(r.Cloud) > 0 {
-		group = "\x00"
-		b.WriteString("\n# AWS and Spot\n")
-		for _, c := range r.Cloud {
-			header(c.Clusters)
-			fmt.Fprintf(&b, "~ %s %s (%s)\n", c.Kind, c.ID, c.Call)
-			for _, field := range sortedKeys(c.After) {
-				if before, ok := c.Before[field]; ok {
-					if reflect.DeepEqual(before, c.After[field]) {
-						continue
-					}
-					fmt.Fprintf(&b, "-     %s: %s\n", field, formatList(before))
-				}
-				fmt.Fprintf(&b, "+     %s: %s\n", field, formatList(c.After[field]))
-			}
-		}
-	}
-
-	var problems []Result
-	for _, res := range r.Results {
-		if res.Status == StatusError || res.Status == StatusPending {
-			problems = append(problems, res)
-		}
-	}
-	if len(problems) > 0 {
+	if len(incomplete) > 0 {
+		sort.Slice(incomplete, func(i, j int) bool { return incomplete[i].source.String() < incomplete[j].source.String() })
 		b.WriteString("\n# Not complete\n")
-		for _, res := range problems {
-			fmt.Fprintf(&b, "! %s %s: %s\n", res.Status, res.Source, res.Reason)
+		for _, r := range incomplete {
+			fmt.Fprintf(&b, "! %s %s: %s\n", r.status, r.source, r.reason)
 		}
 	}
 
-	if !r.HasChanges() {
+	if len(entries) == 0 && len(incomplete) == 0 {
 		b.WriteString("\nNo changes.\n")
 	}
-	s := r.Summary
-	fmt.Fprintf(&b, "\nPlan: %d to create, %d to update (%d only reorder lists), %d to delete, %d AWS/Spot changes. Reconciled %d objects: %d skipped (paused), %d pending, %d errors.\n",
-		s.Create, s.Update, s.Reorder, s.Delete, s.Cloud, s.OK+s.Skipped+s.Pending+s.Errors, s.Skipped, s.Pending, s.Errors)
+	fmt.Fprintf(&b, "\nPlan: %d to create, %d to update (%d only reorder lists), %d to delete, %d AWS/Spot changes. Results: %d ok, %d skipped (paused), %d pending, %d errors.\n",
+		s.Create, s.Update, s.Reorder, s.Delete, s.Cloud, s.OK, s.Skipped, s.Pending, s.Errors)
 
 	_, err := io.WriteString(w, strings.TrimPrefix(b.String(), "\n"))
-	return err
+	return s, err
 }
 
-func formatList(values []string) string {
-	return "[" + strings.Join(values, ", ") + "]"
+func symbol(label string) string {
+	switch {
+	case strings.HasPrefix(label, "create"):
+		return "+"
+	case strings.HasPrefix(label, "delete"):
+		return "-"
+	default:
+		return "~"
+	}
 }
 
-func sortedKeys[V any](m map[string]V) []string {
+// describe returns the change that w makes, or nil when w changes nothing.
+// The delete of an object that is being deleted changes nothing, so the other
+// writes to it decide its change.
+// Lists are compared and shown with their elements sorted, so that a change
+// of their order alone shows as order only.
+func describe(w *write) *change {
+	switch {
+	case w.deleted && !deleting(w.live):
+		return &change{label: "delete"}
+	case w.created:
+		desired := deepCopy(w.desired)
+		if status, ok := desired["status"].(map[string]interface{}); ok && len(status) == 0 {
+			delete(desired, "status")
+		}
+		var lines []string
+		for _, line := range yamlLines(normalize(desired, true)) {
+			lines = append(lines, "+ "+strings.TrimSuffix(line, "\n"))
+		}
+		return &change{label: "create", lines: lines}
+	case reflect.DeepEqual(normalize(w.live, false), normalize(w.desired, false)):
+		return nil
+	}
+
+	live, desired := normalize(w.live, true), normalize(w.desired, true)
+	if reflect.DeepEqual(live, desired) {
+		return &change{label: labelOrderOnly}
+	}
+	label := "update"
+	if deleting(w.live) && len(finalizers(w.live)) > 0 && len(finalizers(w.desired)) == 0 {
+		// The API server deletes an object that is being deleted when its
+		// last finalizer is removed.
+		label = labelReleased
+	}
+	diff, err := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{A: yamlLines(live), B: yamlLines(desired), Context: 2})
+	if err != nil {
+		return &change{label: label, lines: []string{fmt.Sprintf("  (cannot show the diff: %v)", err)}}
+	}
+	var lines []string
+	for _, line := range strings.Split(strings.TrimSuffix(diff, "\n"), "\n") {
+		if !strings.HasPrefix(line, "---") && !strings.HasPrefix(line, "+++") {
+			lines = append(lines, line)
+		}
+	}
+	return &change{label: label, lines: lines}
+}
+
+func deleting(obj map[string]interface{}) bool {
+	meta, _ := obj["metadata"].(map[string]interface{})
+	return meta["deletionTimestamp"] != nil
+}
+
+func finalizers(obj map[string]interface{}) []interface{} {
+	meta, _ := obj["metadata"].(map[string]interface{})
+	f, _ := meta["finalizers"].([]interface{})
+	return f
+}
+
+func yamlLines(obj map[string]interface{}) []string {
+	data, err := yaml.Marshal(obj)
+	if err != nil {
+		return []string{fmt.Sprintf("(cannot show the object: %v)\n", err)}
+	}
+	// Every line ends with a newline, which the unified diff needs.
+	lines := strings.SplitAfter(string(data), "\n")
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+// normalize returns a copy of obj without empty lists, because an empty list
+// and a missing list are the same. With sortLists, the elements of every list
+// are sorted, so that objects that differ only in the order of list elements
+// are equal.
+func normalize(obj map[string]interface{}, sortLists bool) map[string]interface{} {
+	var walk func(v interface{}) interface{}
+	walk = func(v interface{}) interface{} {
+		switch t := v.(type) {
+		case map[string]interface{}:
+			out := make(map[string]interface{}, len(t))
+			for k, e := range t {
+				if l, ok := e.([]interface{}); ok && len(l) == 0 {
+					continue
+				}
+				out[k] = walk(e)
+			}
+			return out
+		case []interface{}:
+			out := make([]interface{}, len(t))
+			for i, e := range t {
+				out[i] = walk(e)
+			}
+			if sortLists {
+				sort.Slice(out, func(i, j int) bool { return jsonString(out[i]) < jsonString(out[j]) })
+			}
+			return out
+		default:
+			return v
+		}
+	}
+	return walk(obj).(map[string]interface{})
+}
+
+func jsonString(v interface{}) string {
+	data, _ := json.Marshal(v)
+	return string(data)
+}
+
+func sortedKeys(m map[string]bool) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
@@ -596,8 +581,9 @@ func sortedKeys[V any](m map[string]V) []string {
 }
 
 // toMap converts obj to the map that the plan compares. It drops the fields
-// that the API server sets on every write and hides Secret values.
-func toMap(obj interface{}) (map[string]interface{}, error) {
+// that the API server sets on every write and, with hideData, replaces the
+// values of a Secret with a hash.
+func toMap(obj interface{}, hideData bool) (map[string]interface{}, error) {
 	data, err := json.Marshal(obj)
 	if err != nil {
 		return nil, err
@@ -612,281 +598,25 @@ func toMap(obj interface{}) (map[string]interface{}, error) {
 		for _, f := range []string{"resourceVersion", "managedFields", "generation", "uid", "creationTimestamp", "selfLink"} {
 			delete(meta, f)
 		}
-		if len(meta) == 0 {
-			delete(m, "metadata")
+	}
+	if hideData {
+		for _, field := range []string{"data", "stringData"} {
+			values, _ := m[field].(map[string]interface{})
+			for k, v := range values {
+				sum := sha256.Sum256([]byte(fmt.Sprint(v)))
+				values[k] = "(sensitive, sha256 " + hex.EncodeToString(sum[:])[:12] + ")"
+			}
 		}
 	}
 	return m, nil
 }
 
-// hideSecretData replaces the values of a Secret with a hash, so that a change
-// shows without the value.
-func hideSecretData(m map[string]interface{}) {
-	for _, field := range []string{"data", "stringData"} {
-		data, ok := m[field].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		for k, v := range data {
-			sum := sha256.Sum256([]byte(fmt.Sprint(v)))
-			data[k] = "(sensitive, sha256 " + hex.EncodeToString(sum[:])[:12] + ")"
-		}
-	}
-}
-
-func deepCopyMap(m map[string]interface{}) map[string]interface{} {
+func deepCopy(m map[string]interface{}) map[string]interface{} {
 	if m == nil {
 		return nil
 	}
-	out := make(map[string]interface{}, len(m))
-	for k, v := range m {
-		out[k] = deepCopyValue(v)
-	}
+	data, _ := json.Marshal(m)
+	out := map[string]interface{}{}
+	_ = json.Unmarshal(data, &out)
 	return out
-}
-
-func deepCopyValue(v interface{}) interface{} {
-	switch t := v.(type) {
-	case map[string]interface{}:
-		return deepCopyMap(t)
-	case []interface{}:
-		out := make([]interface{}, len(t))
-		for i, e := range t {
-			out[i] = deepCopyValue(e)
-		}
-		return out
-	default:
-		return v
-	}
-}
-
-// diffObjects returns the diff lines from live to desired. A delete has no
-// field lines.
-func diffObjects(live, desired map[string]interface{}, action Action) []string {
-	if action == ActionDelete {
-		return []string{}
-	}
-	if action == ActionCreate {
-		live = nil
-		desired = deepCopyMap(desired)
-		if status, ok := desired["status"].(map[string]interface{}); ok && len(status) == 0 {
-			delete(desired, "status")
-		}
-	}
-	var lines []string
-	diffValue("", live, desired, &lines)
-	if lines == nil {
-		lines = []string{}
-	}
-	return lines
-}
-
-// diffValue appends the differences between a and b under path. The order of
-// list elements is ignored: list elements are matched by their "key" or
-// "name" field, or else by value.
-func diffValue(path string, a, b interface{}, lines *[]string) {
-	am, aIsMap := a.(map[string]interface{})
-	bm, bIsMap := b.(map[string]interface{})
-	if (aIsMap || a == nil) && (bIsMap || b == nil) && (aIsMap || bIsMap) {
-		keys := map[string]bool{}
-		for k := range am {
-			keys[k] = true
-		}
-		for k := range bm {
-			keys[k] = true
-		}
-		for _, k := range sortedKeys(keys) {
-			diffValue(joinPath(path, k), am[k], bm[k], lines)
-		}
-		return
-	}
-
-	al, aIsList := a.([]interface{})
-	bl, bIsList := b.([]interface{})
-	if (aIsList || a == nil) && (bIsList || b == nil) && (aIsList || bIsList) {
-		diffList(path, al, bl, lines)
-		return
-	}
-
-	if reflect.DeepEqual(a, b) {
-		return
-	}
-	if a != nil {
-		*lines = append(*lines, "-     "+path+": "+formatValue(a))
-	}
-	if b != nil {
-		*lines = append(*lines, "+     "+path+": "+formatValue(b))
-	}
-}
-
-func diffList(path string, a, b []interface{}, lines *[]string) {
-	// An empty list and a missing list are the same.
-	if len(a) == 0 && len(b) == 0 {
-		return
-	}
-	if field := listKey(a, b); field != "" {
-		am, bm := map[string]interface{}{}, map[string]interface{}{}
-		for _, e := range a {
-			am[e.(map[string]interface{})[field].(string)] = e
-		}
-		for _, e := range b {
-			bm[e.(map[string]interface{})[field].(string)] = e
-		}
-		keys := map[string]bool{}
-		for k := range am {
-			keys[k] = true
-		}
-		for k := range bm {
-			keys[k] = true
-		}
-		before := len(*lines)
-		for _, k := range sortedKeys(keys) {
-			diffValue(fmt.Sprintf("%s[%s=%s]", path, field, k), am[k], bm[k], lines)
-		}
-		if len(*lines) == before && !reflect.DeepEqual(a, b) {
-			*lines = append(*lines, orderLine(path))
-		}
-		return
-	}
-
-	// Elements without a key are compared by value, ignoring the order of
-	// the lists inside them, so that only a change of order inside an
-	// element shows as an order change.
-	values := map[string]string{}
-	count := func(l []interface{}) map[string]int {
-		c := map[string]int{}
-		for _, e := range l {
-			k := formatValue(canonical(e))
-			if _, ok := values[k]; !ok {
-				values[k] = formatValue(e)
-			}
-			c[k]++
-		}
-		return c
-	}
-	ac, bc := count(a), count(b)
-	if reflect.DeepEqual(ac, bc) {
-		if !reflect.DeepEqual(a, b) {
-			*lines = append(*lines, orderLine(path))
-		}
-		return
-	}
-	for _, k := range sortedKeys(ac) {
-		for i := bc[k]; i < ac[k]; i++ {
-			*lines = append(*lines, "-     "+path+"[]: "+values[k])
-		}
-	}
-	for _, k := range sortedKeys(bc) {
-		for i := ac[k]; i < bc[k]; i++ {
-			*lines = append(*lines, "+     "+path+"[]: "+values[k])
-		}
-	}
-}
-
-// canonical returns v with the elements of every list in it sorted, so that
-// two values that differ only in the order of list elements are equal.
-func canonical(v interface{}) interface{} {
-	switch t := v.(type) {
-	case map[string]interface{}:
-		out := make(map[string]interface{}, len(t))
-		for k, e := range t {
-			out[k] = canonical(e)
-		}
-		return out
-	case []interface{}:
-		out := make([]interface{}, len(t))
-		for i, e := range t {
-			out[i] = canonical(e)
-		}
-		sort.Slice(out, func(i, j int) bool { return formatValue(out[i]) < formatValue(out[j]) })
-		return out
-	default:
-		return v
-	}
-}
-
-// orderPrefix starts the line of a list whose elements stay the same but
-// change order.
-const orderPrefix = "~     "
-
-func orderLine(path string) string {
-	return orderPrefix + path + ": the order of the elements changes"
-}
-
-func orderOnly(diff []string) bool {
-	for _, line := range diff {
-		if !strings.HasPrefix(line, orderPrefix) {
-			return false
-		}
-	}
-	return len(diff) > 0
-}
-
-// deleting reports whether live is being deleted already.
-func deleting(live map[string]interface{}) bool {
-	meta, _ := live["metadata"].(map[string]interface{})
-	return meta["deletionTimestamp"] != nil
-}
-
-// releases reports whether desired removes the last finalizer of live, an
-// object that is being deleted. The API server then deletes the object.
-func releases(live, desired map[string]interface{}) bool {
-	if !deleting(live) {
-		return false
-	}
-	liveMeta, _ := live["metadata"].(map[string]interface{})
-	desiredMeta, _ := desired["metadata"].(map[string]interface{})
-	liveFinalizers, _ := liveMeta["finalizers"].([]interface{})
-	desiredFinalizers, _ := desiredMeta["finalizers"].([]interface{})
-	return len(liveFinalizers) > 0 && len(desiredFinalizers) == 0
-}
-
-// listKey returns the field that identifies the elements of a and b, or ""
-// when there is none.
-func listKey(a, b []interface{}) string {
-	if len(a)+len(b) == 0 {
-		return ""
-	}
-	for _, field := range []string{"key", "name"} {
-		ok := true
-		for _, l := range [][]interface{}{a, b} {
-			seen := map[string]bool{}
-			for _, e := range l {
-				m, isMap := e.(map[string]interface{})
-				if !isMap {
-					ok = false
-					break
-				}
-				v, isString := m[field].(string)
-				if !isString || seen[v] {
-					ok = false
-					break
-				}
-				seen[v] = true
-			}
-		}
-		if ok {
-			return field
-		}
-	}
-	return ""
-}
-
-func joinPath(path, key string) string {
-	if strings.ContainsAny(key, ".[]") {
-		key = "[" + key + "]"
-		return path + key
-	}
-	if path == "" {
-		return key
-	}
-	return path + "." + key
-}
-
-func formatValue(v interface{}) string {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return fmt.Sprint(v)
-	}
-	return string(data)
 }

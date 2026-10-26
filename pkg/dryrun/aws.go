@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsautoscaling "github.com/aws/aws-sdk-go-v2/service/autoscaling"
@@ -69,7 +70,8 @@ func (c *EC2Client) DescribeRouteTables(ctx context.Context, params *awsec2.Desc
 
 // CreateLaunchTemplateVersion returns the version that AWS would create: the
 // latest version of the launch template plus one.
-func (c *EC2Client) CreateLaunchTemplateVersion(ctx context.Context, params *awsec2.CreateLaunchTemplateVersionInput, optFns ...func(*awsec2.Options)) (*awsec2.CreateLaunchTemplateVersionOutput, error) {
+func (c *EC2Client) CreateLaunchTemplateVersion(ctx context.Context, params *awsec2.CreateLaunchTemplateVersionInput, optFns ...func(*awsec2.Options)) (_ *awsec2.CreateLaunchTemplateVersionOutput, err error) {
+	defer func() { recordCloudWriteError(ctx, "CreateLaunchTemplateVersion", err) }()
 	var securityGroups [][]string
 	if params.LaunchTemplateData != nil {
 		for _, ni := range params.LaunchTemplateData.NetworkInterfaces {
@@ -96,28 +98,19 @@ func (c *EC2Client) CreateLaunchTemplateVersion(ctx context.Context, params *aws
 	current := latest.LaunchTemplateVersions[0]
 
 	if p, source, ok := planFrom(ctx); ok {
-		var before []string
+		var before, after []string
 		if data := current.LaunchTemplateData; data != nil && len(data.NetworkInterfaces) > 0 {
 			before = data.NetworkInterfaces[0].Groups
 		}
-		var after []string
 		if len(securityGroups) > 0 {
 			after = securityGroups[0]
 		}
-		p.RecordCloudChange(CloudChange{
-			Source: source,
-			Kind:   "LaunchTemplate",
-			ID:     aws.ToString(current.LaunchTemplateId),
-			Call:   "CreateLaunchTemplateVersion",
-			Before: map[string][]string{
-				"version":        {fmt.Sprint(aws.ToInt64(current.VersionNumber))},
-				"securityGroups": sortedCopy(before),
-			},
-			After: map[string][]string{
-				"version":        {fmt.Sprint(aws.ToInt64(current.VersionNumber) + 1)},
-				"securityGroups": sortedCopy(after),
-			},
-		})
+		version := aws.ToInt64(current.VersionNumber)
+		p.RecordCloudChange(source,
+			fmt.Sprintf("~ LaunchTemplate %s (CreateLaunchTemplateVersion)", aws.ToString(current.LaunchTemplateId)),
+			fmt.Sprintf("-   version %d, security groups %s", version, groupList(before)),
+			fmt.Sprintf("+   version %d, security groups %s", version+1, groupList(after)),
+		)
 	}
 
 	return &awsec2.CreateLaunchTemplateVersionOutput{
@@ -129,7 +122,8 @@ func (c *EC2Client) CreateLaunchTemplateVersion(ctx context.Context, params *aws
 	}, nil
 }
 
-func (c *EC2Client) ModifyInstanceAttribute(ctx context.Context, params *awsec2.ModifyInstanceAttributeInput, optFns ...func(*awsec2.Options)) (*awsec2.ModifyInstanceAttributeOutput, error) {
+func (c *EC2Client) ModifyInstanceAttribute(ctx context.Context, params *awsec2.ModifyInstanceAttributeInput, optFns ...func(*awsec2.Options)) (_ *awsec2.ModifyInstanceAttributeOutput, err error) {
+	defer func() { recordCloudWriteError(ctx, "ModifyInstanceAttribute", err) }()
 	logger(ctx).Info("would write", "verb", "ModifyInstanceAttribute",
 		"instanceId", aws.ToString(params.InstanceId),
 		"groups", params.Groups,
@@ -147,14 +141,13 @@ func (c *EC2Client) ModifyInstanceAttribute(ctx context.Context, params *awsec2.
 				}
 			}
 		}
-		p.RecordCloudChange(CloudChange{
-			Source: source,
-			Kind:   "Instance",
-			ID:     aws.ToString(params.InstanceId),
-			Call:   "ModifyInstanceAttribute",
-			Before: map[string][]string{"securityGroups": sortedCopy(before)},
-			After:  map[string][]string{"securityGroups": sortedCopy(params.Groups)},
-		})
+		if groupList(before) != groupList(params.Groups) {
+			p.RecordCloudChange(source,
+				fmt.Sprintf("~ Instance %s (ModifyInstanceAttribute)", aws.ToString(params.InstanceId)),
+				"-   security groups "+groupList(before),
+				"+   security groups "+groupList(params.Groups),
+			)
+		}
 	}
 	return &awsec2.ModifyInstanceAttributeOutput{}, nil
 }
@@ -173,29 +166,11 @@ func (c *AutoScalingClient) UpdateAutoScalingGroup(ctx context.Context, params *
 		kv = append(kv, "launchTemplateId", aws.ToString(lt.LaunchTemplateId), "launchTemplateVersion", aws.ToString(lt.Version))
 	}
 	logger(ctx).Info("would write", kv...)
-	if p, source, ok := planFrom(ctx); ok {
-		name := aws.ToString(params.AutoScalingGroupName)
-		output, err := c.real.DescribeAutoScalingGroups(ctx, &awsautoscaling.DescribeAutoScalingGroupsInput{AutoScalingGroupNames: []string{name}}, optFns...)
-		if err != nil {
-			return nil, fmt.Errorf("dry-run plan: reading Auto Scaling group %s: %w", name, err)
-		}
-		change := CloudChange{
-			Source: source,
-			Kind:   "AutoScalingGroup",
-			ID:     name,
-			Call:   "UpdateAutoScalingGroup",
-			Before: map[string][]string{},
-			After:  map[string][]string{},
-		}
-		if lt := params.LaunchTemplate; lt != nil {
-			change.After["launchTemplate"] = []string{aws.ToString(lt.LaunchTemplateId) + ":" + aws.ToString(lt.Version)}
-		}
-		for _, asg := range output.AutoScalingGroups {
-			if lt := asg.LaunchTemplate; lt != nil {
-				change.Before["launchTemplate"] = []string{aws.ToString(lt.LaunchTemplateId) + ":" + aws.ToString(lt.Version)}
-			}
-		}
-		p.RecordCloudChange(change)
+	if p, source, ok := planFrom(ctx); ok && params.LaunchTemplate != nil {
+		p.RecordCloudChange(source,
+			fmt.Sprintf("~ AutoScalingGroup %s (UpdateAutoScalingGroup)", aws.ToString(params.AutoScalingGroupName)),
+			fmt.Sprintf("+   launch template %s version %s", aws.ToString(params.LaunchTemplate.LaunchTemplateId), aws.ToString(params.LaunchTemplate.Version)),
+		)
 	}
 	return &awsautoscaling.UpdateAutoScalingGroupOutput{}, nil
 }
@@ -221,19 +196,27 @@ func (c *OceanClient) UpdateLaunchSpec(ctx context.Context, params *oceanaws.Upd
 	if p, source, ok := planFrom(ctx); ok && params.LaunchSpec != nil {
 		// The reconciler clears the Ocean ID before the update, so the current
 		// launch spec cannot be read here.
-		p.RecordCloudChange(CloudChange{
-			Source: source,
-			Kind:   "OceanLaunchSpec",
-			ID:     aws.ToString(params.LaunchSpec.ID) + " (" + aws.ToString(params.LaunchSpec.Name) + ")",
-			Call:   "UpdateLaunchSpec",
-			After:  map[string][]string{"securityGroups": sortedCopy(params.LaunchSpec.SecurityGroupIDs)},
-		})
+		p.RecordCloudChange(source,
+			fmt.Sprintf("~ OceanLaunchSpec %s %s (UpdateLaunchSpec)", aws.ToString(params.LaunchSpec.ID), aws.ToString(params.LaunchSpec.Name)),
+			"+   security groups "+groupList(params.LaunchSpec.SecurityGroupIDs),
+		)
 	}
 	return &oceanaws.UpdateLaunchSpecOutput{}, nil
 }
 
-func sortedCopy(values []string) []string {
-	out := append([]string{}, values...)
-	sort.Strings(out)
-	return out
+// recordCloudWriteError adds a failed AWS or Spot write to the plan of ctx.
+// The reconcilers turn some of these errors into events only, so the plan
+// must see them itself.
+func recordCloudWriteError(ctx context.Context, call string, err error) {
+	if p, source, ok := planFrom(ctx); ok && err != nil {
+		p.recordWriteError(source, fmt.Errorf("%s: %w", call, err))
+	}
+}
+
+// groupList formats security group IDs sorted, so that the plan does not
+// depend on their order.
+func groupList(ids []string) string {
+	sorted := append([]string{}, ids...)
+	sort.Strings(sorted)
+	return "[" + strings.Join(sorted, ", ") + "]"
 }

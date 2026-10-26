@@ -45,7 +45,7 @@ Creates also log the object. Updates also log a JSON merge patch from the object
 Run it locally with a kubeconfig for the management cluster. Use another port for the health probes if 8081 is in use:
 
 ```sh
-go run ./cmd --dry-run --health-probe-bind-address=:18081
+go run ./cmd/main.go --dry-run --health-probe-bind-address=:18081
 ```
 
 Or deploy a second Deployment with the new image, a different name and the same service account. Give it pod labels and a selector that are different from the real manager, so that no Service of the real manager selects the dry-run pod. Remove the `ad.datadoghq.com/*` pod annotations, because the dry-run pod has no metrics endpoint. Give its logs a different service tag, or exclude the pod from log monitors: the dry-run manager logs errors that are expected in dry-run mode. Replace `--leader-elect` with `--dry-run` in the container args:
@@ -60,36 +60,25 @@ Add `--cluster=<name>` to reconcile only one cluster, see [Reconcile one cluster
 The dry-run manager needs the same RBAC, AWS credentials and Spot credentials as the real manager. The API server authorizes a dry-run request the same way as a real request.
 
 ### Plan the changes once
-Add `--once` to `--dry-run` to reconcile every object once, print the changes and exit, like `terraform plan`. Use it to see what a new version would change in a cluster before you deploy it:
+Add `--once` to `--dry-run` to reconcile every object once, print the changes and exit, like `terraform plan`. Use it to see what a new version would change before you deploy it:
 
 ```sh
-go run ./cmd --dry-run --once --plan-json=plan.json > plan.txt
+go run ./cmd/main.go --dry-run --once > plan.txt
 ```
 
-The manager starts without controllers, leader election, metrics or health probes. It reconciles every Cluster for the ClusterMesh controller, then every SecurityGroup, with `--clustermesh-worker-count` and `--securitygroup-worker-count` workers. With `--cluster`, it reconciles only the objects of that cluster, and it fails when no Cluster or SecurityGroup matches the name. Logs go to stderr.
+Only the cache of the manager starts: no controllers, leader election, metrics or health probes. The plan reconciles every Cluster for the ClusterMesh controller, then every SecurityGroup, with `--clustermesh-worker-count` and `--securitygroup-worker-count` workers. With `--cluster`, it reconciles only the objects of that cluster and fails when no Cluster matches the name. Logs go to stderr and the plan to stdout, grouped by cluster:
 
-The plan goes to stdout. It lists only the writes that change something, grouped by the clusters of the objects whose reconciles make them:
+- Kubernetes objects: `+` create, `~` update and `-` delete, with a unified diff of the object in YAML, like `kubectl diff`. The plan compares the object that the API server returns for the dry-run write with the object in the cluster, and leaves out writes that change nothing. It ignores `resourceVersion`, `generation`, `uid`, `creationTimestamp` and `managedFields`, and shows lists with their elements sorted. An update that only changes the order of list elements is labeled `order only`. An update that removes the last finalizer of an object that is being deleted is a delete, because the API server then deletes the object. If the reconciles of several objects, for example the Clusters of a mesh, would write different versions of the same object, the plan shows each version. Secret values show as a hash.
+- AWS and Spot writes: the security groups of an instance and of a launch template version before and after, the new launch template version of an Auto Scaling group and the new security groups of an Ocean launch spec.
+- The reconciles that did not complete: `pending` when the real controller would retry soon, for example because a Crossplane resource is not ready or the reconcile needs an object that this plan creates, and `error` otherwise. A write that the API server rejects is an error even when the reconciler ignores it. A reconcile that hits a conflict, most likely because the running operator just wrote the object, runs once more.
 
-- `+` creates, `~` updates and `-` deletes of Kubernetes objects. The plan compares the object that the API server returns for the dry-run write with the object in the cluster. It ignores `resourceVersion`, `generation`, `uid`, `creationTimestamp` and `managedFields`. List elements with a `key` or `name` field are matched by that field, other elements by value, so the plan shows the elements that are added, removed or changed. A list whose elements stay the same but change order shows as one line that starts with `~`, and an update that only does that is labeled `order only`. An update that removes the last finalizer of an object that is being deleted shows as a delete, because the API server then deletes the object. A status write and a write of the main resource of the same object show as one change. If the reconciles of several objects, for example the Clusters of a mesh, would write different values to the same object, the plan shows each version with the objects that write it. Secret values show as a hash.
-- AWS and Spot writes, with the current and the new value when the plan can read it: the security groups of an instance (`ModifyInstanceAttribute`), the version and security groups of a launch template (`CreateLaunchTemplateVersion`), the launch template of an Auto Scaling group (`UpdateAutoScalingGroup`) and the new security groups of an Ocean launch spec (`UpdateLaunchSpec`). To read the current values the plan makes one extra read call for each instance and Auto Scaling group write.
-- the reconciles that did not complete: `pending` when the real controller would run the reconcile again soon because it waits for something, for example a Crossplane resource that is not ready or an object that this plan creates, and `error` for any other reconcile error. A write that the API server rejects is an error even when the reconciler ignores it, for example a failed finalizer patch; an existing object on create and a missing object on delete are not, because the reconcilers expect them. A reconcile that fails with a conflict, most likely because the running operator just wrote the object, runs once more.
+The exit code is `0` when there are no changes, `2` when there are changes, and `1` when a reconcile fails or is pending, or `--timeout` (default `15m`) ends first. The plan is printed in all cases and ends with a `Plan:` line. A Go panic also exits with `2`, so a CI job should treat `2` as changes only when that line is there.
 
-Removed values start with `-` and added values with `+` in the first column, so the plan renders as a diff in a fenced `diff` block. `--plan-json=<file>` also writes the plan as JSON.
+A plan shows one step, because nothing is stored. What the operator then does with an object that the plan creates or changes, for example the Crossplane SecurityGroup of a SecurityGroup whose ingress rules change, shows in the plan after the deploy. Two writes to the same launch template show as two versions that each add one security group. Paused SecurityGroups are skipped. A cluster that fails in the running operator makes every plan exit with `1`.
 
-The exit code is `0` when there are no changes, `2` when there are changes, and `1` when a reconcile fails or is pending, the plan cannot list the objects or `--timeout` (default `15m`) ends first. A pending reconcile stops before its later steps, so the plan is not complete. The plan is printed in all these cases.
+The plan needs list and watch on the kinds that the operator reads, including the Secrets of all namespaces, which hold the AWS credentials of the clusters; a forbidden list or watch makes it wait until `--timeout`. It needs the Spot credentials when a KopsMachinePool uses Spot.
 
-A plan shows one step, because nothing is stored:
-
-- An object that the plan creates does not exist when the next reconcile reads it, so what the operator does next with that object, for example the attachments of a new SecurityGroup, shows in the plan after the deploy.
-- The SecurityGroup reconciles read the SecurityGroups as they are in the cluster. If the ClusterMesh reconciles change the ingress rules of a SecurityGroup, the plan shows that change, but not the change it then makes to the Crossplane SecurityGroup.
-- Each AWS write shows the change of one reconcile. If two SecurityGroups would both attach to the same launch template, the plan shows two new versions that each add one security group; the real operator makes two versions in a row, and the last one has both.
-- Paused SecurityGroups are not reconciled and are listed as skipped.
-
-A cluster that fails on every reconcile, also in the running operator, makes every plan exit with `1`.
-
-The plan needs list and watch on the kinds that the operator reads, including the Secrets of all namespaces, because the AWS credentials of each cluster are in a Secret. If a list or watch is forbidden, the plan waits until `--timeout`. It also needs the Spot credentials (`SPOTINST_TOKEN` and `SPOTINST_ACCOUNT`) when a KopsMachinePool uses Spot.
-
-The image has a busybox shell (`gcr.io/distroless/static:debug-nonroot`), so a CI job can run the plan with the image as the job image and `/manager --dry-run --once`. Set the job's entrypoint to `[""]`, because the image entrypoint is `/manager`. The shell is also in the image that the operator runs with.
+The image is `gcr.io/distroless/static:debug-nonroot`, which has a busybox shell, so a CI job can use it as the job image, with the entrypoint set to `[""]`, and run `/manager --dry-run --once`.
 
 ### Limits
 - Nothing is stored, so the same actions repeat on every reconcile. For example, the manager logs the same finalizer patch each time, and a delete does not remove the object.

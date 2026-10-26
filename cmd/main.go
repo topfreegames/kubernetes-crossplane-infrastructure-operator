@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -39,7 +40,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	clustermeshv1alpha1 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/clustermesh.infrastructure/v1alpha1"
@@ -76,7 +76,6 @@ func main() {
 	var dryRun bool
 	var cluster string
 	var once bool
-	var planJSON string
 	var timeout time.Duration
 	var clusterMeshWorkerCount int
 	var securityGroupWorkerCount int
@@ -93,7 +92,6 @@ func main() {
 	flag.BoolVar(&once, "once", false,
 		"With --dry-run, reconcile every object once, print the plan of the changes to stdout and exit. "+
 			"Exits with 0 when there are no changes, 2 when there are changes and 1 when a reconcile fails.")
-	flag.StringVar(&planJSON, "plan-json", "", "With --once, also write the plan as JSON to this file.")
 	flag.DurationVar(&timeout, "timeout", 15*time.Minute, "With --once, the longest time the plan can take.")
 	flag.IntVar(&clusterMeshWorkerCount, "clustermesh-worker-count", 1, "The number of ClusterMesh reconciles that run at the same time.")
 	flag.IntVar(&securityGroupWorkerCount, "securitygroup-worker-count", 5, "The number of SecurityGroup reconciles that run at the same time.")
@@ -103,7 +101,15 @@ func main() {
 		TimeEncoder: zapcore.TimeEncoderOfLayout(time.RFC3339),
 	}
 	opts.BindFlags(flag.CommandLine)
-	flag.Parse()
+	// Exit with 1 on a wrong flag, not with the 2 of flag.ExitOnError, which
+	// --once uses for a plan with changes.
+	flag.CommandLine.Init(os.Args[0], flag.ContinueOnError)
+	if err := flag.CommandLine.Parse(os.Args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			os.Exit(0)
+		}
+		os.Exit(1)
+	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
@@ -117,11 +123,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	if planJSON != "" && !once {
-		setupLog.Error(nil, "--plan-json requires --once")
-		os.Exit(1)
-	}
-
 	if clusterMeshWorkerCount < 1 || securityGroupWorkerCount < 1 {
 		setupLog.Error(nil, "--clustermesh-worker-count and --securitygroup-worker-count must be at least 1")
 		os.Exit(1)
@@ -130,7 +131,10 @@ func main() {
 	if dryRun {
 		setupLog.Info("dry-run mode: disabling leader election and the metrics server")
 	}
+
 	if once {
+		// The manager listens on the probe address when it is created, even
+		// though --once does not start it.
 		probeAddr = "0"
 	}
 
@@ -155,7 +159,7 @@ func main() {
 	}
 
 	if once {
-		os.Exit(runOnce(mgr, clusterMeshReconciler, sgReconciler, clusterMeshWorkerCount, securityGroupWorkerCount, timeout, planJSON, cluster))
+		os.Exit(runOnce(mgr, clusterMeshReconciler, sgReconciler, clusterMeshWorkerCount, securityGroupWorkerCount, timeout, cluster))
 	}
 
 	if err = clusterMeshReconciler.SetupWithManager(mgr, clusterMeshWorkerCount); err != nil {
@@ -204,43 +208,33 @@ func managerOptions(metricsAddr, probeAddr string, enableLeaderElection, dryRun 
 	}
 }
 
-// runOnce starts the manager without controllers, so that only the cache
-// runs, plans every object once and returns the exit code.
-func runOnce(mgr ctrl.Manager, clusterMeshReconciler *clustermeshcontrollers.ClusterMeshReconciler, sgReconciler *sgcontroller.SecurityGroupReconciler, clusterMeshWorkers, sgWorkers int, timeout time.Duration, planJSON, clusterName string) int {
-	ctx, cancel := context.WithCancel(ctrl.SetupSignalHandler())
+// runOnce starts only the cache of the manager, plans every object once,
+// prints the plan and returns the exit code.
+func runOnce(mgr ctrl.Manager, clusterMeshReconciler *clustermeshcontrollers.ClusterMeshReconciler, sgReconciler *sgcontroller.SecurityGroupReconciler, clusterMeshWorkers, sgWorkers int, timeout time.Duration, clusterName string) int {
+	ctx, cancel := context.WithTimeout(ctrl.SetupSignalHandler(), timeout)
 	defer cancel()
+	go func() {
+		if err := mgr.GetCache().Start(ctx); err != nil {
+			setupLog.Error(err, "problem running the cache")
+		}
+	}()
 
 	plan := dryrun.NewPlan()
-	// done has the result of the plan once it finished.
-	done := make(chan error, 1)
-	err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
-		defer cancel()
-		if !mgr.GetCache().WaitForCacheSync(ctx) {
-			done <- fmt.Errorf("the cache did not sync")
-			return nil
-		}
-		ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
-		defer cancelTimeout()
+	err := fmt.Errorf("the cache did not start")
+	if mgr.GetCache().WaitForCacheSync(ctx) {
 		setupLog.Info("planning")
-		done <- planOnce(ctx, mgr.GetClient(), plan, clusterMeshReconciler, sgReconciler, clusterMeshWorkers, sgWorkers, clusterName)
-		return nil
-	}))
+		err = plan.Once(ctx, mgr.GetClient(), clusterMeshReconciler, sgReconciler, clusterMeshWorkers, sgWorkers, clusterName)
+	}
 	if err != nil {
-		setupLog.Error(err, "unable to add the plan to the manager")
-		return exitError
+		// Show the error in the plan too, so that it does not look complete.
+		plan.SetResult(dryrun.Source{Kind: "Plan", Name: "run"}, dryrun.StatusError, err.Error())
 	}
-
-	startErr := mgr.Start(ctx)
-	var runErr error
-	select {
-	case runErr = <-done:
-	default:
-		runErr = fmt.Errorf("the plan did not finish")
+	summary, writeErr := plan.Write(os.Stdout)
+	if err != nil || writeErr != nil {
+		setupLog.Error(errors.Join(err, writeErr), "plan failed")
+		return dryrun.ExitError
 	}
-	if runErr == nil && startErr != nil {
-		runErr = fmt.Errorf("running the manager: %w", startErr)
-	}
-	return writePlan(plan, runErr, os.Stdout, planJSON)
+	return summary.ExitCode()
 }
 
 // configureClusterFilter makes the reconcilers skip the objects of other
