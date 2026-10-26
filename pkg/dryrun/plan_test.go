@@ -503,3 +503,101 @@ func TestPlanOrderOnlyAndReleasedChanges(t *testing.T) {
 Plan: 0 to create, 2 to update (1 only reorder lists), 1 to delete, 0 AWS/Spot changes. Reconciled 0 objects: 0 skipped (paused), 0 pending, 0 errors.
 `))
 }
+
+func TestDiffListNestedOrderAndEmptyLists(t *testing.T) {
+	g := NewWithT(t)
+	rule := func(cidrs ...interface{}) interface{} {
+		return map[string]interface{}{"fromPort": -1, "cidrs": cidrs}
+	}
+
+	var lines []string
+	diffValue("rules", []interface{}{rule("10.0.0.0/8", "172.16.0.0/12")}, []interface{}{rule("172.16.0.0/12", "10.0.0.0/8")}, &lines)
+	g.Expect(lines).To(Equal([]string{"~     rules: the order of the elements changes"}))
+	g.Expect(orderOnly(lines)).To(BeTrue())
+
+	lines = nil
+	diffValue("rules", []interface{}{rule("10.0.0.0/8")}, []interface{}{rule("10.0.0.0/8", "192.168.0.0/16")}, &lines)
+	g.Expect(lines).To(Equal([]string{
+		`-     rules[]: {"cidrs":["10.0.0.0/8"],"fromPort":-1}`,
+		`+     rules[]: {"cidrs":["10.0.0.0/8","192.168.0.0/16"],"fromPort":-1}`,
+	}))
+
+	lines = nil
+	diffValue("", map[string]interface{}{}, map[string]interface{}{"refs": []interface{}{}}, &lines)
+	diffValue("", map[string]interface{}{"refs": []interface{}{}}, map[string]interface{}{"refs": nil}, &lines)
+	g.Expect(lines).To(BeEmpty())
+}
+
+func TestPlanDeleteOfDeletingObjectIsNoChange(t *testing.T) {
+	g := NewWithT(t)
+	var lines []string
+	plan := NewPlan()
+	ctx := WithPlan(newLogContext(&lines), plan, source)
+
+	deleting := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+		Name:              "deleting",
+		Namespace:         "default",
+		Finalizers:        []string{"example.com/finalizer"},
+		DeletionTimestamp: &metav1.Time{Time: time.Now()},
+	}}
+	live := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "live", Namespace: "default"}}
+	real := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(deleting, live).Build()
+	c := NewClient(real, real)
+
+	g.Expect(c.Delete(ctx, deleting.DeepCopy())).To(Succeed())
+	g.Expect(c.Delete(ctx, live.DeepCopy())).To(Succeed())
+
+	report := plan.Report()
+	g.Expect(report.Summary.Delete).To(Equal(1))
+	g.Expect(report.Changes).To(HaveLen(1))
+	g.Expect(report.Changes[0].Name).To(Equal("live"))
+}
+
+func TestPlanCloudChangeSourcesAndNoOps(t *testing.T) {
+	g := NewWithT(t)
+	plan := NewPlan()
+	src := Source{Kind: "SecurityGroup", Name: "sg", Clusters: []string{"a"}}
+	change := CloudChange{
+		Source: src,
+		Kind:   "AutoScalingGroup",
+		ID:     "asg",
+		Call:   "UpdateAutoScalingGroup",
+		Before: map[string][]string{"launchTemplate": {"lt-1:7"}},
+		After:  map[string][]string{"launchTemplate": {"lt-1:8"}},
+	}
+	plan.RecordCloudChange(change)
+	plan.RecordCloudChange(change)
+
+	noop := change
+	noop.ID = "asg-noop"
+	noop.After = map[string][]string{"launchTemplate": {"lt-1:7"}}
+	plan.RecordCloudChange(noop)
+
+	report := plan.Report()
+	g.Expect(report.Cloud).To(HaveLen(1))
+	g.Expect(report.Cloud[0].ID).To(Equal("asg"))
+	g.Expect(report.Cloud[0].Sources).To(Equal([]string{"SecurityGroup/sg"}))
+	g.Expect(report.Summary.Cloud).To(Equal(1))
+}
+
+func TestPlanRunPendingNeedsObjectOfSameGroup(t *testing.T) {
+	g := NewWithT(t)
+	plan := NewPlan()
+	plan.recordCreate(Source{Kind: "Cluster", Name: "a"}, objectKey{Group: "ec2.aws.crossplane.io", Kind: "SecurityGroup", Name: "sg"}, map[string]interface{}{})
+
+	notFound := func(group string) func(ctx context.Context) (ctrl.Result, error) {
+		return func(ctx context.Context) (ctrl.Result, error) {
+			return ctrl.Result{}, apierrors.NewNotFound(schema.GroupResource{Group: group, Resource: "securitygroups"}, "sg")
+		}
+	}
+	plan.Run(context.TODO(), 1, []Target{
+		{Source: Source{Kind: "SecurityGroup", Name: "same-group"}, Reconcile: notFound("ec2.aws.crossplane.io")},
+		{Source: Source{Kind: "SecurityGroup", Name: "other-group"}, Reconcile: notFound("ec2.aws.wildlife.io")},
+	}, func(error) bool { return false })
+
+	statuses := map[string]Status{}
+	for _, r := range plan.Report().Results {
+		statuses[r.Source.Name] = r.Status
+	}
+	g.Expect(statuses).To(Equal(map[string]Status{"same-group": StatusPending, "other-group": StatusError}))
+}

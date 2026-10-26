@@ -78,7 +78,7 @@ func (p *Plan) reconcile(ctx context.Context, t Target, isPending func(error) bo
 	switch {
 	case err != nil && isPending(err):
 		p.SetResult(t.Source, StatusPending, err.Error())
-	case err != nil && apierrors.IsNotFound(err) && p.createdName(notFoundName(err)):
+	case err != nil && apierrors.IsNotFound(err) && p.createdName(notFoundObject(err)):
 		p.SetResult(t.Source, StatusPending, fmt.Sprintf("waits for an object that this plan creates: %v", err))
 	case err != nil:
 		p.SetResult(t.Source, StatusError, err.Error())
@@ -113,10 +113,12 @@ func safeReconcile(ctx context.Context, t Target) (result ctrl.Result, err error
 	return t.Reconcile(ctx)
 }
 
-func notFoundName(err error) string {
+// notFoundObject returns the API group and the name of the object that a
+// NotFound error is about.
+func notFoundObject(err error) (string, string) {
 	var status apierrors.APIStatus
 	if errors.As(err, &status) && status.Status().Details != nil {
-		return status.Status().Details.Name
+		return status.Status().Details.Group, status.Status().Details.Name
 	}
-	return ""
+	return "", ""
 }

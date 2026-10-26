@@ -33,8 +33,9 @@ const (
 // planOnce reconciles every Cluster, then every SecurityGroup, once and
 // records what the reconciles would change. Nothing is stored, so the
 // SecurityGroup reconciles do not see the SecurityGroups that the ClusterMesh
-// reconciles would create or change.
-func planOnce(ctx context.Context, c client.Reader, plan *dryrun.Plan, clusterMeshReconciler *clustermeshcontrollers.ClusterMeshReconciler, sgReconciler *sgcontroller.SecurityGroupReconciler, clusterMeshWorkers, sgWorkers int) error {
+// reconciles would create or change. When clusterName is set and no object
+// matches it, planOnce fails, so that a wrong name does not plan no changes.
+func planOnce(ctx context.Context, c client.Reader, plan *dryrun.Plan, clusterMeshReconciler *clustermeshcontrollers.ClusterMeshReconciler, sgReconciler *sgcontroller.SecurityGroupReconciler, clusterMeshWorkers, sgWorkers int, clusterName string) error {
 	clusterTargets, err := clusterTargets(ctx, c, clusterMeshReconciler)
 	if err != nil {
 		return err
@@ -46,6 +47,10 @@ func planOnce(ctx context.Context, c client.Reader, plan *dryrun.Plan, clusterMe
 		return err
 	}
 	plan.Run(ctx, sgWorkers, sgTargets, isPending)
+
+	if clusterName != "" && len(clusterTargets)+len(sgTargets) == 0 {
+		return fmt.Errorf("no Cluster or SecurityGroup matches --cluster=%s", clusterName)
+	}
 	return nil
 }
 
@@ -105,7 +110,9 @@ func securityGroupTargets(ctx context.Context, c client.Reader, r *sgcontroller.
 				return r.Reconcile(ctx, req)
 			},
 		}
-		if sg.GetAnnotations()[sgcontroller.AnnotationKeyReconciliationPaused] == "true" {
+		// The reconciler fails on a SecurityGroup without infrastructureRef
+		// before it checks the pause annotation.
+		if sg.Spec.InfrastructureRef != nil && sg.GetAnnotations()[sgcontroller.AnnotationKeyReconciliationPaused] == "true" {
 			t.SkipReason = "paused"
 		}
 		targets = append(targets, t)

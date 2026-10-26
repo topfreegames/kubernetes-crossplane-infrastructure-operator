@@ -214,6 +214,11 @@ func (p *Plan) RecordCloudChange(c CloudChange) {
 	defer p.mu.Unlock()
 	id := cloudChangeID(c)
 	if existing, ok := p.cloud[id]; ok {
+		for _, s := range existing.sources {
+			if s.String() == c.Source.String() {
+				return
+			}
+		}
 		existing.sources = append(existing.sources, c.Source)
 		return
 	}
@@ -233,6 +238,21 @@ func (p *Plan) writeError(source Source) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.writeErrors[source.String()]
+}
+
+// unchanged reports whether every value of c is the same before and after.
+// It is false when the values before are not known.
+func (c *CloudChange) unchanged() bool {
+	if len(c.Before) == 0 {
+		return false
+	}
+	for field, after := range c.After {
+		before, ok := c.Before[field]
+		if !ok || !reflect.DeepEqual(before, after) {
+			return false
+		}
+	}
+	return true
 }
 
 // cloudChangeID identifies a change by its kind, ID, call and values.
@@ -266,12 +286,13 @@ func (p *Plan) forget(source Source) {
 	}
 }
 
-// createdName reports whether a source created an object named name.
-func (p *Plan) createdName(name string) bool {
+// createdName reports whether a source created an object named name in the
+// API group group.
+func (p *Plan) createdName(group, name string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for key, bySource := range p.entries {
-		if key.Name != name {
+		if key.Group != group || key.Name != name {
 			continue
 		}
 		for _, e := range bySource {
@@ -376,7 +397,7 @@ func (p *Plan) Report() *Report {
 		clusters := map[string]bool{}
 		for _, e := range bySource {
 			diff := diffObjects(e.live, e.desired, e.action)
-			if len(diff) == 0 && e.action == ActionUpdate {
+			if len(diff) == 0 && e.action == ActionUpdate || e.action == ActionDelete && deleting(e.live) {
 				continue
 			}
 			action, released := e.action, false
@@ -431,6 +452,9 @@ func (p *Plan) Report() *Report {
 	})
 
 	for _, c := range p.cloud {
+		if c.unchanged() {
+			continue
+		}
 		s := CloudChangeSummary{CloudChange: *c}
 		clusters := map[string]bool{}
 		for _, src := range c.sources {
@@ -696,6 +720,10 @@ func diffValue(path string, a, b interface{}, lines *[]string) {
 }
 
 func diffList(path string, a, b []interface{}, lines *[]string) {
+	// An empty list and a missing list are the same.
+	if len(a) == 0 && len(b) == 0 {
+		return
+	}
 	if field := listKey(a, b); field != "" {
 		am, bm := map[string]interface{}{}, map[string]interface{}{}
 		for _, e := range a {
@@ -721,27 +749,59 @@ func diffList(path string, a, b []interface{}, lines *[]string) {
 		return
 	}
 
+	// Elements without a key are compared by value, ignoring the order of
+	// the lists inside them, so that only a change of order inside an
+	// element shows as an order change.
+	values := map[string]string{}
 	count := func(l []interface{}) map[string]int {
 		c := map[string]int{}
 		for _, e := range l {
-			c[formatValue(e)]++
+			k := formatValue(canonical(e))
+			if _, ok := values[k]; !ok {
+				values[k] = formatValue(e)
+			}
+			c[k]++
 		}
 		return c
 	}
 	ac, bc := count(a), count(b)
-	if reflect.DeepEqual(ac, bc) && !reflect.DeepEqual(a, b) {
-		*lines = append(*lines, orderLine(path))
+	if reflect.DeepEqual(ac, bc) {
+		if !reflect.DeepEqual(a, b) {
+			*lines = append(*lines, orderLine(path))
+		}
 		return
 	}
-	for _, v := range sortedKeys(ac) {
-		for i := bc[v]; i < ac[v]; i++ {
-			*lines = append(*lines, "-     "+path+"[]: "+v)
+	for _, k := range sortedKeys(ac) {
+		for i := bc[k]; i < ac[k]; i++ {
+			*lines = append(*lines, "-     "+path+"[]: "+values[k])
 		}
 	}
-	for _, v := range sortedKeys(bc) {
-		for i := ac[v]; i < bc[v]; i++ {
-			*lines = append(*lines, "+     "+path+"[]: "+v)
+	for _, k := range sortedKeys(bc) {
+		for i := ac[k]; i < bc[k]; i++ {
+			*lines = append(*lines, "+     "+path+"[]: "+values[k])
 		}
+	}
+}
+
+// canonical returns v with the elements of every list in it sorted, so that
+// two values that differ only in the order of list elements are equal.
+func canonical(v interface{}) interface{} {
+	switch t := v.(type) {
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(t))
+		for k, e := range t {
+			out[k] = canonical(e)
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, len(t))
+		for i, e := range t {
+			out[i] = canonical(e)
+		}
+		sort.Slice(out, func(i, j int) bool { return formatValue(out[i]) < formatValue(out[j]) })
+		return out
+	default:
+		return v
 	}
 }
 
@@ -762,14 +822,20 @@ func orderOnly(diff []string) bool {
 	return len(diff) > 0
 }
 
+// deleting reports whether live is being deleted already.
+func deleting(live map[string]interface{}) bool {
+	meta, _ := live["metadata"].(map[string]interface{})
+	return meta["deletionTimestamp"] != nil
+}
+
 // releases reports whether desired removes the last finalizer of live, an
 // object that is being deleted. The API server then deletes the object.
 func releases(live, desired map[string]interface{}) bool {
-	liveMeta, _ := live["metadata"].(map[string]interface{})
-	desiredMeta, _ := desired["metadata"].(map[string]interface{})
-	if liveMeta["deletionTimestamp"] == nil {
+	if !deleting(live) {
 		return false
 	}
+	liveMeta, _ := live["metadata"].(map[string]interface{})
+	desiredMeta, _ := desired["metadata"].(map[string]interface{})
 	liveFinalizers, _ := liveMeta["finalizers"].([]interface{})
 	desiredFinalizers, _ := desiredMeta["finalizers"].([]interface{})
 	return len(liveFinalizers) > 0 && len(desiredFinalizers) == 0

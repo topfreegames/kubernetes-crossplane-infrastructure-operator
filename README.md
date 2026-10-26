@@ -45,7 +45,7 @@ Creates also log the object. Updates also log a JSON merge patch from the object
 Run it locally with a kubeconfig for the management cluster. Use another port for the health probes if 8081 is in use:
 
 ```sh
-go run ./cmd/main.go --dry-run --health-probe-bind-address=:18081
+go run ./cmd --dry-run --health-probe-bind-address=:18081
 ```
 
 Or deploy a second Deployment with the new image, a different name and the same service account. Give it pod labels and a selector that are different from the real manager, so that no Service of the real manager selects the dry-run pod. Remove the `ad.datadoghq.com/*` pod annotations, because the dry-run pod has no metrics endpoint. Give its logs a different service tag, or exclude the pod from log monitors: the dry-run manager logs errors that are expected in dry-run mode. Replace `--leader-elect` with `--dry-run` in the container args:
@@ -63,10 +63,10 @@ The dry-run manager needs the same RBAC, AWS credentials and Spot credentials as
 Add `--once` to `--dry-run` to reconcile every object once, print the changes and exit, like `terraform plan`. Use it to see what a new version would change in a cluster before you deploy it:
 
 ```sh
-go run ./cmd/main.go --dry-run --once --plan-json=plan.json > plan.txt
+go run ./cmd --dry-run --once --plan-json=plan.json > plan.txt
 ```
 
-The manager starts without controllers, leader election, metrics or health probes. It reconciles every Cluster for the ClusterMesh controller, then every SecurityGroup, with `--clustermesh-worker-count` and `--securitygroup-worker-count` workers. With `--cluster`, it reconciles only the objects of that cluster. Logs go to stderr.
+The manager starts without controllers, leader election, metrics or health probes. It reconciles every Cluster for the ClusterMesh controller, then every SecurityGroup, with `--clustermesh-worker-count` and `--securitygroup-worker-count` workers. With `--cluster`, it reconciles only the objects of that cluster, and it fails when no Cluster or SecurityGroup matches the name. Logs go to stderr.
 
 The plan goes to stdout. It lists only the writes that change something, grouped by the clusters of the objects whose reconciles make them:
 

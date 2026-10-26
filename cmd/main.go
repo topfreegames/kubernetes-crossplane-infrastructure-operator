@@ -112,6 +112,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if timeout <= 0 {
+		setupLog.Error(nil, "--timeout must be greater than 0")
+		os.Exit(1)
+	}
+
 	if planJSON != "" && !once {
 		setupLog.Error(nil, "--plan-json requires --once")
 		os.Exit(1)
@@ -150,7 +155,7 @@ func main() {
 	}
 
 	if once {
-		os.Exit(runOnce(mgr, clusterMeshReconciler, sgReconciler, clusterMeshWorkerCount, securityGroupWorkerCount, timeout, planJSON))
+		os.Exit(runOnce(mgr, clusterMeshReconciler, sgReconciler, clusterMeshWorkerCount, securityGroupWorkerCount, timeout, planJSON, cluster))
 	}
 
 	if err = clusterMeshReconciler.SetupWithManager(mgr, clusterMeshWorkerCount); err != nil {
@@ -201,7 +206,7 @@ func managerOptions(metricsAddr, probeAddr string, enableLeaderElection, dryRun 
 
 // runOnce starts the manager without controllers, so that only the cache
 // runs, plans every object once and returns the exit code.
-func runOnce(mgr ctrl.Manager, clusterMeshReconciler *clustermeshcontrollers.ClusterMeshReconciler, sgReconciler *sgcontroller.SecurityGroupReconciler, clusterMeshWorkers, sgWorkers int, timeout time.Duration, planJSON string) int {
+func runOnce(mgr ctrl.Manager, clusterMeshReconciler *clustermeshcontrollers.ClusterMeshReconciler, sgReconciler *sgcontroller.SecurityGroupReconciler, clusterMeshWorkers, sgWorkers int, timeout time.Duration, planJSON, clusterName string) int {
 	ctx, cancel := context.WithCancel(ctrl.SetupSignalHandler())
 	defer cancel()
 
@@ -217,7 +222,7 @@ func runOnce(mgr ctrl.Manager, clusterMeshReconciler *clustermeshcontrollers.Clu
 		ctx, cancelTimeout := context.WithTimeout(ctx, timeout)
 		defer cancelTimeout()
 		setupLog.Info("planning")
-		done <- planOnce(ctx, mgr.GetClient(), plan, clusterMeshReconciler, sgReconciler, clusterMeshWorkers, sgWorkers)
+		done <- planOnce(ctx, mgr.GetClient(), plan, clusterMeshReconciler, sgReconciler, clusterMeshWorkers, sgWorkers, clusterName)
 		return nil
 	}))
 	if err != nil {

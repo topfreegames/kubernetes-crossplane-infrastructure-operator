@@ -114,3 +114,38 @@ func TestWritePlanExitCode(t *testing.T) {
 
 	g.Expect(writePlan(plan, nil, &strings.Builder{}, filepath.Join(t.TempDir(), "missing", "plan.json"))).To(Equal(exitError))
 }
+
+func TestPlanOnceFailsWhenNoObjectMatchesCluster(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.TODO()
+
+	realClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&clusterv1beta1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster-a", Namespace: "ns"},
+			Spec:       clusterv1beta1.ClusterSpec{ControlPlaneRef: &corev1.ObjectReference{Kind: "KopsControlPlane", Name: "kcp-a"}},
+		},
+	).Build()
+	clusterMeshReconciler, sgReconciler := newReconcilers(realClient)
+	configureClusterFilter(clusterMeshReconciler, sgReconciler, "typo")
+
+	plan := dryrun.NewPlan()
+	err := planOnce(ctx, realClient, plan, clusterMeshReconciler, sgReconciler, 1, 1, "typo")
+	g.Expect(err).To(MatchError("no Cluster or SecurityGroup matches --cluster=typo"))
+	g.Expect(writePlan(plan, err, &strings.Builder{}, "")).To(Equal(exitError))
+}
+
+func TestPausedSecurityGroupWithoutInfrastructureRefIsReconciled(t *testing.T) {
+	g := NewWithT(t)
+	realClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&securitygroupv1alpha2.SecurityGroup{ObjectMeta: metav1.ObjectMeta{
+			Name:        "sg-paused",
+			Annotations: map[string]string{sgcontroller.AnnotationKeyReconciliationPaused: "true"},
+		}},
+	).Build()
+	_, sgReconciler := newReconcilers(realClient)
+
+	sgs, err := securityGroupTargets(context.TODO(), realClient, sgReconciler)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(sgs).To(HaveLen(1))
+	g.Expect(sgs[0].SkipReason).To(BeEmpty())
+}

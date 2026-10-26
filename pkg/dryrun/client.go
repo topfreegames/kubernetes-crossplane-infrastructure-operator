@@ -210,8 +210,17 @@ func (c *loggingClient) Delete(ctx context.Context, obj client.Object, opts ...c
 	if err := c.Client.Delete(ctx, obj, opts...); err != nil {
 		return err
 	}
-	return c.record(ctx, obj, nil, func(p *Plan, source Source, key objectKey, _, _ map[string]interface{}) {
-		p.recordDelete(source, key, nil)
+	if _, _, ok := planFrom(ctx); !ok {
+		return nil
+	}
+	// The plan needs the current object to tell whether it is already being
+	// deleted.
+	current, err := c.currentForPlan(ctx, obj)
+	if err != nil {
+		return err
+	}
+	return c.record(ctx, obj, current, func(p *Plan, source Source, key objectKey, live, _ map[string]interface{}) {
+		p.recordDelete(source, key, live)
 	})
 }
 
