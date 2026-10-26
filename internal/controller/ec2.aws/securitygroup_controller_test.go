@@ -2096,27 +2096,6 @@ func TestAttachKopsMachinePool(t *testing.T) {
 				}, nil
 			}
 
-			fakeEC2Client.MockDescribeLaunchTemplates = func(ctx context.Context, params *awsec2.DescribeLaunchTemplatesInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplatesOutput, error) {
-				return &awsec2.DescribeLaunchTemplatesOutput{
-					LaunchTemplates: []ec2types.LaunchTemplate{
-						{
-							LaunchTemplateId:   aws.String("lt-xxxx"),
-							LaunchTemplateName: aws.String("test-launch-template"),
-							Tags: []ec2types.Tag{
-								{
-									Key:   aws.String("tag:KubernetesCluster"),
-									Value: aws.String("test-cluster"),
-								},
-								{
-									Key:   aws.String("tag:Name"),
-									Value: aws.String("test-launch-template"),
-								},
-							},
-						},
-					},
-				}, nil
-			}
-
 			fakeOceanClient := &fakeocean.MockOceanCloudProviderAWS{}
 
 			fakeOceanClient.MockListClusters = func(ctx context.Context, listClusterInput *oceanaws.ListClustersInput) (*oceanaws.ListClustersOutput, error) {
@@ -3055,26 +3034,6 @@ func TestDetachSGFromKopsMachinePool(t *testing.T) {
 				}, nil
 			}
 
-			fakeEC2Client.MockDescribeLaunchTemplates = func(ctx context.Context, params *awsec2.DescribeLaunchTemplatesInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplatesOutput, error) {
-				return &awsec2.DescribeLaunchTemplatesOutput{
-					LaunchTemplates: []ec2types.LaunchTemplate{
-						{
-							LaunchTemplateId:   aws.String("lt-xxxx"),
-							LaunchTemplateName: aws.String("test-launch-template"),
-							Tags: []ec2types.Tag{
-								{
-									Key:   aws.String("tag:KubernetesCluster"),
-									Value: aws.String("test-cluster"),
-								},
-								{
-									Key:   aws.String("tag:Name"),
-									Value: aws.String("test-launch-template"),
-								},
-							},
-						},
-					},
-				}, nil
-			}
 			reconciler := SecurityGroupReconciler{
 				Client:   fakeClient,
 				Recorder: record.NewFakeRecorder(3),
@@ -4058,7 +4017,6 @@ func TestSecurityGroupStatus(t *testing.T) {
 		description                   string
 		k8sObjects                    []client.Object
 		mockDescribeAutoScalingGroups func(ctx context.Context, params *awsautoscaling.DescribeAutoScalingGroupsInput, optFns []func(*awsautoscaling.Options)) (*awsautoscaling.DescribeAutoScalingGroupsOutput, error)
-		mockDescribeLaunchTemplates   func(ctx context.Context, params *awsec2.DescribeLaunchTemplatesInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplatesOutput, error)
 		mockDescribeInstances         func(ctx context.Context, input *awsec2.DescribeInstancesInput, opts []func(*awsec2.Options)) (*awsec2.DescribeInstancesOutput, error)
 		conditionsToAssert            []*clusterv1beta1.Condition
 		errorExpected                 error
@@ -4296,31 +4254,6 @@ func TestSecurityGroupStatus(t *testing.T) {
 				return &awsec2.DescribeSecurityGroupsOutput{}, nil
 			}
 
-			if tc.mockDescribeLaunchTemplates == nil {
-				fakeEC2Client.MockDescribeLaunchTemplates = func(ctx context.Context, params *awsec2.DescribeLaunchTemplatesInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplatesOutput, error) {
-					return &awsec2.DescribeLaunchTemplatesOutput{
-						LaunchTemplates: []ec2types.LaunchTemplate{
-							{
-								LaunchTemplateId:   aws.String("lt-xxxx"),
-								LaunchTemplateName: aws.String("test-launch-template"),
-								Tags: []ec2types.Tag{
-									{
-										Key:   aws.String("tag:KubernetesCluster"),
-										Value: aws.String("test-cluster"),
-									},
-									{
-										Key:   aws.String("tag:Name"),
-										Value: aws.String("test-launch-template"),
-									},
-								},
-							},
-						},
-					}, nil
-				}
-			} else {
-				fakeEC2Client.MockDescribeLaunchTemplates = tc.mockDescribeLaunchTemplates
-			}
-
 			fakeASGClient := &fakeasg.MockAutoScalingClient{}
 			if tc.mockDescribeAutoScalingGroups == nil {
 				fakeASGClient.MockDescribeAutoScalingGroups = func(ctx context.Context, params *awsautoscaling.DescribeAutoScalingGroupsInput, optFns []func(*awsautoscaling.Options)) (*awsautoscaling.DescribeAutoScalingGroupsOutput, error) {
@@ -4479,26 +4412,6 @@ func TestCustomMetrics(t *testing.T) {
 		return &awsec2.CreateLaunchTemplateVersionOutput{
 			LaunchTemplateVersion: &ec2types.LaunchTemplateVersion{
 				VersionNumber: aws.Int64(1),
-			},
-		}, nil
-	}
-	fakeEC2Client.MockDescribeLaunchTemplates = func(ctx context.Context, params *awsec2.DescribeLaunchTemplatesInput, optFns []func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplatesOutput, error) {
-		return &awsec2.DescribeLaunchTemplatesOutput{
-			LaunchTemplates: []ec2types.LaunchTemplate{
-				{
-					LaunchTemplateId:   aws.String("lt-xxxx"),
-					LaunchTemplateName: aws.String("test-launch-template"),
-					Tags: []ec2types.Tag{
-						{
-							Key:   aws.String("tag:KubernetesCluster"),
-							Value: aws.String("test-cluster"),
-						},
-						{
-							Key:   aws.String("tag:Name"),
-							Value: aws.String("test-launch-template"),
-						},
-					},
-				},
 			},
 		}, nil
 	}

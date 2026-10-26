@@ -50,10 +50,6 @@ func (c *EC2Client) DescribeVpcs(ctx context.Context, params *awsec2.DescribeVpc
 	return c.real.DescribeVpcs(ctx, params, optFns...)
 }
 
-func (c *EC2Client) DescribeLaunchTemplates(ctx context.Context, params *awsec2.DescribeLaunchTemplatesInput, optFns ...func(*awsec2.Options)) (*awsec2.DescribeLaunchTemplatesOutput, error) {
-	return c.real.DescribeLaunchTemplates(ctx, params, optFns...)
-}
-
 func (c *EC2Client) DescribeInstances(ctx context.Context, params *awsec2.DescribeInstancesInput, optFns ...func(*awsec2.Options)) (*awsec2.DescribeInstancesOutput, error) {
 	return c.real.DescribeInstances(ctx, params, optFns...)
 }

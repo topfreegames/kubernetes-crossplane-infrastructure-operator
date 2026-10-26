@@ -2,8 +2,6 @@ module github.com/topfreegames/kubernetes-crossplane-infrastructure-operator
 
 go 1.27.3
 
-replace k8s.io/code-generator => k8s.io/code-generator v0.21.0
-
 require (
 	github.com/aws/aws-sdk-go-v2 v1.47.4
 	github.com/aws/aws-sdk-go-v2/config v1.33.10
