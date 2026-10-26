@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"sync"
@@ -50,7 +51,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/strings/slices"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -112,7 +112,7 @@ func DefaultReconciler(mgr manager.Manager) *SecurityGroupReconciler {
 	return &SecurityGroupReconciler{
 		Client:                          mgr.GetClient(),
 		Scheme:                          mgr.GetScheme(),
-		Recorder:                        mgr.GetEventRecorderFor("securityGroup-controller"),
+		Recorder:                        mgr.GetEventRecorderFor("securityGroup-controller"), //nolint:staticcheck
 		NewEC2ClientFactory:             ec2.NewEC2Client,
 		NewAutoScalingClientFactory:     autoscaling.NewAutoScalingClient,
 		NewOceanCloudProviderAWSFactory: spot.NewOceanCloudProviderAWS,
@@ -360,50 +360,34 @@ func (r *SecurityGroupReconciliation) attachKopsMachinePool(ctx context.Context,
 			}
 			err = r.attachSGToVNG(ctx, oceanClient, launchSpecs, kmp.Name, csg)
 			if err != nil {
-				r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, err.Error())
+				r.Recorder.Event(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, err.Error())
 				attachErr = multierror.Append(attachErr, err)
 				continue
 			}
 		} else if kmp.Spec.KopsInstanceGroupSpec.Manager == "Karpenter" {
-			if len(kmp.Spec.KarpenterProvisioners) > 0 {
-				launchTemplateName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
-				if err != nil {
-					attachErr = multierror.Append(attachErr, err)
-					continue
-				}
+			filters := []ec2types.Filter{
+				{
+					Name:   aws.String("tag:karpenter.sh/managed-by"),
+					Values: []string{r.clusterName},
+				},
+				{
+					Name:   aws.String("tag:karpenter.sh/nodepool"),
+					Values: []string{kmp.Name},
+				},
+			}
 
-				err = r.attachSGToLaunchTemplate(ctx, kcp.Name, launchTemplateName, csg.Status.AtProvider.SecurityGroupID)
-				if err != nil {
-					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, err.Error())
-					attachErr = multierror.Append(attachErr, err)
-					continue
-				}
-			} else {
-				// We are assuming that this is a NodePool for now
-				filters := []ec2types.Filter{
-					{
-						Name:   aws.String("tag:karpenter.sh/managed-by"),
-						Values: []string{r.clusterName},
-					},
-					{
-						Name:   aws.String("tag:karpenter.sh/nodepool"),
-						Values: []string{kmp.Name},
-					},
-				}
+			instanceIDs, err := ec2.GetInstancesWithFilter(ctx, r.ec2Client, filters)
+			if err != nil {
+				r.Recorder.Event(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, err.Error())
+				attachErr = multierror.Append(attachErr, err)
+				continue
+			}
 
-				instanceIDs, err := ec2.GetInstancesWithFilter(ctx, r.ec2Client, filters)
-				if err != nil {
-					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, err.Error())
-					attachErr = multierror.Append(attachErr, err)
-					continue
-				}
-
-				err = ec2.AttachSecurityGroupToInstances(ctx, r.ec2Client, instanceIDs, csg.Status.AtProvider.SecurityGroupID)
-				if err != nil {
-					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesAttachmentFailed", err.Error())
-					attachErr = multierror.Append(attachErr, err)
-					continue
-				}
+			err = ec2.AttachSecurityGroupToInstances(ctx, r.ec2Client, instanceIDs, csg.Status.AtProvider.SecurityGroupID)
+			if err != nil {
+				r.Recorder.Event(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesAttachmentFailed", err.Error())
+				attachErr = multierror.Append(attachErr, err)
+				continue
 			}
 
 		} else {
@@ -415,7 +399,7 @@ func (r *SecurityGroupReconciliation) attachKopsMachinePool(ctx context.Context,
 
 			err = r.attachSGToASG(ctx, asgName, csg.Status.AtProvider.SecurityGroupID)
 			if err != nil {
-				r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, err.Error())
+				r.Recorder.Event(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, err.Error())
 				attachErr = multierror.Append(attachErr, err)
 				continue
 			}
@@ -498,7 +482,7 @@ func (r *SecurityGroupReconciliation) attachSGToVNG(ctx context.Context, oceanCl
 
 				err = ec2.AttachSecurityGroupToInstances(ctx, r.ec2Client, instanceIDs, csg.Status.AtProvider.SecurityGroupID)
 				if err != nil {
-					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesAttachmentFailed", err.Error())
+					r.Recorder.Event(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesAttachmentFailed", err.Error())
 				}
 
 				return nil
@@ -541,52 +525,7 @@ func (r *SecurityGroupReconciliation) attachSGToASG(ctx context.Context, asgName
 
 	err = ec2.AttachSecurityGroupToInstances(ctx, r.ec2Client, instanceIDs, sgID)
 	if err != nil {
-		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesAttachmentFailed", err.Error())
-	}
-
-	return nil
-}
-
-func (r *SecurityGroupReconciliation) attachSGToLaunchTemplate(ctx context.Context, kubernetesClusterName, launchTemplateName, sgID string) error {
-
-	launchTemplate, err := ec2.GetLaunchTemplateFromInstanceGroup(ctx, r.ec2Client, kubernetesClusterName, launchTemplateName)
-	if err != nil {
-		return err
-	}
-
-	launchTemplateVersion, err := ec2.GetLastLaunchTemplateVersion(ctx, r.ec2Client, *launchTemplate.LaunchTemplateId)
-	if err != nil {
-		return err
-	}
-
-	_, err = ec2.AttachSecurityGroupToLaunchTemplate(ctx, r.ec2Client, sgID, launchTemplateVersion)
-	if err != nil {
-		return err
-	}
-
-	outputDescribeInstances, err := r.ec2Client.DescribeInstances(ctx, &ec2service.DescribeInstancesInput{
-		Filters: []ec2types.Filter{
-			{
-				Name:   aws.String("tag:aws:ec2launchtemplate:id"),
-				Values: []string{*launchTemplate.LaunchTemplateId},
-			},
-		},
-	})
-	if err != nil {
-		return err
-	}
-
-	instanceIDs := []string{}
-	for _, reservation := range outputDescribeInstances.Reservations {
-		for _, instance := range reservation.Instances {
-			instanceIDs = append(instanceIDs, *instance.InstanceId)
-		}
-	}
-
-	err = ec2.AttachSecurityGroupToInstances(ctx, r.ec2Client, instanceIDs, sgID)
-	if err != nil {
-		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesAttachmentFailed", err.Error())
-		return err
+		r.Recorder.Event(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesAttachmentFailed", err.Error())
 	}
 
 	return nil
@@ -696,43 +635,26 @@ func (r *SecurityGroupReconciliation) detachSGFromKopsMachinePool(ctx context.Co
 				continue
 			}
 		} else if kmp.Spec.KopsInstanceGroupSpec.Manager == "Karpenter" {
-			if len(kmp.Spec.KarpenterProvisioners) > 0 {
+			filters := []ec2types.Filter{
+				{
+					Name:   aws.String("tag:karpenter.sh/managed-by"),
+					Values: []string{r.clusterName},
+				},
+				{
+					Name:   aws.String("tag:karpenter.sh/nodepool"),
+					Values: []string{kmp.Name},
+				},
+			}
 
-				launchTemplateName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
-				if err != nil {
-					detachErr = multierror.Append(detachErr, err)
-					continue
-				}
-
-				err = r.detachSGFromLaunchTemplate(ctx, kmp.Spec.ClusterName, launchTemplateName, csg.Status.AtProvider.SecurityGroupID)
-				if err != nil {
-					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, err.Error())
-					detachErr = multierror.Append(detachErr, err)
-					continue
-				}
-			} else {
-				// We are assuming that this is a NodePool for now
-				filters := []ec2types.Filter{
-					{
-						Name:   aws.String("tag:karpenter.sh/managed-by"),
-						Values: []string{r.clusterName},
-					},
-					{
-						Name:   aws.String("tag:karpenter.sh/nodepool"),
-						Values: []string{kmp.Name},
-					},
-				}
-
-				instanceIDs, err := ec2.GetInstancesWithFilter(ctx, r.ec2Client, filters)
-				if err != nil {
-					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, err.Error())
-					detachErr = multierror.Append(detachErr, err)
-					continue
-				}
-				err = ec2.DetachSecurityGroupFromInstances(ctx, r.ec2Client, instanceIDs, csg.Status.AtProvider.SecurityGroupID)
-				if err != nil {
-					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesDetachmentFailed", err.Error())
-				}
+			instanceIDs, err := ec2.GetInstancesWithFilter(ctx, r.ec2Client, filters)
+			if err != nil {
+				r.Recorder.Event(r.sg, corev1.EventTypeWarning, securitygroupv1alpha2.SecurityGroupAttachmentFailedReason, err.Error())
+				detachErr = multierror.Append(detachErr, err)
+				continue
+			}
+			err = ec2.DetachSecurityGroupFromInstances(ctx, r.ec2Client, instanceIDs, csg.Status.AtProvider.SecurityGroupID)
+			if err != nil {
+				r.Recorder.Event(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesDetachmentFailed", err.Error())
 			}
 		} else {
 			asgName, err := kops.GetCloudResourceNameFromKopsMachinePool(kmp)
@@ -803,7 +725,7 @@ func (r *SecurityGroupReconciliation) detachSGFromVNG(ctx context.Context, ocean
 
 				err = ec2.DetachSecurityGroupFromInstances(ctx, r.ec2Client, instanceIDs, csg.Status.AtProvider.SecurityGroupID)
 				if err != nil {
-					r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesDetachmentFailed", err.Error())
+					r.Recorder.Event(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesDetachmentFailed", err.Error())
 				}
 				return nil
 			}
@@ -844,7 +766,7 @@ func (r *SecurityGroupReconciliation) detachSGFromASG(ctx context.Context, asgNa
 
 	err = ec2.DetachSecurityGroupFromInstances(ctx, r.ec2Client, instanceIDs, sgId)
 	if err != nil {
-		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesDetachmentFailed", err.Error())
+		r.Recorder.Event(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesDetachmentFailed", err.Error())
 	}
 
 	return nil
@@ -856,50 +778,6 @@ func (r *SecurityGroupReconciler) SetupWithManager(mgr ctrl.Manager, workerCount
 		For(&securitygroupv1alpha2.SecurityGroup{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: workerCount}).
 		Complete(r)
-}
-
-func (r *SecurityGroupReconciliation) detachSGFromLaunchTemplate(ctx context.Context, kubernetesClusterName, launchTemplateName, sgID string) error {
-
-	launchTemplate, err := ec2.GetLaunchTemplateFromInstanceGroup(ctx, r.ec2Client, kubernetesClusterName, launchTemplateName)
-	if err != nil {
-		return err
-	}
-
-	launchTemplateVersion, err := ec2.GetLastLaunchTemplateVersion(ctx, r.ec2Client, *launchTemplate.LaunchTemplateId)
-	if err != nil {
-		return err
-	}
-
-	_, err = ec2.DetachSecurityGroupFromLaunchTemplate(ctx, r.ec2Client, sgID, launchTemplateVersion)
-	if err != nil {
-		return err
-	}
-
-	outputDescribeInstances, err := r.ec2Client.DescribeInstances(ctx, &ec2service.DescribeInstancesInput{
-		Filters: []ec2types.Filter{
-			{
-				Name:   aws.String("tag:aws:ec2launchtemplate:id"),
-				Values: []string{*launchTemplate.LaunchTemplateId},
-			},
-		},
-	})
-	if err != nil {
-		return err
-	}
-
-	instanceIDs := []string{}
-	for _, reservation := range outputDescribeInstances.Reservations {
-		for _, instance := range reservation.Instances {
-			instanceIDs = append(instanceIDs, *instance.InstanceId)
-		}
-	}
-
-	err = ec2.DetachSecurityGroupFromInstances(ctx, r.ec2Client, instanceIDs, sgID)
-	if err != nil {
-		r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "SecurityGroupInstancesDetachmentFailed", err.Error())
-		return err
-	}
-	return nil
 }
 
 func (r *SecurityGroupReconciliation) ensureAttachReferences(ctx context.Context, csg *crossec2v1beta1.SecurityGroup) (ctrl.Result, error) {

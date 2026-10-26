@@ -103,8 +103,8 @@ func NewCrossplaneRoute(region, destinationCIDRBlock, routeTable string, provide
 			OwnerReferences: []metav1.OwnerReference{
 				{
 					Name:       vpcPeeringConnection.ObjectMeta.Name,
-					Kind:       vpcPeeringConnection.TypeMeta.Kind,
-					APIVersion: vpcPeeringConnection.TypeMeta.APIVersion,
+					Kind:       crossec2v1alphav1.VPCPeeringConnectionKind,
+					APIVersion: crossec2v1alphav1.VPCPeeringConnectionGroupVersionKind.GroupVersion().String(),
 					UID:        vpcPeeringConnection.ObjectMeta.UID,
 				},
 			},
@@ -277,7 +277,18 @@ func GetSecurityGroupReadyCondition(csg *crossec2v1beta1.SecurityGroup) *crosspl
 	return nil
 }
 
+func withGroupVersionKind(obj client.Object, kubeclient client.Client) client.Object {
+	gvk, err := kubeclient.GroupVersionKindFor(obj)
+	if err != nil {
+		return obj
+	}
+	obj = obj.DeepCopyObject().(client.Object)
+	obj.GetObjectKind().SetGroupVersionKind(gvk)
+	return obj
+}
+
 func GetOwnedVPCPeeringConnectionsRef(ctx context.Context, owner client.Object, kubeclient client.Client) ([]*corev1.ObjectReference, error) {
+	owner = withGroupVersionKind(owner, kubeclient)
 	vpcPeeringConnections := &crossec2v1alphav1.VPCPeeringConnectionList{}
 	err := kubeclient.List(ctx, vpcPeeringConnections)
 	if err != nil {
@@ -288,8 +299,8 @@ func GetOwnedVPCPeeringConnectionsRef(ctx context.Context, owner client.Object, 
 	for _, vpcPeeringConnection := range vpcPeeringConnections.Items {
 		if util.IsOwnedByObject(&vpcPeeringConnection, owner) {
 			objectRef := &corev1.ObjectReference{
-				APIVersion: vpcPeeringConnection.TypeMeta.APIVersion,
-				Kind:       vpcPeeringConnection.TypeMeta.Kind,
+				APIVersion: crossec2v1alphav1.VPCPeeringConnectionGroupVersionKind.GroupVersion().String(),
+				Kind:       crossec2v1alphav1.VPCPeeringConnectionKind,
 				Name:       vpcPeeringConnection.ObjectMeta.Name,
 			}
 			vpcPeeringsRef = append(vpcPeeringsRef, objectRef)
@@ -299,6 +310,7 @@ func GetOwnedVPCPeeringConnectionsRef(ctx context.Context, owner client.Object, 
 }
 
 func GetOwnedSecurityGroupsRef(ctx context.Context, owner client.Object, kubeclient client.Client) ([]*corev1.ObjectReference, error) {
+	owner = withGroupVersionKind(owner, kubeclient)
 	securityGroups := &securitygroupv1alpha2.SecurityGroupList{}
 	err := kubeclient.List(ctx, securityGroups)
 	if err != nil {
@@ -309,8 +321,8 @@ func GetOwnedSecurityGroupsRef(ctx context.Context, owner client.Object, kubecli
 	for _, sg := range securityGroups.Items {
 		if util.IsOwnedByObject(&sg, owner) {
 			objectRef := &corev1.ObjectReference{
-				APIVersion: sg.TypeMeta.APIVersion,
-				Kind:       sg.TypeMeta.Kind,
+				APIVersion: securitygroupv1alpha2.GroupVersion.String(),
+				Kind:       "SecurityGroup",
 				Name:       sg.ObjectMeta.Name,
 			}
 			ss = append(ss, objectRef)
@@ -320,6 +332,7 @@ func GetOwnedSecurityGroupsRef(ctx context.Context, owner client.Object, kubecli
 }
 
 func GetOwnedVPCPeeringConnections(ctx context.Context, owner client.Object, kubeclient client.Client) (*crossec2v1alphav1.VPCPeeringConnectionList, error) {
+	owner = withGroupVersionKind(owner, kubeclient)
 	vpcPeeringConnections := &crossec2v1alphav1.VPCPeeringConnectionList{}
 	err := kubeclient.List(ctx, vpcPeeringConnections)
 	if err != nil {
@@ -337,6 +350,7 @@ func GetOwnedVPCPeeringConnections(ctx context.Context, owner client.Object, kub
 }
 
 func GetOwnedSecurityGroups(ctx context.Context, owner client.Object, kubeclient client.Client) (*crossec2v1beta1.SecurityGroupList, error) {
+	owner = withGroupVersionKind(owner, kubeclient)
 	securityGroups := &crossec2v1beta1.SecurityGroupList{}
 	err := kubeclient.List(ctx, securityGroups)
 	if err != nil {
@@ -354,6 +368,7 @@ func GetOwnedSecurityGroups(ctx context.Context, owner client.Object, kubeclient
 }
 
 func GetOwnedRoutes(ctx context.Context, owner client.Object, kubeclient client.Client) (*crossec2v1alphav1.RouteList, error) {
+	owner = withGroupVersionKind(owner, kubeclient)
 	routes := &crossec2v1alphav1.RouteList{}
 	err := kubeclient.List(ctx, routes)
 	if err != nil {
@@ -371,6 +386,7 @@ func GetOwnedRoutes(ctx context.Context, owner client.Object, kubeclient client.
 }
 
 func GetOwnedRoutesRef(ctx context.Context, owner client.Object, kubeclient client.Client) ([]*corev1.ObjectReference, error) {
+	owner = withGroupVersionKind(owner, kubeclient)
 	routes := &crossec2v1alphav1.RouteList{}
 	err := kubeclient.List(ctx, routes)
 	if err != nil {
@@ -381,9 +397,9 @@ func GetOwnedRoutesRef(ctx context.Context, owner client.Object, kubeclient clie
 	for _, route := range routes.Items {
 		if util.IsOwnedByObject(&route, owner) {
 			objectRef := &corev1.ObjectReference{
-				Kind:       route.TypeMeta.Kind,
+				Kind:       crossec2v1alphav1.RouteKind,
 				Name:       route.ObjectMeta.Name,
-				APIVersion: route.TypeMeta.APIVersion,
+				APIVersion: crossec2v1alphav1.RouteGroupVersionKind.GroupVersion().String(),
 			}
 			ss = append(ss, objectRef)
 		}

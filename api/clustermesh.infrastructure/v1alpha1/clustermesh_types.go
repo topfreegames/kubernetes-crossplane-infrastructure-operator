@@ -90,10 +90,6 @@ type ClusterMeshList struct {
 	Items           []ClusterMesh `json:"items"`
 }
 
-func init() {
-	SchemeBuilder.Register(&ClusterMesh{}, &ClusterMeshList{})
-}
-
 // GetConditions returns the set of conditions for this object.
 func (cm *ClusterMesh) GetConditions() clusterv1beta1.Conditions {
 	return cm.Status.Conditions

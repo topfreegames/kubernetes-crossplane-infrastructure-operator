@@ -2314,8 +2314,8 @@ func TestReconcileRoutes(t *testing.T) {
 
 				for _, route := range routes.Items {
 					objectRef = append(objectRef, &corev1.ObjectReference{
-						Kind:       route.Kind,
-						APIVersion: route.APIVersion,
+						Kind:       "Route",
+						APIVersion: "ec2.aws.crossplane.io/v1alpha1",
 						Name:       route.Name,
 					})
 				}

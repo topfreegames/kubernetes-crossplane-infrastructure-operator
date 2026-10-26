@@ -114,10 +114,6 @@ type SecurityGroupList struct {
 	Items           []SecurityGroup `json:"items"`
 }
 
-func init() {
-	SchemeBuilder.Register(&SecurityGroup{}, &SecurityGroupList{})
-}
-
 // GetConditions returns the set of conditions for this object.
 func (sg *SecurityGroup) GetConditions() clusterv1beta1.Conditions {
 	return sg.Status.Conditions
