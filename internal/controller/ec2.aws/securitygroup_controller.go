@@ -174,7 +174,6 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 		if securityGroupHelper.ObjectMeta.DeletionTimestamp.IsZero() {
 			r.sg.Status = securityGroupHelper.Status
-			truncateConditionMessages(r.sg.Status.Conditions)
 			if err := r.Status().Update(ctx, r.sg); err != nil {
 				r.Recorder.Eventf(r.sg, corev1.EventTypeWarning, "FailedToUpdateStatus", "failed to update security group status %s: %s", r.sg.Name, err)
 				if reconciliationErr == nil {
@@ -207,12 +206,12 @@ func (c *SecurityGroupReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return r.reconcileNormal(ctx)
 }
 
-func truncateConditionMessages(conds clusterv1beta1.Conditions) {
-	for i := range conds {
-		if len(conds[i].Message) > maxConditionMessageLength {
-			conds[i].Message = strings.ToValidUTF8(conds[i].Message[:maxConditionMessageLength], "")
-		}
+func markFalse(sg *securitygroupv1alpha2.SecurityGroup, t clusterv1beta1.ConditionType, reason string, severity clusterv1beta1.ConditionSeverity, messageFormat string, messageArgs ...interface{}) {
+	message := fmt.Sprintf(messageFormat, messageArgs...)
+	if len(message) > maxConditionMessageLength {
+		message = strings.ToValidUTF8(message[:maxConditionMessageLength], "")
 	}
+	conditions.MarkFalse(sg, t, reason, severity, "%s", message)
 }
 
 func (r *SecurityGroupReconciliation) retrieveKCPNetworkInfo(ctx context.Context, name string, namespace string) (*string, *string, *string, error) {
@@ -307,7 +306,7 @@ func (r *SecurityGroupReconciliation) reconcileNormal(ctx context.Context) (ctrl
 
 	csg, err := crossplane.CreateOrUpdateCrossplaneSecurityGroup(ctx, r.Client, r.vpcId, r.region, r.providerConfigName, r.clusterName, r.sg)
 	if err != nil {
-		conditions.MarkFalse(r.sg,
+		markFalse(r.sg,
 			securitygroupv1alpha2.CrossplaneResourceReadyCondition,
 			securitygroupv1alpha2.CrossplaneResourceReconciliationFailedReason,
 			clusterv1beta1.ConditionSeverityError,
@@ -318,7 +317,7 @@ func (r *SecurityGroupReconciliation) reconcileNormal(ctx context.Context) (ctrl
 
 	err = r.Client.Get(ctx, client.ObjectKeyFromObject(csg), csg)
 	if err != nil {
-		conditions.MarkFalse(r.sg,
+		markFalse(r.sg,
 			securitygroupv1alpha2.CrossplaneResourceReadyCondition,
 			securitygroupv1alpha2.CrossplaneResourceReconciliationFailedReason,
 			clusterv1beta1.ConditionSeverityError,
@@ -335,7 +334,7 @@ func (r *SecurityGroupReconciliation) reconcileNormal(ctx context.Context) (ctrl
 		if availableCondition.Status == corev1.ConditionTrue {
 			conditions.MarkTrue(r.sg, securitygroupv1alpha2.SecurityGroupReadyCondition)
 		} else {
-			conditions.MarkFalse(r.sg,
+			markFalse(r.sg,
 				securitygroupv1alpha2.SecurityGroupReadyCondition,
 				string(availableCondition.Reason),
 				clusterv1beta1.ConditionSeverityError,
@@ -360,7 +359,7 @@ func (r *SecurityGroupReconciliation) reconcileNormal(ctx context.Context) (ctrl
 	return resultDefault, nil
 }
 
-func (r *SecurityGroupReconciliation) attachKopsMachinePool(ctx context.Context, csg *crossec2v1beta1.SecurityGroup, kcp *kcontrolplanev1alpha1.KopsControlPlane, kmps ...kinfrastructurev1alpha1.KopsMachinePool) error {
+func (r *SecurityGroupReconciliation) attachKopsMachinePool(ctx context.Context, csg *crossec2v1beta1.SecurityGroup, kmps ...kinfrastructurev1alpha1.KopsMachinePool) error {
 	var attachErr error
 	for _, kmp := range kmps {
 		if len(kmp.Spec.SpotInstOptions) != 0 {
@@ -417,7 +416,7 @@ func (r *SecurityGroupReconciliation) attachKopsMachinePool(ctx context.Context,
 		}
 	}
 	if attachErr != nil {
-		conditions.MarkFalse(r.sg,
+		markFalse(r.sg,
 			securitygroupv1alpha2.SecurityGroupAttachedCondition,
 			securitygroupv1alpha2.SecurityGroupAttachmentFailedReason,
 			clusterv1beta1.ConditionSeverityError,
@@ -812,7 +811,7 @@ func (r *SecurityGroupReconciliation) ensureAttachReferences(ctx context.Context
 			if err := r.Client.Get(ctx, key, &kcp); err != nil {
 				return resultError, err
 			}
-			err := r.attachKopsMachinePool(ctx, csg, &kcp, kmp)
+			err := r.attachKopsMachinePool(ctx, csg, kmp)
 			if err != nil {
 				if errors.Is(err, ErrSecurityGroupNotAvailable) {
 					return requeue30seconds, nil
@@ -840,7 +839,7 @@ func (r *SecurityGroupReconciliation) ensureAttachReferences(ctx context.Context
 			if err := r.Client.Get(ctx, client.ObjectKeyFromObject(&kcp), &cluster); err == nil && cluster.DeletionTimestamp.IsZero() {
 				kmps = r.releaseDeletingKopsMachinePools(ctx, csg, kmps...)
 			}
-			err = r.attachKopsMachinePool(ctx, csg, &kcp, kmps...)
+			err = r.attachKopsMachinePool(ctx, csg, kmps...)
 			if err != nil {
 				if errors.Is(err, ErrSecurityGroupNotAvailable) {
 					return requeue30seconds, nil

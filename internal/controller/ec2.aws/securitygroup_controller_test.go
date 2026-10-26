@@ -2159,7 +2159,7 @@ func TestAttachKopsMachinePool(t *testing.T) {
 				asgClient:               reconciler.NewAutoScalingClientFactory(aws.Config{}),
 			}
 
-			err = reconciliation.attachKopsMachinePool(ctx, csg, kcp, *tc.kmp)
+			err = reconciliation.attachKopsMachinePool(ctx, csg, *tc.kmp)
 			if tc.errorExpected == nil {
 				if !errors.Is(err, ErrSecurityGroupNotAvailable) {
 					g.Expect(err).To(BeNil())
@@ -4757,20 +4757,30 @@ func TestReleaseDeletingKopsMachinePools(t *testing.T) {
 	g.Expect(<-recorder.Events).To(ContainSubstring("SecurityGroupDetachmentFailed"))
 }
 
-func TestTruncateConditionMessages(t *testing.T) {
+func TestMarkFalseTruncatesMessage(t *testing.T) {
 	g := NewWithT(t)
+	sg := &securitygroupv1alpha2.SecurityGroup{}
+	conditionType := securitygroupv1alpha2.SecurityGroupAttachedCondition
+	reason := securitygroupv1alpha2.SecurityGroupAttachmentFailedReason
 
-	long := strings.Repeat("a", maxConditionMessageLength-1) + "é" + "b"
-	conds := clusterv1beta1.Conditions{
-		{Type: "Short", Message: "short message"},
-		{Type: "Long", Message: strings.Repeat("x", maxConditionMessageLength+100)},
-		{Type: "Multibyte", Message: long},
+	markFalse(sg, conditionType, reason, clusterv1beta1.ConditionSeverityError, "short message: %s", "error")
+	g.Expect(conditions.Get(sg, conditionType).Message).To(Equal("short message: error"))
+
+	markFalse(sg, conditionType, reason, clusterv1beta1.ConditionSeverityError, "%s", strings.Repeat("a", maxConditionMessageLength-1)+"é")
+	message := conditions.Get(sg, conditionType).Message
+	g.Expect(utf8.ValidString(message)).To(BeTrue())
+	g.Expect(message).To(Equal(strings.Repeat("a", maxConditionMessageLength-1)))
+
+	long := strings.Repeat("x", maxConditionMessageLength+100)
+	markFalse(sg, conditionType, reason, clusterv1beta1.ConditionSeverityError, "failed: %s", long)
+	g.Expect(conditions.Get(sg, conditionType).Message).To(HaveLen(maxConditionMessageLength))
+
+	transition := metav1.NewTime(time.Now().Add(-time.Hour).Truncate(time.Second))
+	for i := range sg.Status.Conditions {
+		if sg.Status.Conditions[i].Type == conditionType {
+			sg.Status.Conditions[i].LastTransitionTime = transition
+		}
 	}
-	truncateConditionMessages(conds)
-
-	g.Expect(conds[0].Message).To(Equal("short message"))
-	g.Expect(conds[1].Message).To(HaveLen(maxConditionMessageLength))
-	g.Expect(utf8.ValidString(conds[2].Message)).To(BeTrue())
-	g.Expect(len(conds[2].Message)).To(BeNumerically("<=", maxConditionMessageLength))
-	g.Expect(conds[2].Message).To(Equal(strings.Repeat("a", maxConditionMessageLength-1)))
+	markFalse(sg, conditionType, reason, clusterv1beta1.ConditionSeverityError, "failed: %s", long)
+	g.Expect(conditions.Get(sg, conditionType).LastTransitionTime).To(Equal(transition))
 }

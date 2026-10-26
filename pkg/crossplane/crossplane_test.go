@@ -2334,6 +2334,7 @@ func TestGetOwnedWithOwnerReadFromClient(t *testing.T) {
 	g.Expect(clustermeshv1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
 	g.Expect(securitygroupv1alpha2.AddToScheme(scheme.Scheme)).To(Succeed())
 	g.Expect(crossec2v1alphav1.SchemeBuilder.AddToScheme(scheme.Scheme)).To(Succeed())
+	g.Expect(crossec2v1beta1.SchemeBuilder.AddToScheme(scheme.Scheme)).To(Succeed())
 
 	meshOwnerRef := metav1.OwnerReference{
 		APIVersion: "clustermesh.infrastructure.wildlife.io/v1alpha1",
@@ -2344,6 +2345,7 @@ func TestGetOwnedWithOwnerReadFromClient(t *testing.T) {
 		&clustermeshv1alpha1.ClusterMesh{ObjectMeta: metav1.ObjectMeta{Name: "test-mesh"}},
 		&securitygroupv1alpha2.SecurityGroup{ObjectMeta: metav1.ObjectMeta{Name: "test-sg", OwnerReferences: []metav1.OwnerReference{meshOwnerRef}}},
 		&crossec2v1alphav1.VPCPeeringConnection{ObjectMeta: metav1.ObjectMeta{Name: "test-peering", OwnerReferences: []metav1.OwnerReference{meshOwnerRef}}},
+		&crossec2v1beta1.SecurityGroup{ObjectMeta: metav1.ObjectMeta{Name: "test-crossplane-sg", OwnerReferences: []metav1.OwnerReference{meshOwnerRef}}},
 		&crossec2v1alphav1.Route{ObjectMeta: metav1.ObjectMeta{Name: "test-route", OwnerReferences: []metav1.OwnerReference{{
 			APIVersion: "ec2.aws.crossplane.io/v1alpha1",
 			Kind:       "VPCPeeringConnection",
@@ -2362,6 +2364,10 @@ func TestGetOwnedWithOwnerReadFromClient(t *testing.T) {
 	peeringRefs, err := GetOwnedVPCPeeringConnectionsRef(ctx, mesh, fakeClient)
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(peeringRefs).To(Equal([]*corev1.ObjectReference{{APIVersion: "ec2.aws.crossplane.io/v1alpha1", Kind: "VPCPeeringConnection", Name: "test-peering"}}))
+
+	crossplaneSGs, err := GetOwnedSecurityGroups(ctx, mesh, fakeClient)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(crossplaneSGs.Items).To(HaveLen(1))
 
 	peerings, err := GetOwnedVPCPeeringConnections(ctx, mesh, fakeClient)
 	g.Expect(err).NotTo(HaveOccurred())
