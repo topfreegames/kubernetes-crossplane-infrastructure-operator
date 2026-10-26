@@ -267,6 +267,12 @@ var (
 		}
 	}
 
+	deletingKMPWithFinalizer = func(name string, kcpName string, finalizers []string) *kinfrastructurev1alpha1.KopsMachinePool {
+		kmp := kmpWithFinalizer(name, kcpName, finalizers)
+		kmp.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+		return kmp
+	}
+
 	spotKMP = &kinfrastructurev1alpha1.KopsMachinePool{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: metav1.NamespaceDefault,
@@ -759,6 +765,104 @@ func TestSecurityGroupReconciler(t *testing.T) {
 					Name:          "test-cluster",
 					Namespace:     metav1.NamespaceDefault,
 					Kind:          "KopsControlPlane",
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
+					Expected:      true,
+				},
+			},
+		},
+		{
+			description: "should keep the finalizer on a deleting kmp referenced directly by the sg",
+			k8sObjects: []client.Object{
+				cluster, defaultSecret, csg, sg, kcp,
+				deletingKMPWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID), "test.io/finalizer"}),
+			},
+			sgsToReconcile: []sgToReconcile{
+				{
+					Name:             sg.ObjectMeta.Name,
+					ExpectedDeletion: false,
+				},
+			},
+			FinalizersAt: []*ReferencedPool{
+				{
+					Name:          "test-kops-machine-pool",
+					Namespace:     metav1.NamespaceDefault,
+					Kind:          "KopsMachinePool",
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
+					Expected:      true,
+				},
+				{
+					Name:          "test-kops-machine-pool",
+					Namespace:     metav1.NamespaceDefault,
+					Kind:          "KopsMachinePool",
+					FinalizerName: "test.io/finalizer",
+					Expected:      true,
+				},
+			},
+		},
+		{
+			description: "should remove the finalizer only from the deleting kmps of the kcp referenced by the sg",
+			k8sObjects: []client.Object{
+				cluster, defaultSecret, csg, sgKCP,
+				kcpWithFinalizer("test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID)}),
+				kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID)}),
+				deletingKMPWithFinalizer("test-deleting-kops-machine-pool", "test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID), "test.io/finalizer"}),
+			},
+			sgsToReconcile: []sgToReconcile{
+				{
+					Name:             sgKCP.ObjectMeta.Name,
+					ExpectedDeletion: false,
+				},
+			},
+			FinalizersAt: []*ReferencedPool{
+				{
+					Name:          "test-kops-machine-pool",
+					Namespace:     metav1.NamespaceDefault,
+					Kind:          "KopsMachinePool",
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
+					Expected:      true,
+				},
+				{
+					Name:          "test-deleting-kops-machine-pool",
+					Namespace:     metav1.NamespaceDefault,
+					Kind:          "KopsMachinePool",
+					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
+					Expected:      false,
+				},
+				{
+					Name:          "test-deleting-kops-machine-pool",
+					Namespace:     metav1.NamespaceDefault,
+					Kind:          "KopsMachinePool",
+					FinalizerName: "test.io/finalizer",
+					Expected:      true,
+				},
+			},
+		},
+		{
+			description: "should keep the finalizer on the deleting kmps of the kcp referenced by the sg while the cluster is being deleted",
+			k8sObjects: []client.Object{
+				defaultSecret, csg, sgKCP,
+				&clusterv1beta1.Cluster{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace:         metav1.NamespaceDefault,
+						Name:              "test-cluster",
+						DeletionTimestamp: &metav1.Time{Time: time.Now()},
+						Finalizers:        []string{"test.io/finalizer"},
+					},
+				},
+				kcpWithFinalizer("test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID)}),
+				deletingKMPWithFinalizer("test-deleting-kops-machine-pool", "test-cluster", []string{getFinalizerName(csg.Status.AtProvider.SecurityGroupID)}),
+			},
+			sgsToReconcile: []sgToReconcile{
+				{
+					Name:             sgKCP.ObjectMeta.Name,
+					ExpectedDeletion: false,
+				},
+			},
+			FinalizersAt: []*ReferencedPool{
+				{
+					Name:          "test-deleting-kops-machine-pool",
+					Namespace:     metav1.NamespaceDefault,
+					Kind:          "KopsMachinePool",
 					FinalizerName: getFinalizerName(csg.Status.AtProvider.SecurityGroupID),
 					Expected:      true,
 				},
@@ -5015,4 +5119,53 @@ func TestClusterLock(t *testing.T) {
 	g := NewWithT(t)
 	g.Expect(clusterLock("cluster-a")).To(BeIdenticalTo(clusterLock("cluster-a")))
 	g.Expect(clusterLock("cluster-a")).NotTo(BeIdenticalTo(clusterLock("cluster-b")))
+}
+
+func TestReleaseDeletingKopsMachinePools(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.TODO()
+
+	err := kinfrastructurev1alpha1.AddToScheme(scheme.Scheme)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	finalizer := getFinalizerName(csg.Status.AtProvider.SecurityGroupID)
+	otherFinalizer := getFinalizerName(anotherCsg.Status.AtProvider.SecurityGroupID)
+	activeKMP := kmpWithFinalizer("test-kops-machine-pool", "test-cluster", []string{finalizer})
+	deletingKMP := deletingKMPWithFinalizer("test-deleting-kops-machine-pool", "test-cluster", []string{finalizer, otherFinalizer})
+	otherDeletingKMP := deletingKMPWithFinalizer("test-other-deleting-kops-machine-pool", "test-cluster", []string{otherFinalizer})
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(activeKMP, deletingKMP, otherDeletingKMP).Build()
+	fakeASGClient := &fakeasg.MockAutoScalingClient{}
+	fakeASGClient.MockDescribeAutoScalingGroups = func(ctx context.Context, params *awsautoscaling.DescribeAutoScalingGroupsInput, optFns []func(*awsautoscaling.Options)) (*awsautoscaling.DescribeAutoScalingGroupsOutput, error) {
+		return &awsautoscaling.DescribeAutoScalingGroupsOutput{}, nil
+	}
+	recorder := record.NewFakeRecorder(5)
+
+	reconciliation := SecurityGroupReconciliation{
+		SecurityGroupReconciler: SecurityGroupReconciler{
+			Client:   fakeClient,
+			Recorder: recorder,
+		},
+		log:       ctrl.LoggerFrom(ctx),
+		ec2Client: &fakeec2.MockEC2Client{},
+		asgClient: fakeASGClient,
+		sg:        sg,
+	}
+
+	active := reconciliation.releaseDeletingKopsMachinePools(ctx, csg, *activeKMP, *deletingKMP, *otherDeletingKMP)
+	g.Expect(active).To(HaveLen(1))
+	g.Expect(active[0].Name).To(Equal(activeKMP.Name))
+
+	kmp := kinfrastructurev1alpha1.KopsMachinePool{}
+	g.Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(activeKMP), &kmp)).To(Succeed())
+	g.Expect(kmp.Finalizers).To(ConsistOf(finalizer))
+
+	g.Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(deletingKMP), &kmp)).To(Succeed())
+	g.Expect(kmp.Finalizers).To(ConsistOf(otherFinalizer))
+
+	g.Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(otherDeletingKMP), &kmp)).To(Succeed())
+	g.Expect(kmp.Finalizers).To(ConsistOf(otherFinalizer))
+
+	g.Expect(recorder.Events).To(HaveLen(1))
+	g.Expect(<-recorder.Events).To(ContainSubstring("SecurityGroupDetachmentFailed"))
 }
