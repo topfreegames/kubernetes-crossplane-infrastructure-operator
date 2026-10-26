@@ -3,6 +3,7 @@ package dryrun
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsautoscaling "github.com/aws/aws-sdk-go-v2/service/autoscaling"
@@ -94,6 +95,31 @@ func (c *EC2Client) CreateLaunchTemplateVersion(ctx context.Context, params *aws
 	}
 	current := latest.LaunchTemplateVersions[0]
 
+	if p, source, ok := planFrom(ctx); ok {
+		var before []string
+		if data := current.LaunchTemplateData; data != nil && len(data.NetworkInterfaces) > 0 {
+			before = data.NetworkInterfaces[0].Groups
+		}
+		var after []string
+		if len(securityGroups) > 0 {
+			after = securityGroups[0]
+		}
+		p.RecordCloudChange(CloudChange{
+			Source: source,
+			Kind:   "LaunchTemplate",
+			ID:     aws.ToString(current.LaunchTemplateId),
+			Call:   "CreateLaunchTemplateVersion",
+			Before: map[string][]string{
+				"version":        {fmt.Sprint(aws.ToInt64(current.VersionNumber))},
+				"securityGroups": sortedCopy(before),
+			},
+			After: map[string][]string{
+				"version":        {fmt.Sprint(aws.ToInt64(current.VersionNumber) + 1)},
+				"securityGroups": sortedCopy(after),
+			},
+		})
+	}
+
 	return &awsec2.CreateLaunchTemplateVersionOutput{
 		LaunchTemplateVersion: &ec2types.LaunchTemplateVersion{
 			LaunchTemplateId:   current.LaunchTemplateId,
@@ -108,6 +134,28 @@ func (c *EC2Client) ModifyInstanceAttribute(ctx context.Context, params *awsec2.
 		"instanceId", aws.ToString(params.InstanceId),
 		"groups", params.Groups,
 	)
+	if p, source, ok := planFrom(ctx); ok {
+		output, err := c.real.DescribeInstances(ctx, &awsec2.DescribeInstancesInput{InstanceIds: []string{aws.ToString(params.InstanceId)}}, optFns...)
+		if err != nil {
+			return nil, fmt.Errorf("dry-run plan: reading instance %s: %w", aws.ToString(params.InstanceId), err)
+		}
+		var before []string
+		for _, r := range output.Reservations {
+			for _, i := range r.Instances {
+				for _, g := range i.SecurityGroups {
+					before = append(before, aws.ToString(g.GroupId))
+				}
+			}
+		}
+		p.RecordCloudChange(CloudChange{
+			Source: source,
+			Kind:   "Instance",
+			ID:     aws.ToString(params.InstanceId),
+			Call:   "ModifyInstanceAttribute",
+			Before: map[string][]string{"securityGroups": sortedCopy(before)},
+			After:  map[string][]string{"securityGroups": sortedCopy(params.Groups)},
+		})
+	}
 	return &awsec2.ModifyInstanceAttributeOutput{}, nil
 }
 
@@ -125,6 +173,30 @@ func (c *AutoScalingClient) UpdateAutoScalingGroup(ctx context.Context, params *
 		kv = append(kv, "launchTemplateId", aws.ToString(lt.LaunchTemplateId), "launchTemplateVersion", aws.ToString(lt.Version))
 	}
 	logger(ctx).Info("would write", kv...)
+	if p, source, ok := planFrom(ctx); ok {
+		name := aws.ToString(params.AutoScalingGroupName)
+		output, err := c.real.DescribeAutoScalingGroups(ctx, &awsautoscaling.DescribeAutoScalingGroupsInput{AutoScalingGroupNames: []string{name}}, optFns...)
+		if err != nil {
+			return nil, fmt.Errorf("dry-run plan: reading Auto Scaling group %s: %w", name, err)
+		}
+		change := CloudChange{
+			Source: source,
+			Kind:   "AutoScalingGroup",
+			ID:     name,
+			Call:   "UpdateAutoScalingGroup",
+			Before: map[string][]string{},
+			After:  map[string][]string{},
+		}
+		if lt := params.LaunchTemplate; lt != nil {
+			change.After["launchTemplate"] = []string{aws.ToString(lt.LaunchTemplateId) + ":" + aws.ToString(lt.Version)}
+		}
+		for _, asg := range output.AutoScalingGroups {
+			if lt := asg.LaunchTemplate; lt != nil {
+				change.Before["launchTemplate"] = []string{aws.ToString(lt.LaunchTemplateId) + ":" + aws.ToString(lt.Version)}
+			}
+		}
+		p.RecordCloudChange(change)
+	}
 	return &awsautoscaling.UpdateAutoScalingGroupOutput{}, nil
 }
 
@@ -146,5 +218,22 @@ func (c *OceanClient) UpdateLaunchSpec(ctx context.Context, params *oceanaws.Upd
 		kv = append(kv, "launchSpecId", aws.ToString(ls.ID), "launchSpecName", aws.ToString(ls.Name), "securityGroupIds", ls.SecurityGroupIDs)
 	}
 	logger(ctx).Info("would write", kv...)
+	if p, source, ok := planFrom(ctx); ok && params.LaunchSpec != nil {
+		// The reconciler clears the Ocean ID before the update, so the current
+		// launch spec cannot be read here.
+		p.RecordCloudChange(CloudChange{
+			Source: source,
+			Kind:   "OceanLaunchSpec",
+			ID:     aws.ToString(params.LaunchSpec.ID) + " (" + aws.ToString(params.LaunchSpec.Name) + ")",
+			Call:   "UpdateLaunchSpec",
+			After:  map[string][]string{"securityGroups": sortedCopy(params.LaunchSpec.SecurityGroupIDs)},
+		})
+	}
 	return &oceanaws.UpdateLaunchSpecOutput{}, nil
+}
+
+func sortedCopy(values []string) []string {
+	out := append([]string{}, values...)
+	sort.Strings(out)
+	return out
 }

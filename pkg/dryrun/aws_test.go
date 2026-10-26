@@ -3,6 +3,7 @@ package dryrun
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -188,4 +189,59 @@ func TestOceanClient(t *testing.T) {
 	output, err := c.UpdateLaunchSpec(ctx, &oceanaws.UpdateLaunchSpecInput{LaunchSpec: launchSpec})
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(output).NotTo(BeNil())
+}
+
+func TestCloudWritesAreRecordedInThePlan(t *testing.T) {
+	g := NewWithT(t)
+	plan := NewPlan()
+	ctx := WithPlan(context.TODO(), plan, Source{Kind: "SecurityGroup", Name: "sg", Clusters: []string{"a"}})
+
+	ec2Client := &EC2Client{real: newMockEC2Client(t, 7)}
+	g.Expect(ec2.AttachSecurityGroupToInstances(ctx, ec2Client, []string{"i-xxxx"}, "sg-new")).To(Succeed())
+
+	ltVersion, err := ec2.GetLastLaunchTemplateVersion(ctx, ec2Client, "lt-xxxx")
+	g.Expect(err).NotTo(HaveOccurred())
+	_, err = ec2.AttachSecurityGroupToLaunchTemplate(ctx, ec2Client, "sg-new", ltVersion)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	asgClient := &AutoScalingClient{real: &fakeasg.MockAutoScalingClient{
+		MockDescribeAutoScalingGroups: func(ctx context.Context, params *awsautoscaling.DescribeAutoScalingGroupsInput, optFns []func(*awsautoscaling.Options)) (*awsautoscaling.DescribeAutoScalingGroupsOutput, error) {
+			return &awsautoscaling.DescribeAutoScalingGroupsOutput{
+				AutoScalingGroups: []autoscalingtypes.AutoScalingGroup{{
+					AutoScalingGroupName: aws.String("asg"),
+					LaunchTemplate:       &autoscalingtypes.LaunchTemplateSpecification{LaunchTemplateId: aws.String("lt-xxxx"), Version: aws.String("7")},
+				}},
+			}, nil
+		},
+	}}
+	_, err = autoscaling.UpdateAutoScalingGroupLaunchTemplate(ctx, asgClient, "lt-xxxx", "8", "asg")
+	g.Expect(err).NotTo(HaveOccurred())
+
+	oceanClient := &OceanClient{real: &fakeocean.MockOceanCloudProviderAWS{}}
+	_, err = oceanClient.UpdateLaunchSpec(ctx, &oceanaws.UpdateLaunchSpecInput{
+		LaunchSpec: &oceanaws.LaunchSpec{ID: aws.String("ols-xxxx"), Name: aws.String("nodes"), SecurityGroupIDs: []string{"sg-new", "sg-old"}},
+	})
+	g.Expect(err).NotTo(HaveOccurred())
+
+	var b strings.Builder
+	g.Expect(plan.Report().WriteText(&b)).To(Succeed())
+	g.Expect(b.String()).To(Equal(`# AWS and Spot
+
+# cluster a
+~ AutoScalingGroup asg (UpdateAutoScalingGroup)
+-     launchTemplate: [lt-xxxx:7]
++     launchTemplate: [lt-xxxx:8]
+~ Instance i-xxxx (ModifyInstanceAttribute)
+-     securityGroups: [sg-old]
++     securityGroups: [sg-new, sg-old]
+~ LaunchTemplate lt-xxxx (CreateLaunchTemplateVersion)
+-     securityGroups: [sg-old]
++     securityGroups: [sg-new, sg-old]
+-     version: [7]
++     version: [8]
+~ OceanLaunchSpec ols-xxxx (nodes) (UpdateLaunchSpec)
++     securityGroups: [sg-new, sg-old]
+
+Plan: 0 to create, 0 to update (0 only reorder lists), 0 to delete, 4 AWS/Spot changes. Reconciled 0 objects: 0 skipped (paused), 0 pending, 0 errors.
+`))
 }
