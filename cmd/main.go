@@ -73,6 +73,7 @@ func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
+	var pprofAddr string
 	var dryRun bool
 	var cluster string
 	var once bool
@@ -81,6 +82,7 @@ func main() {
 	var securityGroupWorkerCount int
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.StringVar(&pprofAddr, "pprof-bind-address", ":8082", "The address the pprof endpoint binds to. Use 0 to disable it.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -133,15 +135,16 @@ func main() {
 	}
 
 	if once {
-		// The manager listens on the probe address when it is created, even
-		// though --once does not start it.
+		// The manager listens on the probe and pprof addresses when it is
+		// created, even though --once does not start it.
 		probeAddr = "0"
+		pprofAddr = "0"
 	}
 
 	cfg := ctrl.GetConfigOrDie()
 	cfg.QPS = 20
 	cfg.Burst = 30
-	mgr, err := ctrl.NewManager(cfg, managerOptions(metricsAddr, probeAddr, enableLeaderElection, dryRun))
+	mgr, err := ctrl.NewManager(cfg, managerOptions(metricsAddr, probeAddr, pprofAddr, enableLeaderElection, dryRun))
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
@@ -189,7 +192,7 @@ func main() {
 	}
 }
 
-func managerOptions(metricsAddr, probeAddr string, enableLeaderElection, dryRun bool) ctrl.Options {
+func managerOptions(metricsAddr, probeAddr, pprofAddr string, enableLeaderElection, dryRun bool) ctrl.Options {
 	if dryRun {
 		enableLeaderElection = false
 		metricsAddr = "0"
@@ -200,6 +203,7 @@ func managerOptions(metricsAddr, probeAddr string, enableLeaderElection, dryRun 
 			BindAddress: metricsAddr,
 		},
 		HealthProbeBindAddress: probeAddr,
+		PprofBindAddress:       pprofAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "1334ff7b.infrastructure.wildlife.io",
 		Controller: config.Controller{

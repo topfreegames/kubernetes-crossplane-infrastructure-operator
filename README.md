@@ -42,10 +42,10 @@ Creates also log the object. Updates also log a JSON merge patch from the object
 ### Run next to the real operator
 `--dry-run` turns off leader election, so the dry-run manager does not take the lease from the real manager. It also turns off the metrics server, so the dry-run manager does not report metrics with the same names and labels as the real manager. Both managers reconcile the same objects at the same time.
 
-Run it locally with a kubeconfig for the management cluster. Use another port for the health probes if 8081 is in use:
+Run it locally with a kubeconfig for the management cluster. Use other ports for the health probes and pprof if 8081 or 8082 are in use:
 
 ```sh
-go run ./cmd/main.go --dry-run --health-probe-bind-address=:18081
+go run ./cmd/main.go --dry-run --health-probe-bind-address=:18081 --pprof-bind-address=:18082
 ```
 
 Or deploy a second Deployment with the new image, a different name and the same service account. Give it pod labels and a selector that are different from the real manager, so that no Service of the real manager selects the dry-run pod. Remove the `ad.datadoghq.com/*` pod annotations, because the dry-run pod has no metrics endpoint. Give its logs a different service tag, or exclude the pod from log monitors: the dry-run manager logs errors that are expected in dry-run mode. Replace `--leader-elect` with `--dry-run` in the container args:
