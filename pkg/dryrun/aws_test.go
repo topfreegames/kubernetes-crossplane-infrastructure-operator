@@ -3,6 +3,7 @@ package dryrun
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -12,6 +13,7 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	. "github.com/onsi/gomega"
 	oceanaws "github.com/spotinst/spotinst-sdk-go/service/ocean/providers/aws"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/aws/autoscaling"
 	fakeasg "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/aws/autoscaling/fake"
@@ -188,4 +190,66 @@ func TestOceanClient(t *testing.T) {
 	output, err := c.UpdateLaunchSpec(ctx, &oceanaws.UpdateLaunchSpecInput{LaunchSpec: launchSpec})
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(output).NotTo(BeNil())
+}
+
+func TestCloudWritesAreRecordedInThePlan(t *testing.T) {
+	g := NewWithT(t)
+	plan := NewPlan()
+	ctx := WithPlan(context.TODO(), plan, Source{Kind: "SecurityGroup", Name: "sg", Clusters: []string{"a"}})
+
+	c := &EC2Client{real: newMockEC2Client(t, 7)}
+	g.Expect(ec2.AttachSecurityGroupToInstances(ctx, c, []string{"i-xxxx"}, "sg-new")).To(Succeed())
+	ltVersion, err := ec2.GetLastLaunchTemplateVersion(ctx, c, "lt-xxxx")
+	g.Expect(err).NotTo(HaveOccurred())
+	_, err = ec2.AttachSecurityGroupToLaunchTemplate(ctx, c, "sg-new", ltVersion)
+	g.Expect(err).NotTo(HaveOccurred())
+	_, err = autoscaling.UpdateAutoScalingGroupLaunchTemplate(ctx, &AutoScalingClient{}, "lt-xxxx", "8", "asg")
+	g.Expect(err).NotTo(HaveOccurred())
+	_, err = (&OceanClient{}).UpdateLaunchSpec(ctx, &oceanaws.UpdateLaunchSpecInput{
+		LaunchSpec: &oceanaws.LaunchSpec{ID: aws.String("ols-xxxx"), Name: aws.String("nodes"), SecurityGroupIDs: []string{"sg-old", "sg-new"}},
+	})
+	g.Expect(err).NotTo(HaveOccurred())
+
+	var b strings.Builder
+	summary, err := plan.Write(&b)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(summary.Cloud).To(Equal(4))
+	g.Expect(b.String()).To(Equal(`# cluster a
+~ AutoScalingGroup asg (UpdateAutoScalingGroup)
++   launch template lt-xxxx version 8
+~ Instance i-xxxx (ModifyInstanceAttribute)
+-   security groups [sg-old]
++   security groups [sg-new, sg-old]
+~ LaunchTemplate lt-xxxx (CreateLaunchTemplateVersion)
+-   version 7, security groups [sg-old]
++   version 8, security groups [sg-new, sg-old]
+~ OceanLaunchSpec ols-xxxx nodes (UpdateLaunchSpec)
++   security groups [sg-new, sg-old]
+
+Plan: 0 to create, 0 to update (0 only reorder lists), 0 to delete, 4 AWS/Spot changes. Results: 0 ok, 0 skipped (paused), 0 pending, 0 errors.
+`))
+}
+
+func TestCloudReadErrorFailsThePlanReconcile(t *testing.T) {
+	g := NewWithT(t)
+	plan := NewPlan()
+	mock := newMockEC2Client(t, 7)
+	plan.run(context.TODO(), 1, []target{{source: Source{Kind: "SecurityGroup", Name: "sg"}, reconcile: func(ctx context.Context) (ctrl.Result, error) {
+		// The plan reads the instance after the reconciler read it; the
+		// reconciler turns the error into an event only.
+		calls := 0
+		real := mock.MockDescribeInstances
+		mock.MockDescribeInstances = func(ctx context.Context, input *awsec2.DescribeInstancesInput, opts []func(*awsec2.Options)) (*awsec2.DescribeInstancesOutput, error) {
+			calls++
+			if calls > 1 {
+				return nil, errors.New("throttled")
+			}
+			return real(ctx, input, opts)
+		}
+		_ = ec2.AttachSecurityGroupToInstances(ctx, &EC2Client{real: mock}, []string{"i-xxxx"}, "sg-new")
+		return ctrl.Result{}, nil
+	}}})
+
+	g.Expect(plan.results["SecurityGroup/sg"].status).To(Equal(StatusError))
+	g.Expect(plan.results["SecurityGroup/sg"].reason).To(ContainSubstring("ModifyInstanceAttribute: dry-run plan: reading instance i-xxxx: throttled"))
 }

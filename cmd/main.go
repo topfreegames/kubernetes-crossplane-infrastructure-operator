@@ -17,7 +17,10 @@ limitations under the License.
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"time"
 
@@ -43,6 +46,7 @@ import (
 	securitygroupv1alpha2 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/ec2.aws/v1alpha2"
 	clustermeshcontrollers "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/internal/controller/clustermesh.infrastructure"
 	sgcontroller "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/internal/controller/ec2.aws"
+	"github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/clusterfilter"
 	"github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/pkg/dryrun"
 	//+kubebuilder:scaffold:imports
 )
@@ -70,7 +74,9 @@ func main() {
 	var enableLeaderElection bool
 	var probeAddr string
 	var dryRun bool
-	var dryRunCluster string
+	var cluster string
+	var once bool
+	var timeout time.Duration
 	var clusterMeshWorkerCount int
 	var securityGroupWorkerCount int
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
@@ -81,8 +87,12 @@ func main() {
 	flag.BoolVar(&dryRun, "dry-run", false,
 		"Reconcile without making changes. Kubernetes writes are sent with dryRun=All, "+
 			"AWS and Spot writes and events are only logged. Implies --leader-elect=false and --metrics-bind-address=0.")
-	flag.StringVar(&dryRunCluster, "dry-run-cluster", "",
-		"With --dry-run, reconcile only the objects of the cluster with this KopsControlPlane name.")
+	flag.StringVar(&cluster, "cluster", "",
+		"Reconcile only the objects of the cluster with this KopsControlPlane name.")
+	flag.BoolVar(&once, "once", false,
+		"With --dry-run, reconcile every object once, print the plan of the changes to stdout and exit. "+
+			"Exits with 0 when there are no changes, 2 when there are changes and 1 when a reconcile fails.")
+	flag.DurationVar(&timeout, "timeout", 15*time.Minute, "With --once, the longest time the plan can take.")
 	flag.IntVar(&clusterMeshWorkerCount, "clustermesh-worker-count", 1, "The number of ClusterMesh reconciles that run at the same time.")
 	flag.IntVar(&securityGroupWorkerCount, "securitygroup-worker-count", 5, "The number of SecurityGroup reconciles that run at the same time.")
 
@@ -91,12 +101,25 @@ func main() {
 		TimeEncoder: zapcore.TimeEncoderOfLayout(time.RFC3339),
 	}
 	opts.BindFlags(flag.CommandLine)
-	flag.Parse()
+	// Exit with 1 on a wrong flag, not with the 2 of flag.ExitOnError, which
+	// --once uses for a plan with changes.
+	flag.CommandLine.Init(os.Args[0], flag.ContinueOnError)
+	if err := flag.CommandLine.Parse(os.Args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			os.Exit(0)
+		}
+		os.Exit(1)
+	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	if dryRunCluster != "" && !dryRun {
-		setupLog.Error(nil, "--dry-run-cluster requires --dry-run")
+	if once && !dryRun {
+		setupLog.Error(nil, "--once requires --dry-run")
+		os.Exit(1)
+	}
+
+	if timeout <= 0 {
+		setupLog.Error(nil, "--timeout must be greater than 0")
 		os.Exit(1)
 	}
 
@@ -107,6 +130,12 @@ func main() {
 
 	if dryRun {
 		setupLog.Info("dry-run mode: disabling leader election and the metrics server")
+	}
+
+	if once {
+		// The manager listens on the probe address when it is created, even
+		// though --once does not start it.
+		probeAddr = "0"
 	}
 
 	cfg := ctrl.GetConfigOrDie()
@@ -120,9 +149,17 @@ func main() {
 
 	clusterMeshReconciler := clustermeshcontrollers.DefaultReconciler(mgr)
 	sgReconciler := sgcontroller.DefaultReconciler(mgr)
+	if cluster != "" {
+		setupLog.Info("reconciling only the objects of one cluster", "cluster", cluster)
+		configureClusterFilter(clusterMeshReconciler, sgReconciler, cluster)
+	}
 	if dryRun {
-		setupLog.Info("dry-run mode: no changes will be made to Kubernetes, AWS or Spot", "cluster", dryRunCluster)
-		configureDryRun(clusterMeshReconciler, sgReconciler, mgr.GetAPIReader(), dryRunCluster)
+		setupLog.Info("dry-run mode: no changes will be made to Kubernetes, AWS or Spot")
+		configureDryRun(clusterMeshReconciler, sgReconciler, mgr.GetAPIReader())
+	}
+
+	if once {
+		os.Exit(runOnce(mgr, clusterMeshReconciler, sgReconciler, clusterMeshWorkerCount, securityGroupWorkerCount, timeout, cluster))
 	}
 
 	if err = clusterMeshReconciler.SetupWithManager(mgr, clusterMeshWorkerCount); err != nil {
@@ -171,12 +208,43 @@ func managerOptions(metricsAddr, probeAddr string, enableLeaderElection, dryRun 
 	}
 }
 
-func configureDryRun(clusterMeshReconciler *clustermeshcontrollers.ClusterMeshReconciler, sgReconciler *sgcontroller.SecurityGroupReconciler, apiReader client.Reader, clusterName string) {
-	if clusterName != "" {
-		clusterMeshReconciler.RequestFilter = dryrun.ClusterRequestFilter(clusterMeshReconciler.Client, clusterName)
-		sgReconciler.RequestFilter = dryrun.SecurityGroupRequestFilter(sgReconciler.Client, clusterName)
-	}
+// runOnce starts only the cache of the manager, plans every object once,
+// prints the plan and returns the exit code.
+func runOnce(mgr ctrl.Manager, clusterMeshReconciler *clustermeshcontrollers.ClusterMeshReconciler, sgReconciler *sgcontroller.SecurityGroupReconciler, clusterMeshWorkers, sgWorkers int, timeout time.Duration, clusterName string) int {
+	ctx, cancel := context.WithTimeout(ctrl.SetupSignalHandler(), timeout)
+	defer cancel()
+	go func() {
+		if err := mgr.GetCache().Start(ctx); err != nil {
+			setupLog.Error(err, "problem running the cache")
+		}
+	}()
 
+	plan := dryrun.NewPlan()
+	err := fmt.Errorf("the cache did not start")
+	if mgr.GetCache().WaitForCacheSync(ctx) {
+		setupLog.Info("planning")
+		err = plan.Once(ctx, mgr.GetClient(), clusterMeshReconciler, sgReconciler, clusterMeshWorkers, sgWorkers, clusterName)
+	}
+	if err != nil {
+		// Show the error in the plan too, so that it does not look complete.
+		plan.SetResult(dryrun.Source{Kind: "Plan", Name: "run"}, dryrun.StatusError, err.Error())
+	}
+	summary, writeErr := plan.Write(os.Stdout)
+	if err != nil || writeErr != nil {
+		setupLog.Error(errors.Join(err, writeErr), "plan failed")
+		return dryrun.ExitError
+	}
+	return summary.ExitCode()
+}
+
+// configureClusterFilter makes the reconcilers skip the objects of other
+// clusters than clusterName.
+func configureClusterFilter(clusterMeshReconciler *clustermeshcontrollers.ClusterMeshReconciler, sgReconciler *sgcontroller.SecurityGroupReconciler, clusterName string) {
+	clusterMeshReconciler.RequestFilter = clusterfilter.ClusterRequestFilter(clusterMeshReconciler.Client, clusterName)
+	sgReconciler.RequestFilter = clusterfilter.SecurityGroupRequestFilter(sgReconciler.Client, clusterName)
+}
+
+func configureDryRun(clusterMeshReconciler *clustermeshcontrollers.ClusterMeshReconciler, sgReconciler *sgcontroller.SecurityGroupReconciler, apiReader client.Reader) {
 	clusterMeshReconciler.Client = dryrun.NewClient(clusterMeshReconciler.Client, apiReader)
 	clusterMeshReconciler.NewEC2ClientFactory = dryrun.EC2ClientFactory(clusterMeshReconciler.NewEC2ClientFactory)
 

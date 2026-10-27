@@ -49,7 +49,7 @@ func TestConfigureDryRun(t *testing.T) {
 	realClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 	clusterMeshReconciler, sgReconciler := newReconcilers(realClient)
 
-	configureDryRun(clusterMeshReconciler, sgReconciler, realClient, "")
+	configureDryRun(clusterMeshReconciler, sgReconciler, realClient)
 
 	for _, c := range []client.Client{clusterMeshReconciler.Client, sgReconciler.Client} {
 		cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "cm", Namespace: "default"}}
@@ -69,7 +69,7 @@ func TestConfigureDryRun(t *testing.T) {
 	g.Expect(sgReconciler.RequestFilter).To(BeNil())
 }
 
-func TestConfigureDryRunCluster(t *testing.T) {
+func TestConfigureClusterFilter(t *testing.T) {
 	g := NewWithT(t)
 	ctx := context.TODO()
 
@@ -97,7 +97,7 @@ func TestConfigureDryRunCluster(t *testing.T) {
 	).Build()
 	clusterMeshReconciler, sgReconciler := newReconcilers(realClient)
 
-	configureDryRun(clusterMeshReconciler, sgReconciler, realClient, "cluster-a")
+	configureClusterFilter(clusterMeshReconciler, sgReconciler, "cluster-a")
 
 	ok, err := clusterMeshReconciler.RequestFilter(ctx, ctrl.Request{NamespacedName: client.ObjectKey{Namespace: "ns", Name: "cluster-a"}})
 	g.Expect(err).NotTo(HaveOccurred())

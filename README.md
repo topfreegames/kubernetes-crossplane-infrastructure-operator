@@ -18,6 +18,14 @@ Each controller reconciles a number of objects at the same time. Set the number 
 
 Each worker makes its AWS and Spot calls one after the other, so more workers send more calls at the same time. The AWS calls of a cluster go to the account and region of that cluster, and clusters in the same account and region share its API rate limits. All Spot calls go to the one Spot account of the operator.
 
+## Reconcile one cluster
+Start the manager with `--cluster=<name>` to reconcile only the objects of one cluster. The name is the name of the cluster's KopsControlPlane. This works with and without `--dry-run`: without `--dry-run`, the manager makes real changes to that cluster. Do not run it next to the deployed operator without `--dry-run`; both would write the same objects. The manager then reconciles:
+
+- the Cluster whose control plane is that KopsControlPlane. Its reconcile can also change objects of the other clusters in its mesh, for example the peerings with them.
+- the SecurityGroups whose `infrastructureRef`, or last applied `infrastructureRef`, points to that KopsControlPlane, to a KopsMachinePool of that cluster, or to a KopsMachinePool that does not exist anymore. A SecurityGroup that also references other clusters is reconciled in full, so it also changes those clusters.
+
+The filter does not check namespaces. Two KopsControlPlanes with the same name in different namespaces both match. The manager still watches the objects of all clusters; it only skips their reconciles.
+
 ## Dry-run mode
 Start the manager with `--dry-run` to see what a version would change before you roll it out. The manager reconciles as usual, but it makes no changes:
 
@@ -47,18 +55,34 @@ Or deploy a second Deployment with the new image, a different name and the same 
         - --dry-run
 ```
 
-Add `--dry-run-cluster=<name>` to reconcile only one cluster. The name is the name of the cluster's KopsControlPlane. The dry-run manager then reconciles:
-
-- the Cluster whose control plane is that KopsControlPlane. The logs can also show changes for the other clusters in its mesh, for example the peerings with them.
-- the SecurityGroups whose `infrastructureRef`, or last applied `infrastructureRef`, points to that KopsControlPlane, to a KopsMachinePool of that cluster, or to a KopsMachinePool that does not exist anymore. A SecurityGroup that also references other clusters is reconciled in full, so the logs also show its changes to those clusters.
-
-The filter does not check namespaces. Two KopsControlPlanes with the same name in different namespaces both match.
+Add `--cluster=<name>` to reconcile only one cluster, see [Reconcile one cluster](#reconcile-one-cluster).
 
 The dry-run manager needs the same RBAC, AWS credentials and Spot credentials as the real manager. The API server authorizes a dry-run request the same way as a real request.
 
+### Plan the changes once
+Add `--once` to `--dry-run` to reconcile every object once, print the changes and exit, like `terraform plan`. Use it to see what a new version would change before you deploy it:
+
+```sh
+go run ./cmd/main.go --dry-run --once > plan.txt
+```
+
+Only the cache of the manager starts: no controllers, leader election, metrics or health probes. The plan reconciles every Cluster for the ClusterMesh controller, then every SecurityGroup, with `--clustermesh-worker-count` and `--securitygroup-worker-count` workers. With `--cluster`, it reconciles only the objects of that cluster and fails when no Cluster matches the name. Logs go to stderr and the plan to stdout, grouped by cluster:
+
+- Kubernetes objects: `+` create, `~` update and `-` delete, with a unified diff of the object in YAML, like `kubectl diff`. The plan compares the object that the API server returns for the dry-run write with the object in the cluster, and leaves out writes that change nothing. It ignores `resourceVersion`, `generation`, `uid`, `creationTimestamp` and `managedFields`, and shows lists with their elements sorted. An update that only changes the order of list elements is labeled `order only`. An update that removes the last finalizer of an object that is being deleted is a delete, because the API server then deletes the object. If the reconciles of several objects, for example the Clusters of a mesh, would write different versions of the same object, the plan shows each version. Secret values show as a hash.
+- AWS and Spot writes: the security groups of an instance and of a launch template version before and after, the new launch template version of an Auto Scaling group and the new security groups of an Ocean launch spec.
+- The reconciles that did not complete: `pending` when the real controller would retry soon, for example because a Crossplane resource is not ready or the reconcile needs an object that this plan creates, and `error` otherwise. A write that the API server rejects is an error even when the reconciler ignores it. A reconcile that hits a conflict, most likely because the running operator just wrote the object, runs once more.
+
+The exit code is `0` when there are no changes, `2` when there are changes, and `1` when a reconcile fails or is pending, or `--timeout` (default `15m`) ends first. The plan is printed in all cases and ends with a `Plan:` line. A Go panic also exits with `2`, so a CI job should treat `2` as changes only when that line is there.
+
+A plan shows one step, because nothing is stored. What the operator then does with an object that the plan creates or changes, for example the Crossplane SecurityGroup of a SecurityGroup whose ingress rules change, shows in the plan after the deploy. Two writes to the same launch template show as two versions that each add one security group. Paused SecurityGroups are skipped. A cluster that fails in the running operator makes every plan exit with `1`.
+
+The plan needs list and watch on the kinds that the operator reads, including the Secrets of all namespaces, which hold the AWS credentials of the clusters; a forbidden list or watch makes it wait until `--timeout`. It needs the Spot credentials when a KopsMachinePool uses Spot.
+
+The image is `gcr.io/distroless/static:debug-nonroot`, which has a busybox shell, so a CI job can use it as the job image, with the entrypoint set to `[""]`, and run `/manager --dry-run --once`.
+
 ### Limits
 - Nothing is stored, so the same actions repeat on every reconcile. For example, the manager logs the same finalizer patch each time, and a delete does not remove the object.
-- The dry-run manager uses the same AWS and Spot credentials as the real manager, and because nothing is stored it takes the longest path on every reconcile. The extra read calls count against the same EC2 and Spot API rate limits. Use `--dry-run-cluster` in production to keep this load small. The dry-run manager also adds load on the API server: it opens its own watches on all clusters, even with `--dry-run-cluster`, every update makes an extra read, and every dry-run write goes through the admission webhooks.
+- The dry-run manager uses the same AWS and Spot credentials as the real manager, and because nothing is stored it takes the longest path on every reconcile. The extra read calls count against the same EC2 and Spot API rate limits. Use `--cluster` in production to keep this load small. The dry-run manager also adds load on the API server: it opens its own watches on all clusters, even with `--cluster`, every update makes an extra read, and every dry-run write goes through the admission webhooks.
 - Write results are fake. A created launch template version gets the latest version number plus one, and the next steps use that number. A created Kubernetes object does not exist when the next reconcile reads it, so later steps can fail or take a different path than in a real run.
 - Admission webhooks run on dry-run requests as on real requests. If a validating webhook or a policy engine rejects a write, the dry-run manager logs a reconcile error. The real write would fail the same way.
 - A webhook with `sideEffects: NoneOnDryRun` must check the dry-run flag itself. If it does not, it can make real changes during a dry run. Before you run in production, check the webhooks that match the kinds this operator writes.
