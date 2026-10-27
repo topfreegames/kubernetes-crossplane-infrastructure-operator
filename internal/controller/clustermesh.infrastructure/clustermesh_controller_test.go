@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	clustermeshv1alpha1 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/clustermesh.infrastructure/v1alpha1"
 	securitygroupv1alpha2 "github.com/topfreegames/kubernetes-crossplane-infrastructure-operator/api/ec2.aws/v1alpha2"
@@ -92,12 +93,68 @@ var defaultKcp = &kcontrolplanev1alpha1.KopsControlPlane{
 	},
 }
 
+func meshCluster(name string, deleting bool, paused bool) *clusterv1beta1.Cluster {
+	cluster := &clusterv1beta1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: metav1.NamespaceDefault,
+			Name:      name,
+			Annotations: map[string]string{
+				"clustermesh.infrastructure.wildlife.io": "testmesh",
+			},
+			Labels: map[string]string{
+				"clusterGroup": "test-mesh",
+			},
+		},
+		Spec: clusterv1beta1.ClusterSpec{
+			Paused: paused,
+			ControlPlaneRef: &corev1.ObjectReference{
+				Kind:      "KopsControlPlane",
+				Namespace: metav1.NamespaceDefault,
+				Name:      "kcp-test",
+			},
+		},
+	}
+	if deleting {
+		cluster.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+		cluster.Finalizers = []string{clusterv1beta1.ClusterFinalizer}
+	}
+	return cluster
+}
+
+func meshSecurityGroup(clusterName string) *securitygroupv1alpha2.SecurityGroup {
+	return &securitygroupv1alpha2.SecurityGroup{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: getClusterMeshSecurityGroupName(clusterName),
+		},
+		Spec: securitygroupv1alpha2.SecurityGroupSpec{
+			InfrastructureRef: []*corev1.ObjectReference{
+				{
+					APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
+					Kind:       "KopsControlPlane",
+					Name:       clusterName,
+					Namespace:  metav1.NamespaceDefault,
+				},
+			},
+		},
+	}
+}
+
+func clusterMeshWith(clusterNames ...string) *clustermeshv1alpha1.ClusterMesh {
+	var clusters []*clustermeshv1alpha1.ClusterSpec
+	for _, name := range clusterNames {
+		clusters = append(clusters, &clustermeshv1alpha1.ClusterSpec{Name: name, VPCID: "xxx", Region: "yyy"})
+	}
+	return New("test-mesh", clusters...)
+}
+
 func TestClusterMeshReconciler(t *testing.T) {
 	testCases := []struct {
 		description                    string
 		k8sObjects                     []client.Object
 		expectedClusterMesh            []clustermeshv1alpha1.ClusterMesh
 		expectedClusterMeshToBeDeleted []string
+		expectedSecurityGroups         []string
+		expectedSecurityGroupsDeleted  []string
 	}{
 		{
 			description: "should do nothing if cluster don't have the clustermesh annotation",
@@ -263,6 +320,40 @@ func TestClusterMeshReconciler(t *testing.T) {
 				"test-mesh",
 			},
 		},
+		{
+			description: "should remove the cluster from the clustermesh when the cluster is being deleted",
+			k8sObjects: []client.Object{
+				defaultSecret, defaultKcp,
+				meshSecurityGroup("test-cluster"), meshSecurityGroup("test-cluster-b"),
+				meshCluster("test-cluster", true, false),
+				clusterMeshWith("test-cluster", "test-cluster-b"),
+			},
+			expectedClusterMesh:           []clustermeshv1alpha1.ClusterMesh{*clusterMeshWith("test-cluster-b")},
+			expectedSecurityGroups:        []string{getClusterMeshSecurityGroupName("test-cluster-b")},
+			expectedSecurityGroupsDeleted: []string{getClusterMeshSecurityGroupName("test-cluster")},
+		},
+		{
+			description: "should delete the clustermesh when its last cluster is being deleted",
+			k8sObjects: []client.Object{
+				defaultSecret, defaultKcp,
+				meshSecurityGroup("test-cluster"),
+				meshCluster("test-cluster", true, false),
+				clusterMeshWith("test-cluster"),
+			},
+			expectedClusterMeshToBeDeleted: []string{"test-mesh"},
+			expectedSecurityGroupsDeleted:  []string{getClusterMeshSecurityGroupName("test-cluster")},
+		},
+		{
+			description: "should keep the cluster in the clustermesh when the cluster is being deleted while paused",
+			k8sObjects: []client.Object{
+				defaultSecret, defaultKcp,
+				meshSecurityGroup("test-cluster"),
+				meshCluster("test-cluster", true, true),
+				clusterMeshWith("test-cluster"),
+			},
+			expectedClusterMesh:    []clustermeshv1alpha1.ClusterMesh{*clusterMeshWith("test-cluster")},
+			expectedSecurityGroups: []string{getClusterMeshSecurityGroupName("test-cluster")},
+		},
 	}
 
 	RegisterFailHandler(Fail)
@@ -299,7 +390,10 @@ func TestClusterMeshReconciler(t *testing.T) {
 					}, nil
 				},
 				ReconcilePeeringsFactory: ReconcilePeerings,
-				ReconcileRoutesFactory:   ReconcileRoutes,
+				ReconcileSecurityGroupsFactory: func(r *ClusterMeshReconciliation, ctx context.Context, cluster *clustermeshv1alpha1.ClusterSpec) error {
+					return nil
+				},
+				ReconcileRoutesFactory: ReconcileRoutes,
 				NewEC2ClientFactory: func(cfg aws.Config) ec2.EC2Client {
 					return &fakeec2.MockEC2Client{}
 				},
@@ -328,6 +422,16 @@ func TestClusterMeshReconciler(t *testing.T) {
 					Name: clusterMeshName,
 				}
 				err = fakeClient.Get(ctx, key, ccm)
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}
+			for _, sgName := range tc.expectedSecurityGroups {
+				sg := &securitygroupv1alpha2.SecurityGroup{}
+				err = fakeClient.Get(ctx, client.ObjectKey{Name: sgName}, sg)
+				g.Expect(err).NotTo(HaveOccurred())
+			}
+			for _, sgName := range tc.expectedSecurityGroupsDeleted {
+				sg := &securitygroupv1alpha2.SecurityGroup{}
+				err = fakeClient.Get(ctx, client.ObjectKey{Name: sgName}, sg)
 				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 			}
 		})
