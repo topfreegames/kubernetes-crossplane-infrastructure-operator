@@ -130,10 +130,11 @@ func TestManagerOptions(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
 			g := NewWithT(t)
-			opts := managerOptions(":8080", ":8081", tc.enableLeaderElection, tc.dryRun)
+			opts := managerOptions(":8080", ":8081", ":8082", tc.enableLeaderElection, tc.dryRun)
 			g.Expect(opts.LeaderElection).To(Equal(tc.expectedLeader))
 			g.Expect(opts.Metrics.BindAddress).To(Equal(tc.expectedMetricsAddr))
 			g.Expect(opts.HealthProbeBindAddress).To(Equal(":8081"))
+			g.Expect(opts.PprofBindAddress).To(Equal(":8082"))
 			g.Expect(opts.LeaderElectionID).To(Equal("1334ff7b.infrastructure.wildlife.io"))
 			g.Expect(opts.Controller.UsePriorityQueue).To(Equal(ptr.To(false)))
 		})
